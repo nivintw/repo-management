@@ -1,0 +1,132 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Apply pipeline: on every push to main that touches the config, reconcile the live repos
+# to match every applied config (config/*.yml — gha-public, gha-private, and the per-repo
+# special configs like ddns/dotfiles; base.yaml is the shared base they extend) via the
+# GitHub API. This is the deploy half of the tool — `plan` runs read-only in PRs; `apply`
+# runs here, on main only.
+#
+# AUTH: this administers OTHER repos, which the default GITHUB_TOKEN cannot do. It mints
+# an installation token from the same CI GitHub App used by the release job (the App's
+# client ID lives in the `CI_CLIENT_ID` repository *variable* — it isn't sensitive — and
+# the key in the `CI_APP_PRIVATE_KEY` secret) and feeds it to the CLI as $GITHUB_TOKEN.
+#
+#   For this to actually apply, the CI App must be:
+#     - installed on every repo listed across the config/*.yml files, and
+#     - granted the permissions the managed sections need: Administration: read+write
+#       (settings, rulesets), Issues: read+write (labels), Variables: read+write (the
+#       `variables:` section), and Secrets: read+write (the `secrets:` section). All four
+#       are scoped onto the token below. (Administration also covers collaborators/webhooks.)
+#   The token below is scoped to the whole owner (no `repositories:` input) so one run can
+#   reach all installed repos, and down-scoped to just those permissions (zizmor github-app).
+#
+# SAFE UNTIL CONFIGURED: a preflight step reports whether CI_CLIENT_ID is present and the
+# apply job gates on it. Until the App's variable + key exist, apply SKIPS cleanly (green
+# run, no writes) — so merging to main is always safe.
+
+name: apply-config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - config/**
+      - .github/workflows/apply-config.yml
+  # Manual re-apply (e.g. to reconcile drift, or after changing App installation/perms).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize applies so overlapping merges can't race writes to the same repos.
+concurrency:
+  group: apply-config-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      apply_enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
+        run: |
+          if [ -n "$CI_CLIENT_ID" ]; then
+            echo "enabled=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Apply skipped — CI_CLIENT_ID not set. Set the CI_CLIENT_ID repository variable (+ CI_APP_PRIVATE_KEY secret) to enable applying config."
+          fi
+
+  apply:
+    needs: preflight
+    if: needs.preflight.outputs.apply_enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout + uv first (using the default read-only token) so we can read the configs
+      # and derive the exact repo set BEFORE minting the App token — that lets us scope the
+      # token to just those repos instead of the whole owner (zizmor github-app).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # Read-only checkout — the API writes use the App token, not git (zizmor artipacked).
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Derive the managed repo set from the configs
+        id: repos
+        # Use the tool's own loader (resolves extends, validates) so this list is exactly
+        # what gets applied — single source of truth, no drift with config/*.yml.
+        run: |
+          repos="$(uv run python - <<'PY'
+          import glob
+          from pathlib import Path
+          from repo_management.config import load_config
+          names = sorted({
+              repo.split("/", 1)[1]
+              for path in glob.glob("config/*.yml")
+              for repo in load_config(Path(path)).repos
+          })
+          print(",".join(names))
+          PY
+          )"
+          echo "list=$repos" >>"$GITHUB_OUTPUT"
+          echo "::notice::Scoping App token to: $repos"
+
+      - name: Mint an installation token for the CI App (scoped to the managed repos)
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          # `app-id` accepts the App's client ID, which GitHub now recommends over the
+          # numeric app ID. It isn't sensitive, so it's a repo variable, not a secret.
+          app-id: ${{ vars.CI_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          # Scope to exactly the repos the configs declare (not the whole owner), with only
+          # the permissions the managed sections need (zizmor github-app).
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.repos.outputs.list }}
+          permission-administration: write
+          permission-issues: write
+          permission-variables: write
+          permission-secrets: write
+
+      - name: Apply the configs
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # base.yaml's `secrets:` section sources CI_APP_PRIVATE_KEY via value_from_env, so
+          # the CLI needs it in the environment to propagate it to the managed repos.
+          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+        run: |
+          # Every applied config is a config/*.yml file; base.yaml (note the .yaml
+          # extension) is the shared base they extend, so the glob skips it.
+          for cfg in config/*.yml; do
+            echo "::group::apply $cfg"
+            uv run repo-management apply -c "$cfg" --yes
+            echo "::endgroup::"
+          done

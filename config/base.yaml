@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Shared baseline config for nivintw repos. Pulled in via `extends:` from every applied
+# config (gha-public.yml, gha-private.yml, and per-repo files like ddns.yml/dotfiles.yml)
+# and merged underneath each. A base file lists no repos of its own. A child can override
+# a section — e.g. set `secrets: null` — to opt that repo out of an authoritative section.
+#
+# EDIT ME. These are safe defaults — tighten/loosen to taste. Reminder on semantics:
+#   - A section you DECLARE is authoritative: anything on the repo not listed here is
+#     removed. A section you OMIT is left entirely unmanaged.
+#   - `~DEFAULT_BRANCH` resolves per-repo (main here, master on cxxserv/cxxtests).
+
+settings:
+  # Visibility is NOT set here on purpose — it's a mix across repos. The split configs set
+  # it per-group instead: gha-public.yml pins `private: false`, gha-private.yml `private:
+  # true`. (The settings field is `private:`, a bool — there is no `visibility:` field.)
+  has_issues: true
+  has_wiki: true
+  has_projects: true
+  allow_squash_merge: false
+  allow_merge_commit: false
+  allow_rebase_merge: true
+  delete_branch_on_merge: true
+  default_branch: main
+  allow_auto_merge: true
+  # "Always suggest updating pull request branches" — shows the Update-branch button when a
+  # PR is behind its base.
+  allow_update_branch: true
+
+rulesets:
+  - name: main protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }
+    rules:
+      # History/ref guards that apply to everyone — this ruleset has no bypass_actors.
+      - { type: required_linear_history }
+      - { type: non_fast_forward }
+      - { type: deletion }
+
+  - name: Require Pull Requests
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }
+    rules:
+      # Solo-owner baseline: require a PR but allow self-merge (0 approvals). Bump the
+      # count and/or add a bypass_actors entry once there are other reviewers.
+      - {
+          type: pull_request,
+          required_approving_review_count: 0,
+          dismiss_stale_reviews_on_push: true,
+        }
+    bypass_actors:
+      - actor_id: 5 # Repository Admins
+        actor_type: RepositoryRole
+        bypass_mode: pull_request
+
+  - name: Require ci checks
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }
+    rules:
+      # The required context is the check-run name GitHub reports, which for the scaffold's
+      # reusable workflow (caller job `ci` -> reusable job `lint-and-test`) is
+      # "ci / lint-and-test", NOT a bare "ci". A repo that doesn't report this context will
+      # have its PRs blocked until it does — which is fine here: onboarding a repo includes
+      # adding that workflow, and the onboarding PR itself reports the check.
+      - {
+          type: required_status_checks,
+          required_checks: ["ci / lint-and-test"],
+          strict_required_status_checks_policy: true,
+        }
+
+variables:
+  # Actions variables. Unlike secrets, values are readable, shown in plans, and updated
+  # only when they differ. Authoritative: a variable not listed here is deleted — so if a
+  # workflow authenticates with a variable (e.g. an App client ID), declare it here or an
+  # apply will remove it.
+  - { name: CI_CLIENT_ID, value: Iv23lieFW7nh4fTOAbgf }
+
+secrets:
+  # Actions secrets. Values are write-only and never printed in plans. The value is read
+  # from the CI environment at apply time — the apply-config workflow injects the repo's
+  # own CI_APP_PRIVATE_KEY secret into that env var (there is no API to read a secret back,
+  # so `value_from_env` is how a CI secret reaches the tool).
+  - { name: CI_APP_PRIVATE_KEY, value_from_env: CI_APP_PRIVATE_KEY }
+
+labels:
+  # ⚠️ AUTHORITATIVE: declaring `labels` deletes every label NOT listed here, on every
+  # managed repo. Comment this whole section out to leave labels unmanaged instead.
+  - { name: bug, color: d73a4a, description: Something is not working }
+  - { name: enhancement, color: a2eeef, description: New feature or request }
+  - { name: documentation, color: 0075ca, description: Docs improvements }
+  - {
+      name: question,
+      color: d876e3,
+      description: Further information is requested,
+    }
+  - { name: wontfix, color: ffffff, description: This will not be worked on }

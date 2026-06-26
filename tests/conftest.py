@@ -59,3 +59,11 @@ def make_secret(name: str) -> MagicMock:
     secret = MagicMock(name=f"Secret({name})")
     secret.name = name
     return secret
+
+
+def make_variable(name: str, value: str) -> MagicMock:
+    """Build a mock PyGithub variable exposing its name and (readable) value."""
+    variable = MagicMock(name=f"Variable({name})")
+    variable.name = name
+    variable.value = value
+    return variable

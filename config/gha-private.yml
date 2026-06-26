@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Private repos. Extends base.yaml and pins visibility to private. Public repos live in
+# gha-public.yml. `private: true` is authoritative — an apply enforces it — but these
+# repos are already private, so it's a no-op that just keeps them from drifting public.
+
+extends: base.yaml
+
+settings:
+  private: true
+
+repos:
+  - nivintw/repo-management
+  - nivintw/ansible-rpi-k3s-node
+  - nivintw/assignment-report-generator
+  - nivintw/ansible-rpi-nivintw-baseline
+  - nivintw/ansible-rpi-cloudpi
+  - nivintw/purchase-alerts
+  - nivintw/rtx_3000_monitor
+  - nivintw/nivintw_pypicloud
+
+  # cxxserv and cxxtests default to `master`; with `default_branch: main` in base.yaml an
+  # apply would 422 trying to point the default at a branch that doesn't exist. Rename
+  # their default branch to `main` (or drop default_branch) before adding them.
+  # - nivintw/cxxserv
+  # - nivintw/cxxtests

@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# ddns is unique: it has its own (differently-named) CI secret plus extra publish secrets
+# (GIST_SECRET, TWINE_PYPI_UPLOAD_TOKEN) and its own CI_APP_APPID variable. Opt out of the
+# shared, authoritative secrets/variables management (set them null) so an apply leaves
+# those untouched. Everything else from base.yaml (settings, rulesets, labels) still applies.
+
+extends: base.yaml
+
+settings:
+  private: false
+
+# Unmanaged here — overrides base's authoritative sections so nothing is pruned.
+secrets: null
+variables: null
+
+repos:
+  - nivintw/ddns
