@@ -190,16 +190,17 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _merge_by_key(base: list[Any], override: list[Any], key: str) -> list[Any]:
-    """Merge lists of mappings by ``key``: override replaces same-key items, appends new."""
+    """Merge lists of mappings by ``key``: override replaces same-key items, appends new.
+
+    Relies on dict insertion order: reassigning an existing key keeps its position, so a
+    same-key override item replaces in place while new items land at the end.
+    """
     merged: dict[Any, Any] = {}
-    order: list[Any] = []
     for index, item in enumerate([*base, *override]):
         # Non-mapping or keyless entries can't be matched; keep them positionally.
         item_key = item[key] if isinstance(item, dict) and key in item else (index, "_unkeyed")
-        if item_key not in merged:
-            order.append(item_key)
         merged[item_key] = item
-    return [merged[k] for k in order]
+    return list(merged.values())
 
 
 def _deep_merge(

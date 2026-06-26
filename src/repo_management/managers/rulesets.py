@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from repo_management.config import SharedConfig
-    from repo_management.ruleset import Ruleset
 
 
 class RulesetsManager:
@@ -37,13 +36,14 @@ class RulesetsManager:
         existing = {item["name"]: item["id"] for item in self._list(repo)}
         changes: list[Change] = []
         for ruleset in desired.rulesets:
+            body = ruleset.to_api()
             ruleset_id = existing.get(ruleset.name)
             if ruleset_id is None:
-                changes.append(self._create(repo, ruleset))
+                changes.append(self._create(repo, ruleset.name, body))
             else:
                 current = self._get(repo, ruleset_id)
-                if not _matches(ruleset.to_api(), current):
-                    changes.append(self._update(repo, ruleset_id, ruleset, current))
+                if not _matches(body, current):
+                    changes.append(self._update(repo, ruleset_id, ruleset.name, body, current))
         return changes
 
     def _list(self, repo: Repository) -> list[dict[str, Any]]:
@@ -54,16 +54,14 @@ class RulesetsManager:
         _, data = repo.requester.requestJsonAndCheck("GET", f"{repo.url}/rulesets/{ruleset_id}")
         return data
 
-    def _create(self, repo: Repository, ruleset: Ruleset) -> Change:
-        body = ruleset.to_api()
-
+    def _create(self, repo: Repository, name: str, body: dict[str, Any]) -> Change:
         def apply() -> None:
             repo.requester.requestJsonAndCheck("POST", f"{repo.url}/rulesets", input=body)
 
         return Change(
             domain=self.domain,
             action=Action.CREATE,
-            target=f"ruleset:{ruleset.name}",
+            target=f"ruleset:{name}",
             before=None,
             after=_summary(body),
             apply=apply,
@@ -73,10 +71,10 @@ class RulesetsManager:
         self,
         repo: Repository,
         ruleset_id: int,
-        ruleset: Ruleset,
+        name: str,
+        body: dict[str, Any],
         current: dict[str, Any],
     ) -> Change:
-        body = ruleset.to_api()
         url = f"{repo.url}/rulesets/{ruleset_id}"
 
         def apply() -> None:
@@ -85,7 +83,7 @@ class RulesetsManager:
         return Change(
             domain=self.domain,
             action=Action.UPDATE,
-            target=f"ruleset:{ruleset.name}",
+            target=f"ruleset:{name}",
             before=_summary(current),
             after=_summary(body),
             apply=apply,
