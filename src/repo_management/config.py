@@ -13,6 +13,7 @@ corresponding GitHub setting untouched.
 
 from __future__ import annotations
 
+import copy
 import os
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -197,8 +198,11 @@ def _merge_by_key(base: list[Any], override: list[Any], key: str) -> list[Any]:
     """
     merged: dict[Any, Any] = {}
     for index, item in enumerate([*base, *override]):
-        # Non-mapping or keyless entries can't be matched; keep them positionally.
-        item_key = item[key] if isinstance(item, dict) and key in item else (index, "_unkeyed")
+        # Only match on a plain string key; a missing, malformed, or non-string key value
+        # (e.g. a list, which is also unhashable) is kept positionally and left for schema
+        # validation to reject cleanly.
+        raw_key = item.get(key) if isinstance(item, dict) else None
+        item_key = raw_key if isinstance(raw_key, str) else (index, "_unkeyed")
         merged[item_key] = item
     return list(merged.values())
 
@@ -226,18 +230,29 @@ def _deep_merge(
     return result
 
 
-def _resolve(path: Path, stack: tuple[Path, ...]) -> dict[str, Any]:
-    """Load a config file, resolving and merging any ``extends:`` bases beneath it."""
+def _resolve(
+    path: Path,
+    stack: tuple[Path, ...],
+    cache: dict[Path, dict[str, Any]],
+) -> dict[str, Any]:
+    """Load a config file, resolving and merging any ``extends:`` bases beneath it.
+
+    ``cache`` memoizes each fully-resolved file by absolute path so a shared base reached
+    via several paths (a diamond) is read once, not re-expanded exponentially.
+    """
     resolved = path.resolve()
     if resolved in stack:
         chain = " -> ".join(str(p) for p in (*stack, resolved))
         msg = f"circular extends detected: {chain}"
         raise ConfigError(msg)
+    if resolved in cache:
+        return copy.deepcopy(cache[resolved])
 
     data = _read_yaml(path)
     extends = data.pop("extends", None)
     if extends is None:
-        return data
+        cache[resolved] = data
+        return copy.deepcopy(data)
 
     bases = [extends] if isinstance(extends, str) else extends
     if not isinstance(bases, list) or not all(isinstance(item, str) for item in bases):
@@ -246,9 +261,11 @@ def _resolve(path: Path, stack: tuple[Path, ...]) -> dict[str, Any]:
 
     merged: dict[str, Any] = {}
     for base in bases:
-        base_data = _resolve(path.parent / base, (*stack, resolved))
+        base_data = _resolve(path.parent / base, (*stack, resolved), cache)
         merged = _deep_merge(merged, base_data, ())
-    return _deep_merge(merged, data, ())
+    result = _deep_merge(merged, data, ())
+    cache[resolved] = result
+    return copy.deepcopy(result)
 
 
 def load_config(path: Path) -> Config:
@@ -264,7 +281,7 @@ def load_config(path: Path) -> Config:
         ConfigError: If a file is missing, not valid YAML/UTF-8, has a bad ``extends``
             chain, or fails schema validation.
     """
-    data = _resolve(path, ())
+    data = _resolve(path, (), {})
     try:
         return Config.model_validate(data)
     except ValidationError as exc:

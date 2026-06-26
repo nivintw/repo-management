@@ -254,3 +254,38 @@ def test_extends_empty_base(tmp_path: Path) -> None:
     override = write(tmp_path, "extends: base.yaml\nrepos: [o/r]\n")
     config = load_config(override)
     assert config.repos == ["o/r"]
+
+
+def test_extends_diamond(tmp_path: Path) -> None:
+    """A shared base reached via two branches resolves once and merges cleanly."""
+    write(tmp_path, "settings: {private: true}\n", name="grand.yaml")
+    write(tmp_path, "extends: grand.yaml\nsettings: {has_wiki: false}\n", name="left.yaml")
+    write(tmp_path, "extends: grand.yaml\nsettings: {has_issues: true}\n", name="right.yaml")
+    override = write(tmp_path, "extends: [left.yaml, right.yaml]\nrepos: [o/r]\n")
+    config = load_config(override)
+    assert config.settings is not None
+    assert config.settings.private is True  # from the shared grandparent
+    assert config.settings.has_wiki is False  # from left
+    assert config.settings.has_issues is True  # from right
+
+
+def test_extends_multi_base_same_key_last_wins(tmp_path: Path) -> None:
+    """When two bases set the same keyed-list item, the later base wins."""
+    write(tmp_path, "rulesets: [{name: main, enforcement: active}]\n", name="a.yaml")
+    write(tmp_path, "rulesets: [{name: main, enforcement: disabled}]\n", name="b.yaml")
+    override = write(tmp_path, "extends: [a.yaml, b.yaml]\nrepos: [o/r]\n")
+    config = load_config(override)
+    assert config.rulesets is not None
+    assert len(config.rulesets) == 1
+    assert config.rulesets[0].enforcement == "disabled"  # b, merged after a
+
+
+def test_extends_unhashable_merge_key_clean_error(tmp_path: Path) -> None:
+    """A malformed (non-string) merge key fails schema validation, not with a TypeError."""
+    write(tmp_path, "rulesets: [{name: [a, b], enforcement: active}]\n", name="base.yaml")
+    override = write(
+        tmp_path,
+        "extends: base.yaml\nrepos: [o/r]\nrulesets: [{name: [a, b], enforcement: disabled}]\n",
+    )
+    with pytest.raises(ConfigError):
+        load_config(override)

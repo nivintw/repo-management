@@ -12,7 +12,6 @@ the config.
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 
 from repo_management.changes import Action, Change
@@ -103,48 +102,27 @@ def _summary(api: dict[str, Any]) -> dict[str, Any]:
 def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     """Whether the live ruleset already satisfies the desired spec.
 
-    Only the fields the desired spec declares are compared, so server-supplied defaults and
-    extra metadata don't cause spurious diffs.
+    Idempotency check: everything the desired body declares must already be present in the
+    live ruleset. Fields/items the spec omits (server-supplied defaults and metadata like
+    ``integration_id``, ``actor_id``, timestamps) are ignored, so they don't cause a
+    perpetual diff. Lists are matched order-insensitively.
     """
-    if any(desired[key] != current.get(key) for key in ("name", "target", "enforcement")):
-        return False
-    if _conditions(desired) != _conditions(current):
-        return False
-    if _actors(desired) != _actors(current):
-        return False
-    return _rules_match(desired.get("rules") or [], current.get("rules") or [])
+    return _satisfied(desired, current)
 
 
-def _conditions(api: dict[str, Any]) -> tuple[list[str], list[str]]:
-    ref_name = (api.get("conditions") or {}).get("ref_name") or {}
-    return sorted(ref_name.get("include") or []), sorted(ref_name.get("exclude") or [])
-
-
-def _actors(api: dict[str, Any]) -> list[tuple[Any, Any, Any]]:
-    actors = api.get("bypass_actors") or []
-    return sorted(
-        (actor.get("actor_type"), actor.get("actor_id"), actor.get("bypass_mode"))
-        for actor in actors
-    )
-
-
-def _rules_match(desired: list[dict[str, Any]], current: list[dict[str, Any]]) -> bool:
-    desired_by_type = {rule["type"]: rule.get("parameters") or {} for rule in desired}
-    current_by_type = {rule["type"]: rule.get("parameters") or {} for rule in current}
-    if set(desired_by_type) != set(current_by_type):
-        return False
-    return all(
-        _norm(value) == _norm(current_by_type[rule_type].get(key))
-        for rule_type, params in desired_by_type.items()
-        for key, value in params.items()
-    )
-
-
-def _norm(value: object) -> object:
-    """Normalize a parameter value so list ordering doesn't cause spurious diffs."""
-    if isinstance(value, list):
-        return sorted(
-            json.dumps(item, sort_keys=True) if isinstance(item, dict) else repr(item)
-            for item in value
+def _satisfied(desired: object, current: object) -> bool:
+    """Whether ``current`` contains everything ``desired`` declares (recursive subset)."""
+    if isinstance(desired, dict):
+        if not isinstance(current, dict):
+            return False
+        current_map: dict[Any, Any] = current
+        return all(
+            key in current_map and _satisfied(value, current_map[key])
+            for key, value in desired.items()
         )
-    return value
+    if isinstance(desired, list):
+        if not isinstance(current, list):
+            return False
+        candidates: list[Any] = current
+        return all(any(_satisfied(item, candidate) for candidate in candidates) for item in desired)
+    return desired == current

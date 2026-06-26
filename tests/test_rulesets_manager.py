@@ -8,9 +8,12 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+from github import GithubException
+
 from repo_management.changes import Action
 from repo_management.config import SharedConfig
-from repo_management.managers.rulesets import RulesetsManager
+from repo_management.managers.rulesets import RulesetsManager, _satisfied
 from repo_management.ruleset import Ruleset
 
 URL = "https://api.github.com/repos/o/r"
@@ -144,3 +147,87 @@ def test_rule_added_triggers_update() -> None:
 
     assert len(changes) == 1
     assert changes[0].action is Action.UPDATE
+
+
+def test_realistic_server_response_is_in_sync() -> None:
+    """A realistic GET-by-id response with server-added keys yields no spurious diff.
+
+    GitHub's response carries metadata the spec never sets (``id``, timestamps,
+    ``integration_id``, bypass ``actor_id``, default parameters). The subset matcher must
+    treat the live ruleset as already satisfying the desired spec — otherwise every plan
+    would perpetually re-issue an update.
+    """
+    desired = Ruleset.model_validate(
+        {
+            "name": "main",
+            "enforcement": "active",
+            "bypass_actors": [{"actor_type": "OrganizationAdmin"}],
+            "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+            "rules": [
+                {"type": "required_status_checks", "required_checks": ["ci"]},
+                {"type": "pull_request", "required_approving_review_count": 1},
+                {"type": "non_fast_forward"},
+            ],
+        },
+    )
+    current = {
+        "id": 7,
+        "name": "main",
+        "target": "branch",
+        "enforcement": "active",
+        "node_id": "RRS_lABC",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-02-01T00:00:00Z",
+        "source_type": "Repository",
+        "source": "o/r",
+        "current_user_can_bypass": "always",
+        "_links": {"self": {"href": f"{URL}/rulesets/7"}},
+        "bypass_actors": [
+            {"actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "always"},
+        ],
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "rules": [
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "required_status_checks": [{"context": "ci", "integration_id": None}],
+                    "strict_required_status_checks_policy": False,
+                    "do_not_enforce_on_create": False,
+                },
+            },
+            {
+                "type": "pull_request",
+                "parameters": {
+                    "required_approving_review_count": 1,
+                    "dismiss_stale_reviews_on_push": False,
+                    "require_code_owner_review": False,
+                    "require_last_push_approval": False,
+                    "required_review_thread_resolution": False,
+                },
+            },
+            {"type": "non_fast_forward"},
+        ],
+    }
+    repo = make_repo([{"id": 7, "name": "main"}], current)
+
+    assert RulesetsManager().plan(repo, SharedConfig(rulesets=[desired])) == []
+
+
+def test_github_error_propagates() -> None:
+    """An API error while listing rulesets surfaces rather than being swallowed."""
+    repo = MagicMock()
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(403, {}, None)
+
+    with pytest.raises(GithubException):
+        RulesetsManager().plan(repo, SharedConfig(rulesets=[ruleset()]))
+
+
+def test_satisfied_branches() -> None:
+    """The subset matcher: dict/list recursion, type mismatches, and scalar equality."""
+    assert _satisfied({"a": 1}, {"a": 1, "b": 2}) is True  # extra current keys ignored
+    assert _satisfied({"a": 1}, {"b": 2}) is False  # missing key
+    assert _satisfied({"a": 1}, "not-a-dict") is False  # dict vs scalar
+    assert _satisfied([1, 2], [2, 1, 3]) is True  # order-insensitive, extras ok
+    assert _satisfied([1], "not-a-list") is False  # list vs scalar
+    assert _satisfied("x", "y") is False  # scalar inequality

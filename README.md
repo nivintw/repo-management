@@ -76,6 +76,9 @@ settings:
 See [`examples/base.yaml`](examples/base.yaml) + [`examples/repos.yaml`](examples/repos.yaml)
 for a fully-annotated, working pair.
 
+> `extends:` reads and merges local files by relative path, so only point it at config you
+> trust — treat a base file the same as the config that includes it.
+
 ## What it manages
 
 | Section | Manages |
@@ -97,11 +100,14 @@ for a fully-annotated, working pair.
   and a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
   Values are sourced from the environment (`value_from_env` / `secret_from_env`) and never
   printed. A literal `value:` is supported for secrets but should never be committed.
-- **Rulesets are matched by name and replaced wholesale on update.** PyGithub has no
+- **Rulesets are matched by name and updated to the full declared spec.** PyGithub has no
   ruleset support, so this is driven through its authenticated requester against the REST
-  rulesets API. A ruleset you declare is fully owned: on update its rules/conditions/bypass
-  actors are set to exactly what the config says. Rulesets present on the repo but absent
-  from the config are left alone (additive — never deleted).
+  rulesets API. On update, a ruleset's rules/conditions/bypass actors are PUT to exactly
+  what the config declares. The plan flags an update whenever the live ruleset is missing
+  anything the config declares; server-supplied metadata the config doesn't set (item
+  `integration_id`, bypass `actor_id`, timestamps) is ignored, so it never causes churn.
+  Rulesets present on the repo but absent from the config are left alone (additive — never
+  deleted).
 
 ## Development
 
