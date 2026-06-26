@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from conftest import make_user
+
 from repo_management.changes import Action
 from repo_management.config import Collaborator, SharedConfig
 from repo_management.managers.collaborators import CollaboratorsManager
@@ -101,6 +103,25 @@ def test_existing_triage_and_desired_maintain_produces_update(repo: MagicMock) -
     assert (change.before, change.after) == ("triage", "maintain")
     change.apply()
     repo.add_to_collaborators.assert_called_once_with("alice", "maintain")
+
+
+def test_unlisted_direct_collaborator_is_removed(repo: MagicMock) -> None:
+    """A direct collaborator absent from the config is removed (authoritative)."""
+    repo.get_collaborator_permission.return_value = "write"
+    repo.get_collaborator_role_name.return_value = "write"
+    repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
+    desired = SharedConfig(collaborators=[Collaborator(username="alice", permission="push")])
+
+    changes = CollaboratorsManager().plan(repo, desired)
+
+    assert len(changes) == 1  # alice is in sync; mallory is pruned
+    change = changes[0]
+    assert change.action is Action.DELETE
+    assert change.target == "collaborator:mallory"
+    assert (change.before, change.after) == ("mallory", None)
+    repo.get_collaborators.assert_called_once_with(affiliation="direct")
+    change.apply()
+    repo.remove_from_collaborators.assert_called_once_with("mallory")
 
 
 def test_multiple_collaborators(repo: MagicMock) -> None:

@@ -54,3 +54,18 @@ def test_existing_secret_produces_update(repo: MagicMock) -> None:
     change.apply()
     repo.create_secret.assert_called_once_with("EXISTING_SECRET", "literalvalue")
     assert "literalvalue" not in change.describe()
+
+
+def test_unlisted_secret_is_deleted(repo: MagicMock) -> None:
+    """A declared secrets section is authoritative: a secret absent from it is deleted."""
+    repo.get_secrets.return_value = [make_secret("STALE_SECRET")]
+    desired = SharedConfig(secrets=[Secret(name="WANTED", value="v")])
+
+    changes = SecretsManager().plan(repo, desired)
+
+    actions = {change.target: change.action for change in changes}
+    assert actions == {"secret:WANTED": Action.CREATE, "secret:STALE_SECRET": Action.DELETE}
+    delete = next(change for change in changes if change.action is Action.DELETE)
+    assert (delete.before, delete.after) == ("(exists)", None)
+    delete.apply()
+    repo.delete_secret.assert_called_once_with("STALE_SECRET")

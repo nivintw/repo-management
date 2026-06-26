@@ -54,9 +54,7 @@ rulesets:
       - {type: pull_request, required_approving_review_count: 1}
       - {type: required_linear_history}
 labels:
-  prune: true
-  items:
-    - {name: bug, color: ff0000}
+  - {name: bug, color: ff0000}
 collaborators:
   - {username: alice, permission: admin}
 webhooks:
@@ -71,7 +69,7 @@ secrets:
     assert config.rulesets is not None
     assert config.rulesets[0].rules[0].type == "pull_request"
     assert config.labels is not None
-    assert config.labels.prune is True
+    assert config.labels[0].name == "bug"
 
 
 def test_repos_required(tmp_path: Path) -> None:

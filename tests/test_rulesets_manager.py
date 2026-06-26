@@ -25,11 +25,11 @@ def make_repo(list_data: list[dict[str, Any]], get_data: dict[str, Any] | None =
     repo.url = URL
 
     def request(verb: str, url: str, **_kwargs: object) -> tuple[dict, Any]:
-        if verb == "GET" and url == f"{URL}/rulesets":
+        if verb == "GET" and url.split("?", maxsplit=1)[0] == f"{URL}/rulesets":
             return ({}, list_data)
         if verb == "GET" and url.startswith(f"{URL}/rulesets/"):
             return ({}, get_data)
-        return ({}, {})  # POST / PUT
+        return ({}, {})  # POST / PUT / DELETE
 
     repo.requester.requestJsonAndCheck.side_effect = request
     return repo
@@ -149,6 +149,52 @@ def test_rule_added_triggers_update() -> None:
     assert changes[0].action is Action.UPDATE
 
 
+def test_extra_live_rule_triggers_update() -> None:
+    """A rule present on the repo but absent from the config is drift that triggers update."""
+    desired = ruleset(rules=[{"type": "required_linear_history"}])
+    current = {
+        "id": 1,
+        **ruleset(
+            rules=[{"type": "required_linear_history"}, {"type": "non_fast_forward"}],
+        ).to_api(),
+    }
+    repo = make_repo([{"id": 1, "name": "main"}], current)
+
+    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
+
+    assert len(changes) == 1
+    assert changes[0].action is Action.UPDATE
+
+
+def test_unlisted_ruleset_is_deleted() -> None:
+    """A declared rulesets section is authoritative: a repo ruleset absent from it is deleted."""
+    desired = ruleset()
+    current = {"id": 1, **desired.to_api()}
+    repo = make_repo([{"id": 1, "name": "main"}, {"id": 2, "name": "legacy"}], current)
+
+    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
+
+    assert len(changes) == 1  # main is in sync; legacy is pruned
+    change = changes[0]
+    assert change.action is Action.DELETE
+    assert change.target == "ruleset:legacy"
+    assert change.after is None
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_any_call("DELETE", f"{URL}/rulesets/2")
+
+
+def test_list_excludes_inherited_rulesets() -> None:
+    """Listing passes includes_parents=false so inherited org rulesets aren't managed."""
+    repo = make_repo([])
+
+    RulesetsManager().plan(repo, SharedConfig(rulesets=[ruleset()]))
+
+    repo.requester.requestJsonAndCheck.assert_any_call(
+        "GET",
+        f"{URL}/rulesets?includes_parents=false",
+    )
+
+
 def test_realistic_server_response_is_in_sync() -> None:
     """A realistic GET-by-id response with server-added keys yields no spurious diff.
 
@@ -224,10 +270,12 @@ def test_github_error_propagates() -> None:
 
 
 def test_satisfied_branches() -> None:
-    """The subset matcher: dict/list recursion, type mismatches, and scalar equality."""
-    assert _satisfied({"a": 1}, {"a": 1, "b": 2}) is True  # extra current keys ignored
+    """The matcher: dicts by subset, lists by exact (length-equal) order-insensitive match."""
+    assert _satisfied({"a": 1}, {"a": 1, "b": 2}) is True  # extra current dict keys ignored
     assert _satisfied({"a": 1}, {"b": 2}) is False  # missing key
     assert _satisfied({"a": 1}, "not-a-dict") is False  # dict vs scalar
-    assert _satisfied([1, 2], [2, 1, 3]) is True  # order-insensitive, extras ok
+    assert _satisfied([1, 2], [2, 1]) is True  # order-insensitive, same length
+    assert _satisfied([1, 2], [2, 1, 3]) is False  # extra live item is drift
+    assert _satisfied([1, 2], [1]) is False  # missing item
     assert _satisfied([1], "not-a-list") is False  # list vs scalar
     assert _satisfied("x", "y") is False  # scalar inequality

@@ -3,9 +3,10 @@
 
 """Manager for repository collaborators.
 
-This manager is additive: it adds collaborators and updates their permission level, but
-does not remove collaborators absent from the config (removing access is destructive and
-left as an explicit, manual action).
+A declared ``collaborators`` section is authoritative: collaborators are added and have
+their permission reconciled, and *direct* collaborators absent from the config are removed.
+Only directly-granted access is managed — access inherited from org/team membership is not
+listed and so is never touched.
 """
 
 from __future__ import annotations
@@ -26,12 +27,12 @@ _NONE = "none"
 
 
 class CollaboratorsManager:
-    """Add collaborators and reconcile their permission levels."""
+    """Add, update, and remove direct collaborators to match the config."""
 
     domain = "collaborators"
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
-        """Return a change per collaborator that must be added or have permission changed."""
+        """Return changes to add, re-permission, and remove collaborators to match config."""
         if desired.collaborators is None:
             return []
 
@@ -40,7 +41,29 @@ class CollaboratorsManager:
             change = self._collaborator_change(repo, collaborator)
             if change is not None:
                 changes.append(change)
+
+        wanted = {collaborator.username for collaborator in desired.collaborators}
+        # affiliation="direct" excludes access inherited via org/team membership, which the
+        # repo collaborator API can't revoke anyway.
+        changes.extend(
+            self._remove(repo, user.login)
+            for user in repo.get_collaborators(affiliation="direct")
+            if user.login not in wanted
+        )
         return changes
+
+    def _remove(self, repo: Repository, username: str) -> Change:
+        def apply() -> None:
+            repo.remove_from_collaborators(username)
+
+        return Change(
+            domain=self.domain,
+            action=Action.DELETE,
+            target=f"collaborator:{username}",
+            before=username,
+            after=None,
+            apply=apply,
+        )
 
     def _collaborator_change(
         self,

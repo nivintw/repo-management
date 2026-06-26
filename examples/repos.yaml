@@ -7,7 +7,8 @@
 # applied to each of them. `extends:` pulls in one or more base files (relative paths,
 # resolved recursively) and merges this file on top: scalars here win, and list sections
 # merge by each item's natural key (a same-key item here replaces the base's, new items are
-# appended). An unset section is left unmanaged.
+# appended). Each declared section is authoritative — items not listed are removed from the
+# repo — while an unset section is left entirely unmanaged.
 #
 #   repo-management validate -c examples/repos.yaml
 #   repo-management plan     -c examples/repos.yaml
@@ -50,7 +51,7 @@ rulesets:
       - {type: tag_name_pattern, operator: starts_with, pattern: "v"}
 
 collaborators:
-  # Additive: collaborators are added/updated, never removed.
+  # Authoritative: any *direct* collaborator not listed here is removed.
   - {username: octocat, permission: push}
 
 secrets:

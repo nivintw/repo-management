@@ -7,8 +7,11 @@ A config file lists the repositories to manage (`repos:`) and a single shared bl
 config sections applied to every one of them. A file may `extends:` one or more base files
 that are merged underneath it: scalars from the override win, and list sections merge by
 each item's natural key (so a same-key item in the override replaces the base's item and
-new items are appended). A section left unset is *unmanaged* — the reconciler leaves the
-corresponding GitHub setting untouched.
+new items are appended).
+
+Each declared section is *authoritative*: it is the complete desired set, so items present
+on the repo but absent from the section are removed. A section left unset is *unmanaged* —
+the reconciler leaves that whole domain untouched.
 """
 
 from __future__ import annotations
@@ -31,10 +34,10 @@ Permission = Literal["pull", "triage", "push", "maintain", "admin"]
 # Section path -> the field that identifies an item, for by-key list merges.
 _KEYED_LISTS: dict[tuple[str, ...], str] = {
     ("rulesets",): "name",
+    ("labels",): "name",
     ("collaborators",): "username",
     ("webhooks",): "url",
     ("secrets",): "name",
-    ("labels", "items"): "name",
 }
 
 
@@ -77,13 +80,6 @@ class Label(Strict):
     def _normalize_color(cls, value: str) -> str:
         # GitHub stores hex colors lowercased and without a leading '#'.
         return value.lstrip("#").lower()
-
-
-class Labels(Strict):
-    """Desired set of labels. ``prune`` deletes labels not listed here."""
-
-    prune: bool = False
-    items: list[Label] = Field(default_factory=list)
 
 
 class Collaborator(Strict):
@@ -137,7 +133,7 @@ class SharedConfig(Strict):
 
     settings: Settings | None = None
     rulesets: list[Ruleset] | None = None
-    labels: Labels | None = None
+    labels: list[Label] | None = None
     collaborators: list[Collaborator] | None = None
     webhooks: list[Webhook] | None = None
     secrets: list[Secret] | None = None

@@ -12,8 +12,21 @@ import pytest
 
 @pytest.fixture
 def repo() -> MagicMock:
-    """Return a bare mock standing in for a PyGithub ``Repository``."""
-    return MagicMock(name="Repository")
+    """Return a mock standing in for a PyGithub ``Repository``.
+
+    ``get_collaborators`` defaults to empty so the authoritative-prune pass has nothing to
+    remove unless a test populates it.
+    """
+    mock = MagicMock(name="Repository")
+    mock.get_collaborators.return_value = []
+    return mock
+
+
+def make_user(login: str) -> MagicMock:
+    """Build a mock PyGithub ``NamedUser`` exposing only its login."""
+    user = MagicMock(name=f"NamedUser({login})")
+    user.login = login
+    return user
 
 
 def make_label(name: str, color: str, description: str | None) -> MagicMock:

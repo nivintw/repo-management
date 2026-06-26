@@ -10,7 +10,8 @@ repo *should* be configured in a YAML file; `repo-management` reads the live sta
 you the diff, and reconciles it through the GitHub API (via [PyGithub]).
 
 It is **declarative and idempotent**: re-running when nothing has changed does nothing.
-A field you don't mention is left unmanaged — the tool only touches what you declare.
+A section you don't mention is left unmanaged; a section you *do* declare is authoritative —
+it's the complete desired set, so anything on the repo not listed in it is removed.
 
 ## Install
 
@@ -51,7 +52,7 @@ repos:
   - owner/other
 settings: { ... }
 rulesets: [ ... ]
-labels: { ... }
+labels: [ ... ]
 ```
 
 ### Composing configs with `extends`
@@ -85,29 +86,35 @@ for a fully-annotated, working pair.
 | --- | --- |
 | `settings` | description, homepage, topics, visibility, features (issues/wiki/projects/discussions), merge options (squash/merge/rebase, auto-merge, delete-branch-on-merge), default branch |
 | `rulesets` | repository rulesets (branch/tag): the full rule set (pull_request, required_status_checks, required_linear_history, non_fast_forward, deletion, creation, update, required_deployments, merge_queue, required_signatures, the *_pattern rules, file_path/extension/size restrictions, workflows, code_scanning), plus `bypass_actors` and ref-name `conditions` |
-| `labels` | create/update labels; delete extras only when `prune: true` |
-| `collaborators` | add collaborators and update their permission (additive — never removes) |
-| `webhooks` | create/update webhooks, matched by URL (additive — never deletes) |
-| `secrets` | Actions secrets (write-only; libsodium-encrypted by PyGithub) |
+| `labels` | create/update/delete labels to match the listed set exactly |
+| `collaborators` | add/re-permission direct collaborators; remove those not listed |
+| `webhooks` | create/update/delete webhooks, matched by URL |
+| `secrets` | Actions secrets (write-only; libsodium-encrypted by PyGithub); delete those not listed |
 
 ### Design notes / limitations
 
-- **Additive by default.** `collaborators` and `webhooks` are never removed by omission;
-  removing access is destructive and left as a deliberate manual action. Only `labels`
-  prunes, and only when you opt in with `prune: true`.
+- **A declared section is authoritative.** Each section you include is the *complete*
+  desired set: items present on the repo but absent from the section are removed (labels,
+  webhooks, secrets deleted; direct collaborators removed; repo rulesets deleted). A
+  section you omit is left entirely unmanaged. This means a declared section can revoke
+  access or delete a secret by omission — declare deliberately.
+- **Only directly-granted collaborator access is managed.** Pruning uses
+  `affiliation="direct"`, so access inherited from org or team membership is never listed
+  and never touched (the repo API can't revoke it anyway).
+- **Rulesets are matched by name and updated to the full declared spec.** PyGithub has no
+  ruleset support, so this is driven through its authenticated requester against the REST
+  rulesets API. On update, a ruleset's rules/conditions/bypass actors are PUT to exactly
+  what the config declares. A declared ruleset's *lists* (rules, bypass actors, ref-name
+  patterns) must match the live ones exactly — a manually-added rule is drift that triggers
+  an update — while server-supplied metadata the config never sets (item `integration_id`,
+  bypass `actor_id`, timestamps) is ignored, so it can't cause churn. Listing passes
+  `includes_parents=false`, so inherited org/enterprise rulesets are never matched or
+  deleted through the repo.
 - **Secrets and webhook secrets are write-only.** The API never returns a secret value, so
   a change to *only* a secret can't be diffed: an Actions secret is re-sent on every apply,
   and a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
   Values are sourced from the environment (`value_from_env` / `secret_from_env`) and never
   printed. A literal `value:` is supported for secrets but should never be committed.
-- **Rulesets are matched by name and updated to the full declared spec.** PyGithub has no
-  ruleset support, so this is driven through its authenticated requester against the REST
-  rulesets API. On update, a ruleset's rules/conditions/bypass actors are PUT to exactly
-  what the config declares. The plan flags an update whenever the live ruleset is missing
-  anything the config declares; server-supplied metadata the config doesn't set (item
-  `integration_id`, bypass `actor_id`, timestamps) is ignored, so it never causes churn.
-  Rulesets present on the repo but absent from the config are left alone (additive — never
-  deleted).
 
 ## Development
 
