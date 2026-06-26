@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Repo-level typos config — used by the typos pre-commit hook and in CI.
+# typos is treated as CHECK-ONLY (the hook drops --write-changes).
+
+[default]
+# Ignore whole syntactic categories that are never typos but frequently get mangled.
+extend-ignore-re = [
+  # Scheme URLs (http, https, ftp, git, ssh, …) and bare www.* hosts.
+  "(?:\\w+://|\\bwww\\.)\\S+",
+  # Email addresses.
+  "\\b[\\w.+-]+@[\\w.-]+\\.\\w+\\b",
+  # Bare domains by common TLD.
+  "\\b(?:[\\w-]+\\.)+(?:com|org|net|io|dev|gov|edu|co|app|ai|cloud|info|xyz)\\b",
+  # Per-line escape hatch: trailing `# typos:disable-line` (also // -- ;).
+  "(?m)^.*(?:#|//|--|;)[ \\t]*typos:disable-line[ \\t]*$",
+]

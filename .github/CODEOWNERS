@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Default owner for everything in the repo — see
+# https://docs.github.com/articles/about-code-owners
+# NOTE: @nivintw must be a collaborator/team on this repo, or GitHub silently
+# ignores the rule. Replace it if you scaffolded with the default owner.
+* @nivintw

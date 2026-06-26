@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Open-PR pipeline: run the shared quality gate on every pull request. No write
+# access, nothing released — just the checks. Require "ci / lint-and-test" in branch
+# protection / the ruleset.
+
+name: pr
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml

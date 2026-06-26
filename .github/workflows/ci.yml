@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# CI — the shared lint/format/test gate. REUSABLE (on: workflow_call); the triggers
+# live in the callers:
+#   - pr.yml    (on: pull_request)  → this gate. The open-PR pipeline.
+#   - main.yml  (on: push to main)  → this gate, THEN a commitizen release stage.
+# Defining the gate once means both pipelines run the exact same checks.
+#
+# Most prek hooks self-bootstrap their pinned env. taplo + hawkeye are `language:
+# system` (they expect local binaries), so prek skips them here and they run as their
+# own steps below, fetching the pinned upstream release — same check, no Docker.
+
+name: ci
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # Read-only gate — don't leave the checkout token in .git/config (zizmor artipacked).
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Cache prek hook environments
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/prek
+          key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Install osv-scanner (dependency CVE scan — runs inside the prek gate)
+        env:
+          # renovate: datasource=github-releases depName=google/osv-scanner
+          OSV_VERSION: "2.4.0"
+        run: |
+          curl -fsSL "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o "$RUNNER_TEMP/osv-scanner"
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+
+      - name: Run prek hooks (same as local)
+        env:
+          # taplo/hawkeye run as dedicated steps below; no-commit-to-branch is a
+          # commit-time guard meaningless in CI (we're checked out on the branch).
+          SKIP: taplo,hawkeye-format,no-commit-to-branch
+        run: uvx prek run --all-files
+
+      - name: Check SPDX license headers (hawkeye)
+        # renovate: datasource=github-releases depName=korandoru/hawkeye
+        run: |
+          curl -fsSL https://github.com/korandoru/hawkeye/releases/download/v6.5.1/hawkeye-x86_64-unknown-linux-gnu.tar.xz \
+            | tar -xJ --strip-components=1 -C "$RUNNER_TEMP" hawkeye-x86_64-unknown-linux-gnu/hawkeye
+          chmod +x "$RUNNER_TEMP/hawkeye"
+          "$RUNNER_TEMP/hawkeye" check
+
+      - name: Check TOML formatting (taplo)
+        # renovate: datasource=github-releases depName=tamasfe/taplo
+        run: |
+          curl -fsSL https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz \
+            | gunzip -c >"$RUNNER_TEMP/taplo"
+          chmod +x "$RUNNER_TEMP/taplo"
+          "$RUNNER_TEMP/taplo" fmt --check --diff
+
+      - name: Tests (pytest)
+        run: uv run pytest

@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Force issues through the structured forms above (no blank issues).
+blank_issues_enabled: false

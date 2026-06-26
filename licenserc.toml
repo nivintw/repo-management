@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# hawkeye (https://github.com/korandoru/hawkeye) — inserts & maintains SPDX license
+# headers for REUSE compliance. Run: `hawkeye format` (or `check`). Header text is
+# templated from [properties] so year/holder/license live in one place. Only files
+# with no usable comment syntax stay in REUSE.toml (strict JSON, lockfiles).
+
+# REUSE-IgnoreStart — this template literally contains an SPDX-License-Identifier line;
+# without the guard, `reuse lint` tries to parse the placeholder as a license.
+inlineHeader = """
+SPDX-FileCopyrightText: © {{ props["inceptionYear"] }} {{ props["copyrightHolder"] }}
+SPDX-License-Identifier: {{ props["spdxLicenseIdentifier"] }}
+"""
+# REUSE-IgnoreEnd
+
+# Negations cancel hawkeye's built-in default excludes (which skip **/*.md and
+# **/.gitignore) so those get headered too.
+excludes = [
+  "LICENSE",
+  "LICENSES/**",
+  "uv.lock",
+  "**/*.json",
+  "!**/*.md",
+  "!**/.gitignore",
+  "**/.python-version",
+  "**/.vscode/*",
+  # CODEOWNERS has no extension hawkeye maps; it carries its own `#` header (reuse-verified).
+  "**/CODEOWNERS",
+]
+
+additionalHeaders = ["markdown-header.toml"]
+
+[mapping.MARKDOWN_CUSTOM]
+extensions = ["md"]
+
+# '#'-comment files hawkeye doesn't map by default.
+[mapping.SCRIPT_STYLE]
+extensions = ["txt", "fish", "bats"]
+filenames = [".gitignore", ".envrc", ".dockerignore"]
+
+[properties]
+inceptionYear = "2026"
+spdxLicenseIdentifier = "MIT"
+copyrightHolder = "Tyler Nivin"

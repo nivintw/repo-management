@@ -1,0 +1,38 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "labels": ["dependencies"],
+  "pre-commit": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Group Ruff bumps so a new rule under extend-select=ALL lands as one reviewable PR, not a surprise red.",
+      "matchManagers": ["pre-commit"],
+      "matchPackageNames": ["astral-sh/ruff-pre-commit"],
+      "groupName": "ruff"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Pinned release binaries whose version lives in the download URL (hawkeye, taplo).",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+(?:run: \\|\\s+)?curl[^\\n]*?/releases/download/(?<currentValue>[^/]+)/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Pinned release binaries whose version lives in a `# renovate:`-annotated env var (trivy, osv-scanner).",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: \"(?<currentValue>[^\"]+)\""
+      ]
+    }
+  ]
+}

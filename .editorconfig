@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# https://editorconfig.org — enforces, live as you type, the same hygiene the
+# pre-commit hooks check at commit time. Keep indent sizes in agreement with the
+# formatters (taplo/ruff) so format-on-save never fights them.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# ruff (Python) defaults to 4-space indentation.
+[*.py]
+indent_size = 4
+
+# Two trailing spaces are a hard line break in Markdown; preserve them.
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

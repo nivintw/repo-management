@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+### Direnv ###
+.direnv/
+
+### Dotenv / secrets ###
+.env
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+### Editors ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*~
+
+### Python / uv ###
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+.coverage
+dist/
+build/
+*.egg-info/

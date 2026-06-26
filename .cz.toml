@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# commitizen config — standalone so it's language-agnostic (lives here whether or not
+# the repo is Python). Enforces Conventional Commits + gitmoji, and `cz bump` computes
+# the version + CHANGELOG.md from history and cuts the annotated `v$version` tag.
+#
+# version_provider = where the version-of-record lives:
+#   uv         → pyproject.toml [project].version (a wheel build reads it)
+
+[tool.commitizen]
+name = "cz_gitmoji"
+version_provider = "uv"
+update_changelog_on_bump = true
+annotated_tag = true
+tag_format = "v$version"
+bump_message = "🔖 bump: $current_version → $new_version"
