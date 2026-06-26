@@ -59,9 +59,15 @@ See [`examples/repos.yaml`](examples/repos.yaml) for a fully-annotated config.
   removing access is destructive and left as a deliberate manual action. Only `labels`
   prunes, and only when you opt in with `prune: true`.
 - **Secrets and webhook secrets are write-only.** The API never returns a secret value, so
-  a change to *only* a secret can't be diffed: secrets are (re)sent on every apply, and a
-  webhook secret is re-sent whenever the hook is otherwise updated. Values are sourced from
-  the environment (`value_from_env` / `secret_from_env`) and never printed.
+  a change to *only* a secret can't be diffed: an Actions secret is re-sent on every apply,
+  and a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
+  Values are sourced from the environment (`value_from_env` / `secret_from_env`) and never
+  printed. A literal `value:` is supported for secrets but should never be committed.
+- **Branch protection covers the modeled fields only.** GitHub's protection endpoint is a
+  full replace, so on apply the tool reads the live protection and re-sends it with your
+  configured fields overlaid — this preserves every field it models. Features it does *not*
+  model (push restrictions, bypass-allowance lists, required signatures) would be reset, so
+  manage protection for a branch entirely through this tool, or not at all.
 
 ## Development
 
