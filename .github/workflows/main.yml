@@ -17,7 +17,9 @@
 # merging to main is always safe — see the `preflight` job below) — see REVIEW.md:
 #   - A release GitHub App with Contents: Read+write, installed on this repo, and in
 #     the bypass list of any ruleset that protects main.
-#   - Two repository secrets from that app: CI_APP_ID and CI_APP_PRIVATE_KEY.
+#   - From that app: the client ID (which GitHub recommends over the numeric app ID) in a
+#     CI_CLIENT_ID repository *variable* (not sensitive), and the key in a
+#     CI_APP_PRIVATE_KEY secret.
 #   - If you don't want signed/app releases, replace this job with a plain
 #     `cz bump && git push` using a PAT, or delete the release job entirely.
 
@@ -40,10 +42,10 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  # Guard: the release job needs the release App secrets. Secrets can't be read in a
-  # job-level `if:`, so a step (which CAN see secrets) reports whether they're present,
-  # and the release job gates on that output. Until CI_APP_ID is set, release SKIPS
-  # cleanly (green run, no failure); add the secrets and auto-release activates itself.
+  # Guard: the release job needs the release App credentials. This step gates the release
+  # on CI_CLIENT_ID being set AND surfaces a `::notice::` explaining the skip when it isn't
+  # — friendlier than a silent no-op. Until CI_CLIENT_ID is set, release SKIPS cleanly
+  # (green run, no failure); add the variable + key and auto-release activates itself.
   preflight:
     runs-on: ubuntu-latest
     outputs:
@@ -51,13 +53,13 @@ jobs:
     steps:
       - id: check
         env:
-          CI_APP_ID: ${{ secrets.CI_APP_ID }}
+          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
         run: |
-          if [ -n "$CI_APP_ID" ]; then
+          if [ -n "$CI_CLIENT_ID" ]; then
             echo "enabled=true" >>"$GITHUB_OUTPUT"
           else
             echo "enabled=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::Release skipped — CI_APP_ID not set. Add the release App secrets (CI_APP_ID, CI_APP_PRIVATE_KEY) to enable auto-release."
+            echo "::notice::Release skipped — CI_CLIENT_ID not set. Set the CI_CLIENT_ID repository variable (+ CI_APP_PRIVATE_KEY secret) to enable auto-release."
           fi
 
   release:
@@ -69,7 +71,9 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
-          app-id: ${{ secrets.CI_APP_ID }}
+          # `app-id` accepts the App's client ID, which GitHub now recommends over the
+          # numeric app ID. It isn't sensitive, so it's a repo variable, not a secret.
+          app-id: ${{ vars.CI_CLIENT_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
           # Scope the token to the minimum the release needs (signed bump commit, tag, ref,
           # release) instead of inheriting the App's blanket perms (zizmor github-app).
