@@ -64,6 +64,7 @@ repos:
     repo = config.repos[0]
     assert repo.settings is not None
     assert repo.settings.topics == ["a", "b"]
+    assert repo.branch_protection is not None
     assert repo.branch_protection["main"].required_approving_review_count == 1
     assert repo.labels is not None
     assert repo.labels.prune is True
@@ -142,5 +143,5 @@ def test_repo_config_defaults() -> None:
     """An unset section defaults to None/empty, meaning unmanaged."""
     repo = RepoConfig(name="o/r")
     assert repo.settings is None
-    assert repo.branch_protection == {}
+    assert repo.branch_protection is None
     assert repo.labels is None

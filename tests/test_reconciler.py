@@ -21,7 +21,7 @@ def test_plan_repo_aggregates_managers(repo: MagicMock) -> None:
     changes = plan_repo(repo, desired)
 
     targets = {c.target for c in changes}
-    assert "description" in targets
+    assert "settings" in targets
     assert "topics" in targets
 
 

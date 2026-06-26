@@ -19,7 +19,7 @@ def test_no_settings_is_noop(repo: MagicMock) -> None:
 
 
 def test_changed_field_produces_update(repo: MagicMock) -> None:
-    """A differing scalar field yields one update change that calls repo.edit."""
+    """A differing scalar field yields one batched settings change calling repo.edit."""
     repo.description = "old"
     desired = RepoConfig(name="o/r", settings=Settings(description="new"))
 
@@ -28,8 +28,9 @@ def test_changed_field_produces_update(repo: MagicMock) -> None:
     assert len(changes) == 1
     change = changes[0]
     assert change.action is Action.UPDATE
-    assert change.target == "description"
-    assert (change.before, change.after) == ("old", "new")
+    assert change.target == "settings"
+    assert change.before == {"description": "old"}
+    assert change.after == {"description": "new"}
     change.apply()
     repo.edit.assert_called_once_with(description="new")
 
@@ -70,7 +71,7 @@ def test_topics_unchanged_when_same_set(repo: MagicMock) -> None:
 
 
 def test_multiple_fields(repo: MagicMock) -> None:
-    """Several differing fields each produce their own change."""
+    """Several differing scalar fields batch into one settings change; topics is separate."""
     repo.description = "old"
     repo.has_wiki = False
     repo.get_topics.return_value = []
@@ -78,5 +79,11 @@ def test_multiple_fields(repo: MagicMock) -> None:
         name="o/r",
         settings=Settings(description="new", has_wiki=True, topics=["x"]),
     )
+
     changes = SettingsManager().plan(repo, desired)
-    assert {c.target for c in changes} == {"description", "has_wiki", "topics"}
+
+    assert {c.target for c in changes} == {"settings", "topics"}
+    settings_change = next(c for c in changes if c.target == "settings")
+    assert settings_change.after == {"description": "new", "has_wiki": True}
+    settings_change.apply()
+    repo.edit.assert_called_once_with(description="new", has_wiki=True)

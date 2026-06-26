@@ -28,6 +28,8 @@ class BranchProtectionManager:
 
     def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
         """Return one change per branch whose protection differs from desired."""
+        if desired.branch_protection is None:
+            return []
         changes: list[Change] = []
         for branch_name, rules in desired.branch_protection.items():
             change = self._branch_change(repo, branch_name, rules)
@@ -47,7 +49,7 @@ class BranchProtectionManager:
 
         branch = repo.get_branch(branch_name)
         current = _current_state(branch)
-        if all(current.get(key) == value for key, value in want.items()):
+        if current is not None and all(current.get(key) == value for key, value in want.items()):
             return None
 
         kwargs = _edit_kwargs(rules)
@@ -55,8 +57,8 @@ class BranchProtectionManager:
         def apply() -> None:
             branch.edit_protection(**kwargs)
 
-        action = Action.CREATE if current is _UNPROTECTED else Action.UPDATE
-        before = None if current is _UNPROTECTED else {k: current.get(k) for k in want}
+        action = Action.CREATE if current is None else Action.UPDATE
+        before = None if current is None else {k: current.get(k) for k in want}
         return Change(
             domain=self.domain,
             action=action,
@@ -67,41 +69,24 @@ class BranchProtectionManager:
         )
 
 
-_UNPROTECTED: dict[str, Any] = {}
-
-
 def _desired_state(rules: BranchProtection) -> dict[str, Any]:
     """Normalize the desired rules into a comparable dict, dropping unset fields."""
-    state: dict[str, Any] = {}
-    for field in (
-        "required_approving_review_count",
-        "dismiss_stale_reviews",
-        "require_code_owner_reviews",
-        "strict_status_checks",
-        "enforce_admins",
-        "required_linear_history",
-        "allow_force_pushes",
-        "allow_deletions",
-        "required_conversation_resolution",
-    ):
-        value = getattr(rules, field)
-        if value is not None:
-            state[field] = value
-    if rules.required_status_checks is not None:
-        state["required_status_checks"] = sorted(rules.required_status_checks)
+    state: dict[str, Any] = rules.model_dump(exclude_none=True)
+    if "required_status_checks" in state:
+        state["required_status_checks"] = sorted(state["required_status_checks"])
     return state
 
 
-def _current_state(branch: Branch) -> dict[str, Any]:
+def _current_state(branch: Branch) -> dict[str, Any] | None:
     """Read the live protection into the same shape as :func:`_desired_state`.
 
-    Returns the sentinel :data:`_UNPROTECTED` when the branch has no protection.
+    Returns ``None`` when the branch has no protection.
     """
     try:
         protection = branch.get_protection()
     except GithubException as exc:
         if exc.status == _NOT_FOUND:
-            return _UNPROTECTED
+            return None
         raise
     return _read_protection(protection)
 

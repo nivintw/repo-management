@@ -133,7 +133,7 @@ class RepoConfig(_Strict):
 
     name: str
     settings: Settings | None = None
-    branch_protection: dict[str, BranchProtection] = Field(default_factory=dict)
+    branch_protection: dict[str, BranchProtection] | None = None
     labels: Labels | None = None
     collaborators: list[Collaborator] | None = None
     webhooks: list[Webhook] | None = None
