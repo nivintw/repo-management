@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Public repos. Extends base.yaml and pins visibility to public. Private repos live in
+# gha-private.yml. `private: false` is authoritative — an apply enforces it — but these
+# repos are already public, so it's a no-op that just keeps them from drifting private.
+
+extends: base.yaml
+
+settings:
+  private: false
+
+repos:
+  - nivintw/nivintw-claude-skills
+  - nivintw/scaffold
+  - nivintw/dotfiles
+  # ddns is public too, but it carries unrelated publish secrets (GIST_SECRET,
+  # TWINE_PYPI_UPLOAD_TOKEN), so it lives in its own config (ddns.yml) that opts out of
+  # secret management to avoid pruning them.
