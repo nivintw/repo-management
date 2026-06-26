@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Example configuration for repo-management.
+# Every section is optional; an omitted section is left entirely unmanaged. Within a
+# section, only the fields you set are reconciled — unset fields are never touched.
+#
+#   repo-management validate -c examples/repos.yaml
+#   repo-management plan     -c examples/repos.yaml
+#   repo-management apply    -c examples/repos.yaml   # writes; prompts first
+
+repos:
+  - name: nivintw/repo-management
+
+    settings:
+      description: YAML-config-driven GitHub repository manager
+      homepage: https://github.com/nivintw/repo-management
+      private: false
+      topics: [github, automation, infrastructure-as-code, python]
+      has_issues: true
+      has_wiki: false
+      has_projects: false
+      allow_squash_merge: true
+      allow_merge_commit: false
+      allow_rebase_merge: false
+      allow_auto_merge: true
+      delete_branch_on_merge: true
+      default_branch: main
+
+    branch_protection:
+      main:
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
+        require_code_owner_reviews: false
+        required_status_checks: [ci]
+        strict_status_checks: true
+        enforce_admins: true
+        required_linear_history: true
+        required_conversation_resolution: true
+
+    labels:
+      # prune: true would delete any label not listed below.
+      prune: false
+      items:
+        - {name: bug, color: d73a4a, description: Something is not working}
+        - {name: enhancement, color: a2eeef, description: New feature or request}
+        - {name: chore, color: ededed, description: Maintenance work}
+
+    collaborators:
+      # Additive: collaborators are added/updated, never removed.
+      - {username: octocat, permission: push}
+
+    webhooks:
+      # Matched by URL; additive (created/updated, never deleted).
+      - url: https://example.com/webhook
+        events: [push, pull_request]
+        active: true
+        content_type: json
+        # secret_from_env reads the value from the named environment variable.
+        secret_from_env: REPO_WEBHOOK_SECRET
+
+    secrets:
+      # Actions secrets. Values are write-only in the API and never printed in plans.
+      - {name: PYPI_TOKEN, value_from_env: PYPI_TOKEN}
