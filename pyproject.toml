@@ -3,7 +3,7 @@
 
 [project]
 name = "repo-management"
-version = "0.0.0"
+version = "1.0.0"
 requires-python = ">=3.13"
 description = "YAML-config-driven GitHub repository manager"
 authors = [{ name = "Tyler Nivin", email = "tyler@nivin.tech" }]
