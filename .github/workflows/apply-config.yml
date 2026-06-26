@@ -15,9 +15,11 @@
 #   For this to actually apply, the CI App must be:
 #     - installed on every repo listed across the config/*.yml files, and
 #     - granted the permissions the managed sections need: Administration: read+write
-#       (settings, rulesets), Issues: read+write (labels), Variables: read+write (the
-#       `variables:` section), and Secrets: read+write (the `secrets:` section). All four
-#       are scoped onto the token below. (Administration also covers collaborators/webhooks.)
+#       (settings, rulesets, collaborators, webhooks), Issues: read+write (labels),
+#       Secrets: read+write (the `secrets:` section), and Variables: read+write (the
+#       `variables:` section). The token step requests exactly these and scopes the token to
+#       the managed repos, so it's least-privilege on both axes (see that step for why we
+#       mint it directly instead of via actions/create-github-app-token).
 #   The token below is scoped to the whole owner (no `repositories:` input) so one run can
 #   reach all installed repos, and down-scoped to just those permissions (zizmor github-app).
 #
@@ -79,42 +81,64 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Derive the managed repo set from the configs
-        id: repos
-        # Use the tool's own loader (resolves extends, validates) so this list is exactly
-        # what gets applied — single source of truth, no drift with config/*.yml.
+      - name: Mint an installation token scoped to the managed repos + permissions
+        id: app-token
+        # `actions/create-github-app-token` can't request the `Variables` permission (it has
+        # no `permission-variables` input — and inheriting all perms instead trips zizmor's
+        # blanket-permissions audit). So mint the token directly: PyGithub builds the App JWT
+        # and finds the installation; the REST endpoint then issues a token scoped to BOTH
+        # the exact repo set (derived from the configs — single source of truth) AND the
+        # explicit permissions, Variables included. Inputs arrive via env, never `${{ }}` in
+        # the script (zizmor template-injection).
+        env:
+          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
+          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          OWNER: ${{ github.repository_owner }}
+          THIS_REPO: ${{ github.event.repository.name }}
         run: |
-          repos="$(uv run python - <<'PY'
-          import glob
+          uv run python - <<'PY'
+          import glob, json, os, urllib.request
           from pathlib import Path
+
+          from github import Auth, GithubIntegration
+
           from repo_management.config import load_config
-          names = sorted({
+
+          repos = sorted({
               repo.split("/", 1)[1]
               for path in glob.glob("config/*.yml")
               for repo in load_config(Path(path)).repos
           })
-          print(",".join(names))
+          app_auth = Auth.AppAuth(os.environ["CI_CLIENT_ID"], os.environ["CI_APP_PRIVATE_KEY"])
+          installation = GithubIntegration(auth=app_auth).get_repo_installation(
+              os.environ["OWNER"], os.environ["THIS_REPO"],
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/app/installations/{installation.id}/access_tokens",
+              data=json.dumps({
+                  "repositories": repos,
+                  "permissions": {
+                      "administration": "write",  # settings, rulesets, collaborators, webhooks
+                      "issues": "write",           # labels
+                      "secrets": "write",          # secrets section
+                      "variables": "write",        # variables section
+                  },
+              }).encode(),
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {app_auth.create_jwt()}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request) as response:  # noqa: S310 — fixed api.github.com URL
+              token = json.load(response)["token"]
+          print(f"::add-mask::{token}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"token={token}\n")
+          print(f"::notice::Token scoped to {len(repos)} repos "
+                "(administration/issues/secrets/variables: write)")
           PY
-          )"
-          echo "list=$repos" >>"$GITHUB_OUTPUT"
-          echo "::notice::Scoping App token to: $repos"
-
-      - name: Mint an installation token for the CI App (scoped to the managed repos)
-        id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
-        with:
-          # `app-id` accepts the App's client ID, which GitHub now recommends over the
-          # numeric app ID. It isn't sensitive, so it's a repo variable, not a secret.
-          app-id: ${{ vars.CI_CLIENT_ID }}
-          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
-          # Scope to exactly the repos the configs declare (not the whole owner), with only
-          # the permissions the managed sections need (zizmor github-app).
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ steps.repos.outputs.list }}
-          permission-administration: write
-          permission-issues: write
-          permission-variables: write
-          permission-secrets: write
 
       - name: Apply the configs
         env:
@@ -130,3 +154,15 @@ jobs:
             uv run repo-management apply -c "$cfg" --yes
             echo "::endgroup::"
           done
+
+      - name: Revoke the installation token
+        # The token isn't auto-revoked (we minted it ourselves, not via the action), so
+        # revoke it at job end rather than leaving it valid for its full hour.
+        if: always() && steps.app-token.outputs.token
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          curl -sS -X DELETE \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/installation/token || true
