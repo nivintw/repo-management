@@ -38,6 +38,7 @@ _KEYED_LISTS: dict[tuple[str, ...], str] = {
     ("collaborators",): "username",
     ("webhooks",): "url",
     ("secrets",): "name",
+    ("variables",): "name",
 }
 
 
@@ -106,26 +107,46 @@ class Webhook(Strict):
         return _require_env(self.secret_from_env)
 
 
-class Secret(Strict):
-    """An Actions secret. Provide exactly one of ``value`` or ``value_from_env``."""
+class _EnvValued(Strict):
+    """A named value sourced either literally or from the environment.
+
+    Provide exactly one of ``value`` or ``value_from_env``; :meth:`resolve` returns the
+    literal value or reads the named environment variable when the change is planned.
+    """
 
     name: str
     value: str | None = None
     value_from_env: str | None = None
 
     @model_validator(mode="after")
-    def _exactly_one_source(self) -> Secret:
+    def _exactly_one_source(self) -> _EnvValued:
         if (self.value is None) == (self.value_from_env is None):
-            msg = f"secret {self.name!r}: set exactly one of 'value' or 'value_from_env'"
+            msg = f"{self.name!r}: set exactly one of 'value' or 'value_from_env'"
             raise ValueError(msg)
         return self
 
     def resolve(self) -> str:
-        """Return the secret value, reading the environment when needed."""
+        """Return the value, reading the environment when needed."""
         if self.value is not None:
             return self.value
         assert self.value_from_env is not None  # noqa: S101 — guaranteed by validator
         return _require_env(self.value_from_env)
+
+
+class Secret(_EnvValued):
+    """An Actions secret. Provide exactly one of ``value`` or ``value_from_env``.
+
+    Values are write-only on GitHub and never shown in plans.
+    """
+
+
+class Variable(_EnvValued):
+    """An Actions repository variable. Provide exactly one of ``value`` or ``value_from_env``.
+
+    Unlike secrets, variable values are not sensitive: they are readable on GitHub and
+    shown in plain text in plans, so an existing variable is updated only when its value
+    actually differs.
+    """
 
 
 class SharedConfig(Strict):
@@ -137,6 +158,7 @@ class SharedConfig(Strict):
     collaborators: list[Collaborator] | None = None
     webhooks: list[Webhook] | None = None
     secrets: list[Secret] | None = None
+    variables: list[Variable] | None = None
 
 
 class Config(SharedConfig):

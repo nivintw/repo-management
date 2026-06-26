@@ -90,14 +90,15 @@ for a fully-annotated, working pair.
 | `collaborators` | add/re-permission direct collaborators; remove those not listed |
 | `webhooks` | create/update/delete webhooks, matched by URL |
 | `secrets` | Actions secrets (write-only; libsodium-encrypted by PyGithub); delete those not listed |
+| `variables` | Actions repository variables (plain text; updated only when the value differs); delete those not listed |
 
 ### Design notes / limitations
 
 - **A declared section is authoritative.** Each section you include is the *complete*
   desired set: items present on the repo but absent from the section are removed (labels,
-  webhooks, secrets deleted; direct collaborators removed; repo rulesets deleted). A
-  section you omit is left entirely unmanaged. This means a declared section can revoke
-  access or delete a secret by omission — declare deliberately.
+  webhooks, secrets, variables deleted; direct collaborators removed; repo rulesets
+  deleted). A section you omit is left entirely unmanaged. This means a declared section
+  can revoke access or delete a secret by omission — declare deliberately.
 - **Only directly-granted collaborator access is managed.** Pruning uses
   `affiliation="direct"`, so access inherited from org or team membership is never listed
   and never touched (the repo API can't revoke it anyway).
@@ -115,6 +116,10 @@ for a fully-annotated, working pair.
   and a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
   Values are sourced from the environment (`value_from_env` / `secret_from_env`) and never
   printed. A literal `value:` is supported for secrets but should never be committed.
+- **Variables, by contrast, are readable.** An Actions *variable* value is returned by the
+  API, so a variable is updated only when its value actually differs and the value is shown
+  in plain text in the plan. Variables take a literal `value:` or `value_from_env:` (same
+  shape as secrets, minus the secrecy).
 
 ## Development
 

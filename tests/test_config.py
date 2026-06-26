@@ -14,6 +14,7 @@ from repo_management.config import (
     ConfigError,
     Label,
     Secret,
+    Variable,
     Webhook,
     load_config,
 )
@@ -147,6 +148,21 @@ def test_secret_resolve_missing_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MISSING", raising=False)
     with pytest.raises(ConfigError, match="not set"):
         Secret(name="X", value_from_env="MISSING").resolve()
+
+
+def test_variable_requires_exactly_one_source() -> None:
+    """A variable with neither or both value sources is rejected."""
+    with pytest.raises(ValueError, match="exactly one"):
+        Variable(name="X")
+    with pytest.raises(ValueError, match="exactly one"):
+        Variable(name="X", value="a", value_from_env="B")
+
+
+def test_variable_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A variable resolves from a literal or the environment."""
+    assert Variable(name="X", value="abc").resolve() == "abc"
+    monkeypatch.setenv("MY_VAR", "fromenv")
+    assert Variable(name="X", value_from_env="MY_VAR").resolve() == "fromenv"
 
 
 def test_webhook_resolve_secret(monkeypatch: pytest.MonkeyPatch) -> None:

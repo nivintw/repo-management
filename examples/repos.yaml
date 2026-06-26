@@ -57,3 +57,11 @@ collaborators:
 secrets:
   # Actions secrets. Values are write-only and never printed in plans.
   - {name: PYPI_TOKEN, value_from_env: PYPI_TOKEN}
+
+variables:
+  # Actions variables. Unlike secrets, values are readable, shown in plans, and updated
+  # only when they differ. Authoritative: a variable not listed here is deleted — so if a
+  # workflow authenticates with a variable (e.g. an App client ID), declare it here or an
+  # apply will remove it.
+  - {name: DEFAULT_REGION, value: us-east-1}
+  - {name: BUILD_PROFILE, value_from_env: BUILD_PROFILE}

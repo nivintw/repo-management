@@ -18,6 +18,7 @@ from repo_management.managers.labels import LabelsManager
 from repo_management.managers.rulesets import RulesetsManager
 from repo_management.managers.secrets import SecretsManager
 from repo_management.managers.settings import SettingsManager
+from repo_management.managers.variables import VariablesManager
 from repo_management.managers.webhooks import WebhooksManager
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ MANAGERS: list[Manager] = [
     CollaboratorsManager(),
     WebhooksManager(),
     SecretsManager(),
+    VariablesManager(),
 ]
 
 __all__ = ["MANAGERS", "Manager"]
