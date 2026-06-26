@@ -56,11 +56,11 @@ def _load(config: Path) -> Config:
 def _select(config: Config, repo: str | None) -> Config:
     if repo is None:
         return config
-    matched = [item for item in config.repos if item.name == repo]
-    if not matched:
+    if repo not in config.repos:
         msg = f"repo {repo!r} not found in config"
         raise _fail(msg)
-    return Config(repos=matched)
+    # Narrow the repo list to the one requested; the shared config carries over.
+    return config.model_copy(update={"repos": [repo]})
 
 
 def _plans(config: Config, token: str | None) -> list[RepoPlan]:

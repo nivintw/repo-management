@@ -18,7 +18,7 @@ from repo_management.changes import Action, Change
 if TYPE_CHECKING:
     from github.Repository import Repository
 
-    from repo_management.config import RepoConfig, Secret
+    from repo_management.config import Secret, SharedConfig
 
 
 class SecretsManager:
@@ -26,7 +26,7 @@ class SecretsManager:
 
     domain = "secrets"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return a redacted change per secret that must be created or updated."""
         if desired.secrets is None:
             return []

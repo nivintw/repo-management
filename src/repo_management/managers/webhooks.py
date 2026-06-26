@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from github.Hook import Hook
     from github.Repository import Repository
 
-    from repo_management.config import RepoConfig, Webhook
+    from repo_management.config import SharedConfig, Webhook
 
 _HOOK_NAME = "web"
 
@@ -29,7 +29,7 @@ class WebhooksManager:
 
     domain = "webhooks"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return changes to create or update each configured webhook."""
         if desired.webhooks is None:
             return []

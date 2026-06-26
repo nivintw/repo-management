@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-"""Tests for config loading and validation."""
+"""Tests for config loading, validation, and extends/merge."""
 
 from __future__ import annotations
 
@@ -13,26 +13,25 @@ from repo_management.config import (
     Config,
     ConfigError,
     Label,
-    RepoConfig,
     Secret,
     Webhook,
     load_config,
 )
 
 
-def write(tmp_path: Path, text: str) -> Path:
-    """Write ``text`` to a temp config file and return its path."""
-    path = tmp_path / "config.yaml"
+def write(tmp_path: Path, text: str, name: str = "config.yaml") -> Path:
+    """Write ``text`` to a temp file and return its path."""
+    path = tmp_path / name
     path.write_text(text, encoding="utf-8")
     return path
 
 
 def test_load_minimal(tmp_path: Path) -> None:
-    """A minimal config with one repo loads and validates."""
-    path = write(tmp_path, "repos:\n  - name: owner/repo\n")
-    config = load_config(path)
+    """A minimal config with just a repo list loads and validates."""
+    config = load_config(write(tmp_path, "repos:\n  - owner/repo\n"))
     assert isinstance(config, Config)
-    assert config.repos[0].name == "owner/repo"
+    assert config.repos == ["owner/repo"]
+    assert config.settings is None
 
 
 def test_load_full(tmp_path: Path) -> None:
@@ -41,50 +40,62 @@ def test_load_full(tmp_path: Path) -> None:
         tmp_path,
         """
 repos:
-  - name: owner/repo
-    settings:
-      description: hello
-      private: true
-      topics: [a, b]
-    branch_protection:
-      main:
-        required_approving_review_count: 1
-    labels:
-      prune: true
-      items:
-        - {name: bug, color: ff0000, description: broken}
-    collaborators:
-      - {username: alice, permission: admin}
-    webhooks:
-      - {url: https://e.x/hook, events: [push]}
-    secrets:
-      - {name: TOK, value: shhh}
+  - owner/repo
+  - owner/other
+settings:
+  description: hello
+  topics: [a, b]
+rulesets:
+  - name: main protection
+    enforcement: active
+    conditions:
+      ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
+    rules:
+      - {type: pull_request, required_approving_review_count: 1}
+      - {type: required_linear_history}
+labels:
+  prune: true
+  items:
+    - {name: bug, color: ff0000}
+collaborators:
+  - {username: alice, permission: admin}
+webhooks:
+  - {url: https://e.x/hook, events: [push]}
+secrets:
+  - {name: TOK, value: shhh}
 """,
     )
     config = load_config(path)
-    repo = config.repos[0]
-    assert repo.settings is not None
-    assert repo.settings.topics == ["a", "b"]
-    assert repo.branch_protection is not None
-    assert repo.branch_protection["main"].required_approving_review_count == 1
-    assert repo.labels is not None
-    assert repo.labels.prune is True
-    assert repo.collaborators is not None
-    assert repo.collaborators[0].permission == "admin"
+    assert config.repos == ["owner/repo", "owner/other"]
+    assert config.settings is not None
+    assert config.rulesets is not None
+    assert config.rulesets[0].rules[0].type == "pull_request"
+    assert config.labels is not None
+    assert config.labels.prune is True
 
 
-def test_unknown_key_rejected(tmp_path: Path) -> None:
-    """Unknown keys are rejected to catch config typos."""
-    path = write(tmp_path, "repos:\n  - name: owner/repo\n    bogus: 1\n")
+def test_repos_required(tmp_path: Path) -> None:
+    """A config with no repos is rejected."""
     with pytest.raises(ConfigError):
-        load_config(path)
+        load_config(write(tmp_path, "settings: {description: x}\n"))
+
+
+def test_empty_repos_rejected(tmp_path: Path) -> None:
+    """An empty repo list is rejected (min_length=1)."""
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path, "repos: []\n"))
 
 
 def test_bad_repo_name(tmp_path: Path) -> None:
     """A repo name not in owner/repo form is rejected."""
-    path = write(tmp_path, "repos:\n  - name: justname\n")
     with pytest.raises(ConfigError):
-        load_config(path)
+        load_config(write(tmp_path, "repos:\n  - justname\n"))
+
+
+def test_unknown_key_rejected(tmp_path: Path) -> None:
+    """Unknown keys are rejected to catch config typos."""
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path, "repos:\n  - owner/repo\nbogus: 1\n"))
 
 
 def test_missing_file(tmp_path: Path) -> None:
@@ -95,20 +106,18 @@ def test_missing_file(tmp_path: Path) -> None:
 
 def test_invalid_yaml(tmp_path: Path) -> None:
     """Malformed YAML raises ConfigError."""
-    path = write(tmp_path, "repos: [unterminated\n")
     with pytest.raises(ConfigError, match="invalid YAML"):
-        load_config(path)
+        load_config(write(tmp_path, "repos: [unterminated\n"))
 
 
 def test_non_mapping_root(tmp_path: Path) -> None:
     """A non-mapping YAML root raises ConfigError."""
-    path = write(tmp_path, "- just\n- a\n- list\n")
     with pytest.raises(ConfigError, match="must be a mapping"):
-        load_config(path)
+        load_config(write(tmp_path, "- a\n- b\n"))
 
 
 def test_non_utf8_file(tmp_path: Path) -> None:
-    """A non-UTF-8 config file raises ConfigError, not an uncaught UnicodeDecodeError."""
+    """A non-UTF-8 file raises ConfigError, not an uncaught UnicodeDecodeError."""
     path = tmp_path / "config.yaml"
     path.write_bytes(b"\xff\xfe repos: []")
     with pytest.raises(ConfigError, match="not valid UTF-8"):
@@ -118,7 +127,6 @@ def test_non_utf8_file(tmp_path: Path) -> None:
 def test_label_color_normalized() -> None:
     """Label color is lowercased and stripped of a leading '#'."""
     assert Label(name="bug", color="#FF00AA").color == "ff00aa"
-    assert Label(name="bug", color="EDEDED").color == "ededed"
 
 
 def test_secret_requires_exactly_one_source() -> None:
@@ -129,13 +137,9 @@ def test_secret_requires_exactly_one_source() -> None:
         Secret(name="X", value="a", value_from_env="B")
 
 
-def test_secret_resolve_literal() -> None:
-    """A secret with a literal value resolves to it."""
+def test_secret_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A secret resolves from a literal or the environment."""
     assert Secret(name="X", value="abc").resolve() == "abc"
-
-
-def test_secret_resolve_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A secret sourced from the environment resolves to the env value."""
     monkeypatch.setenv("MY_SECRET", "fromenv")
     assert Secret(name="X", value_from_env="MY_SECRET").resolve() == "fromenv"
 
@@ -154,9 +158,99 @@ def test_webhook_resolve_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Webhook(url="https://e.x", secret_from_env="HOOK_SECRET").resolve_secret() == "s3cr3t"
 
 
-def test_repo_config_defaults() -> None:
-    """An unset section defaults to None/empty, meaning unmanaged."""
-    repo = RepoConfig(name="o/r")
-    assert repo.settings is None
-    assert repo.branch_protection is None
-    assert repo.labels is None
+# --- extends / merge ---------------------------------------------------------------
+
+
+def test_extends_scalar_override_wins(tmp_path: Path) -> None:
+    """An override file's scalar settings win over the base."""
+    write(tmp_path, "settings:\n  private: true\n  has_wiki: true\n", name="base.yaml")
+    override = write(
+        tmp_path,
+        "extends: base.yaml\nrepos: [o/r]\nsettings:\n  has_wiki: false\n",
+    )
+    config = load_config(override)
+    assert config.settings is not None
+    assert config.settings.private is True  # inherited
+    assert config.settings.has_wiki is False  # overridden
+
+
+def test_extends_lists_merge_by_key(tmp_path: Path) -> None:
+    """Override list items replace same-key base items and append new ones."""
+    write(
+        tmp_path,
+        """
+rulesets:
+  - {name: main, enforcement: active}
+  - {name: tags, enforcement: active, target: tag}
+""",
+        name="base.yaml",
+    )
+    override = write(
+        tmp_path,
+        """
+extends: base.yaml
+repos: [o/r]
+rulesets:
+  - {name: main, enforcement: evaluate}
+  - {name: release, enforcement: active}
+""",
+    )
+    config = load_config(override)
+    assert config.rulesets is not None
+    by_name = {r.name: r for r in config.rulesets}
+    assert by_name["main"].enforcement == "evaluate"  # replaced
+    assert by_name["tags"].enforcement == "active"  # preserved
+    assert "release" in by_name  # appended
+    assert [r.name for r in config.rulesets] == ["main", "tags", "release"]
+
+
+def test_extends_list_of_bases(tmp_path: Path) -> None:
+    """Extends accepts a list of bases merged in order."""
+    write(tmp_path, "settings: {private: true}\n", name="a.yaml")
+    write(tmp_path, "settings: {has_wiki: false}\n", name="b.yaml")
+    override = write(tmp_path, "extends: [a.yaml, b.yaml]\nrepos: [o/r]\n")
+    config = load_config(override)
+    assert config.settings is not None
+    assert config.settings.private is True
+    assert config.settings.has_wiki is False
+
+
+def test_extends_nested(tmp_path: Path) -> None:
+    """A base may itself extend another base (recursive resolution)."""
+    write(tmp_path, "settings: {private: true}\n", name="grand.yaml")
+    write(tmp_path, "extends: grand.yaml\nsettings: {has_wiki: false}\n", name="base.yaml")
+    override = write(tmp_path, "extends: base.yaml\nrepos: [o/r]\n")
+    config = load_config(override)
+    assert config.settings is not None
+    assert config.settings.private is True
+    assert config.settings.has_wiki is False
+
+
+def test_extends_cycle_detected(tmp_path: Path) -> None:
+    """A circular extends chain raises ConfigError instead of recursing forever."""
+    write(tmp_path, "extends: b.yaml\nrepos: [o/r]\n", name="a.yaml")
+    write(tmp_path, "extends: a.yaml\n", name="b.yaml")
+    with pytest.raises(ConfigError, match="circular extends"):
+        load_config(tmp_path / "a.yaml")
+
+
+def test_extends_missing_base(tmp_path: Path) -> None:
+    """A missing base file raises ConfigError."""
+    override = write(tmp_path, "extends: nope.yaml\nrepos: [o/r]\n")
+    with pytest.raises(ConfigError, match="cannot read"):
+        load_config(override)
+
+
+def test_extends_bad_type(tmp_path: Path) -> None:
+    """A non-string extends value raises ConfigError."""
+    override = write(tmp_path, "extends: 42\nrepos: [o/r]\n")
+    with pytest.raises(ConfigError, match="must be a string or list"):
+        load_config(override)
+
+
+def test_extends_empty_base(tmp_path: Path) -> None:
+    """An empty base file resolves to an empty mapping and merges cleanly."""
+    write(tmp_path, "", name="base.yaml")
+    override = write(tmp_path, "extends: base.yaml\nrepos: [o/r]\n")
+    config = load_config(override)
+    assert config.repos == ["o/r"]

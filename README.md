@@ -40,18 +40,52 @@ Useful flags:
 `plan` prints one line per change: `+` create, `~` update, `-` delete. Secret values are
 always redacted.
 
+## Config format
+
+A config file lists the repositories to manage and one shared block of config sections
+applied to every one of them:
+
+```yaml
+repos:
+  - owner/repo
+  - owner/other
+settings: { ... }
+rulesets: [ ... ]
+labels: { ... }
+```
+
+### Composing configs with `extends`
+
+A file may `extends:` one or more base files (a string or a list, relative paths, resolved
+recursively). The bases are merged underneath, then this file is merged on top:
+
+- **scalars** — the override wins;
+- **list sections** (`rulesets`, `labels.items`, `collaborators`, `webhooks`, `secrets`) —
+  merge by each item's natural key (ruleset/label/secret `name`, collaborator `username`,
+  webhook `url`): a same-key item in the override **replaces** the base's item, and new
+  items are appended.
+
+```yaml
+# repos.yaml
+extends: base.yaml
+repos: [owner/repo]
+settings:
+  description: Managed by repo-management   # added on top of base.settings
+```
+
+See [`examples/base.yaml`](examples/base.yaml) + [`examples/repos.yaml`](examples/repos.yaml)
+for a fully-annotated, working pair.
+
 ## What it manages
 
 | Section | Manages |
 | --- | --- |
 | `settings` | description, homepage, topics, visibility, features (issues/wiki/projects/discussions), merge options (squash/merge/rebase, auto-merge, delete-branch-on-merge), default branch |
-| `branch_protection` | per-branch: required reviews, status checks, enforce-admins, linear history, conversation resolution, force-push/deletion rules |
+| `rulesets` | repository rulesets (branch/tag): the full rule set (pull_request, required_status_checks, required_linear_history, non_fast_forward, deletion, creation, update, required_deployments, merge_queue, required_signatures, the *_pattern rules, file_path/extension/size restrictions, workflows, code_scanning), plus `bypass_actors` and ref-name `conditions` |
 | `labels` | create/update labels; delete extras only when `prune: true` |
 | `collaborators` | add collaborators and update their permission (additive — never removes) |
 | `webhooks` | create/update webhooks, matched by URL (additive — never deletes) |
 | `secrets` | Actions secrets (write-only; libsodium-encrypted by PyGithub) |
-
-See [`examples/repos.yaml`](examples/repos.yaml) for a fully-annotated config.
 
 ### Design notes / limitations
 
@@ -63,11 +97,11 @@ See [`examples/repos.yaml`](examples/repos.yaml) for a fully-annotated config.
   and a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
   Values are sourced from the environment (`value_from_env` / `secret_from_env`) and never
   printed. A literal `value:` is supported for secrets but should never be committed.
-- **Branch protection covers the modeled fields only.** GitHub's protection endpoint is a
-  full replace, so on apply the tool reads the live protection and re-sends it with your
-  configured fields overlaid — this preserves every field it models. Features it does *not*
-  model (push restrictions, bypass-allowance lists, required signatures) would be reset, so
-  manage protection for a branch entirely through this tool, or not at all.
+- **Rulesets are matched by name and replaced wholesale on update.** PyGithub has no
+  ruleset support, so this is driven through its authenticated requester against the REST
+  rulesets API. A ruleset you declare is fully owned: on update its rules/conditions/bypass
+  actors are set to exactly what the config says. Rulesets present on the repo but absent
+  from the config are left alone (additive — never deleted).
 
 ## Development
 

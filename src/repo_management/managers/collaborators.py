@@ -17,7 +17,7 @@ from repo_management.changes import Action, Change
 if TYPE_CHECKING:
     from github.Repository import Repository
 
-    from repo_management.config import Collaborator, RepoConfig
+    from repo_management.config import Collaborator, SharedConfig
 
 # GitHub's role name reports read/write; the config (and add API) use pull/push.
 # triage/maintain/admin are reported verbatim.
@@ -30,7 +30,7 @@ class CollaboratorsManager:
 
     domain = "collaborators"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return a change per collaborator that must be added or have permission changed."""
         if desired.collaborators is None:
             return []

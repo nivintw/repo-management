@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from github.Label import Label as GhLabel
     from github.Repository import Repository
 
-    from repo_management.config import Label, RepoConfig
+    from repo_management.config import Label, SharedConfig
 
 
 class LabelsManager:
@@ -23,7 +23,7 @@ class LabelsManager:
 
     domain = "labels"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return changes to create, update, and (if pruning) delete labels."""
         if desired.labels is None:
             return []

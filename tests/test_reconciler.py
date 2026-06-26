@@ -8,7 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from repo_management.changes import Action, Change
-from repo_management.config import Config, RepoConfig, Settings
+from repo_management.config import Config, Settings, SharedConfig
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config, plan_repo
 
 
@@ -16,7 +16,7 @@ def test_plan_repo_aggregates_managers(repo: MagicMock) -> None:
     """plan_repo collects changes from every manager that has work."""
     repo.description = "old"
     repo.get_topics.return_value = []
-    desired = RepoConfig(name="o/r", settings=Settings(description="new", topics=["x"]))
+    desired = SharedConfig(settings=Settings(description="new", topics=["x"]))
 
     changes = plan_repo(repo, desired)
 
@@ -26,18 +26,18 @@ def test_plan_repo_aggregates_managers(repo: MagicMock) -> None:
 
 
 def test_plan_config_builds_a_plan_per_repo() -> None:
-    """plan_config fetches each repo and returns one RepoPlan apiece."""
+    """plan_config fetches each named repo and returns one RepoPlan apiece."""
     repo = MagicMock()
     repo.description = "match"
     client = MagicMock()
     client.get_repo.return_value = repo
-    config = Config(repos=[RepoConfig(name="o/r", settings=Settings(description="match"))])
+    config = Config(repos=["o/r1", "o/r2"], settings=Settings(description="match"))
 
     plans = plan_config(client, config)
 
-    assert len(plans) == 1
-    assert plans[0].repo_name == "o/r"
-    assert plans[0].in_sync
+    assert [p.repo_name for p in plans] == ["o/r1", "o/r2"]
+    assert all(p.in_sync for p in plans)
+    assert client.get_repo.call_count == 2
 
 
 def test_repo_plan_in_sync() -> None:

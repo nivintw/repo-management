@@ -10,20 +10,20 @@ from unittest.mock import MagicMock
 from conftest import make_secret
 
 from repo_management.changes import Action
-from repo_management.config import RepoConfig, Secret
+from repo_management.config import Secret, SharedConfig
 from repo_management.managers.secrets import SecretsManager
 
 
 def test_no_secrets_is_noop(repo: MagicMock) -> None:
     """A repo config without a secrets section yields no changes."""
-    desired = RepoConfig(name="o/r")
+    desired = SharedConfig()
     assert SecretsManager().plan(repo, desired) == []
 
 
 def test_new_secret_produces_create(repo: MagicMock) -> None:
     """A secret not in get_secrets() yields one create change with redacted values."""
     repo.get_secrets.return_value = []
-    desired = RepoConfig(name="o/r", secrets=[Secret(name="NEW_SECRET", value="literalvalue")])
+    desired = SharedConfig(secrets=[Secret(name="NEW_SECRET", value="literalvalue")])
 
     changes = SecretsManager().plan(repo, desired)
 
@@ -41,7 +41,7 @@ def test_new_secret_produces_create(repo: MagicMock) -> None:
 def test_existing_secret_produces_update(repo: MagicMock) -> None:
     """A secret in get_secrets() yields one update change with redacted values."""
     repo.get_secrets.return_value = [make_secret("EXISTING_SECRET")]
-    desired = RepoConfig(name="o/r", secrets=[Secret(name="EXISTING_SECRET", value="literalvalue")])
+    desired = SharedConfig(secrets=[Secret(name="EXISTING_SECRET", value="literalvalue")])
 
     changes = SecretsManager().plan(repo, desired)
 
