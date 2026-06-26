@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Shared base config, extended by repos.yaml. A base file lists no repos of its own — it is
+# only meaningful when pulled in via `extends:` and merged underneath an override.
+
+settings:
+  has_issues: true
+  has_wiki: false
+  allow_squash_merge: true
+  allow_merge_commit: false
+  delete_branch_on_merge: true
+
+rulesets:
+  - name: main protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
+    rules:
+      - {type: pull_request, required_approving_review_count: 1, dismiss_stale_reviews_on_push: true}
+      - {type: required_status_checks, required_checks: [ci], strict_required_status_checks_policy: true}
+      - {type: required_linear_history}
+      - {type: non_fast_forward}
+
+labels:
+  # A declared labels section is the authoritative set: labels not listed here are deleted.
+  - {name: bug, color: d73a4a, description: Something is not working}
+  - {name: enhancement, color: a2eeef, description: New feature or request}

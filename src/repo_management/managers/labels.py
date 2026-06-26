@@ -15,21 +15,21 @@ if TYPE_CHECKING:
     from github.Label import Label as GhLabel
     from github.Repository import Repository
 
-    from repo_management.config import Label, RepoConfig
+    from repo_management.config import Label, SharedConfig
 
 
 class LabelsManager:
-    """Reconcile labels, creating/updating desired labels and optionally pruning extras."""
+    """Reconcile labels: a declared ``labels`` section is the authoritative, complete set."""
 
     domain = "labels"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
-        """Return changes to create, update, and (if pruning) delete labels."""
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
+        """Return changes to create, update, and delete labels to match the config."""
         if desired.labels is None:
             return []
 
         existing = {label.name: label for label in repo.get_labels()}
-        wanted = desired.labels.items
+        wanted = desired.labels
         changes: list[Change] = []
 
         for item in wanted:
@@ -39,11 +39,10 @@ class LabelsManager:
             elif _label_differs(current, item):
                 changes.append(self._update(current, item))
 
-        if desired.labels.prune:
-            wanted_names = {item.name for item in wanted}
-            changes.extend(
-                self._delete(label) for name, label in existing.items() if name not in wanted_names
-            )
+        wanted_names = {item.name for item in wanted}
+        changes.extend(
+            self._delete(label) for name, label in existing.items() if name not in wanted_names
+        )
 
         return changes
 

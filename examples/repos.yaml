@@ -2,63 +2,58 @@
 # SPDX-License-Identifier: MIT
 
 # Example configuration for repo-management.
-# Every section is optional; an omitted section is left entirely unmanaged. Within a
-# section, only the fields you set are reconciled — unset fields are never touched.
+#
+# `repos:` lists the repositories to manage; every section below is the *shared* config
+# applied to each of them. `extends:` pulls in one or more base files (relative paths,
+# resolved recursively) and merges this file on top: scalars here win, and list sections
+# merge by each item's natural key (a same-key item here replaces the base's, new items are
+# appended). Each declared section is authoritative — items not listed are removed from the
+# repo — while an unset section is left entirely unmanaged.
 #
 #   repo-management validate -c examples/repos.yaml
 #   repo-management plan     -c examples/repos.yaml
 #   repo-management apply    -c examples/repos.yaml   # writes; prompts first
 
+extends: base.yaml
+
 repos:
-  - name: nivintw/repo-management
+  - nivintw/repo-management
+  - nivintw/other-repo
 
-    settings:
-      description: YAML-config-driven GitHub repository manager
-      homepage: https://github.com/nivintw/repo-management
-      private: false
-      topics: [github, automation, infrastructure-as-code, python]
-      has_issues: true
-      has_wiki: false
-      has_projects: false
-      allow_squash_merge: true
-      allow_merge_commit: false
-      allow_rebase_merge: false
-      allow_auto_merge: true
-      delete_branch_on_merge: true
-      default_branch: main
+settings:
+  # Merged onto base.settings (which sets features + merge options).
+  description: Managed by repo-management
 
-    branch_protection:
-      main:
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-        require_code_owner_reviews: false
-        required_status_checks: [ci]
-        strict_status_checks: true
-        enforce_admins: true
-        required_linear_history: true
-        required_conversation_resolution: true
+rulesets:
+  # Same name as the base ruleset -> replaces it wholesale. This one tightens reviews,
+  # adds a required check, and lets a specific repository role bypass via PRs.
+  - name: main protection
+    target: branch
+    enforcement: active
+    bypass_actors:
+      - {actor_type: RepositoryRole, actor_id: 5, bypass_mode: pull_request}
+    conditions:
+      ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
+    rules:
+      - {type: pull_request, required_approving_review_count: 2, require_code_owner_review: true}
+      - {type: required_status_checks, required_checks: [ci, lint]}
+      - {type: required_linear_history}
+      - {type: non_fast_forward}
+  # A new ruleset (appended to the base's list) protecting release tags.
+  - name: protect release tags
+    target: tag
+    enforcement: active
+    conditions:
+      ref_name: {include: ["refs/tags/v*"], exclude: []}
+    rules:
+      - {type: deletion}
+      - {type: non_fast_forward}
+      - {type: tag_name_pattern, operator: starts_with, pattern: "v"}
 
-    labels:
-      # prune: true would delete any label not listed below.
-      prune: false
-      items:
-        - {name: bug, color: d73a4a, description: Something is not working}
-        - {name: enhancement, color: a2eeef, description: New feature or request}
-        - {name: chore, color: ededed, description: Maintenance work}
+collaborators:
+  # Authoritative: any *direct* collaborator not listed here is removed.
+  - {username: octocat, permission: push}
 
-    collaborators:
-      # Additive: collaborators are added/updated, never removed.
-      - {username: octocat, permission: push}
-
-    webhooks:
-      # Matched by URL; additive (created/updated, never deleted).
-      - url: https://example.com/webhook
-        events: [push, pull_request]
-        active: true
-        content_type: json
-        # secret_from_env reads the value from the named environment variable.
-        secret_from_env: REPO_WEBHOOK_SECRET
-
-    secrets:
-      # Actions secrets. Values are write-only in the API and never printed in plans.
-      - {name: PYPI_TOKEN, value_from_env: PYPI_TOKEN}
+secrets:
+  # Actions secrets. Values are write-only and never printed in plans.
+  - {name: PYPI_TOKEN, value_from_env: PYPI_TOKEN}

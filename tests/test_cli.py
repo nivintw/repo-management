@@ -18,7 +18,7 @@ from repo_management.reconciler import RepoPlan
 
 runner = CliRunner()
 
-VALID = "repos:\n  - name: owner/repo\n"
+VALID = "repos:\n  - owner/repo\n"
 
 
 def write(tmp_path: Path, text: str = VALID) -> Path:
@@ -41,7 +41,7 @@ def test_validate_ok(tmp_path: Path) -> None:
 
 def test_validate_bad(tmp_path: Path) -> None:
     """Validate exits non-zero on an invalid config."""
-    path = write(tmp_path, "repos:\n  - name: nope\n")
+    path = write(tmp_path, "repos:\n  - nope\n")
     result = runner.invoke(cli.app, ["validate", "--config", str(path)])
     assert result.exit_code == 1
 
@@ -79,7 +79,7 @@ def test_plan_repo_filter_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(cli, "plan_config", _capture)
-    path = write(tmp_path, "repos:\n  - name: owner/repo\n  - name: owner/other\n")
+    path = write(tmp_path, "repos:\n  - owner/repo\n  - owner/other\n")
 
     result = runner.invoke(cli.app, ["plan", "--config", str(path), "--repo", "owner/repo"])
 

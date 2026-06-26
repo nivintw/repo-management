@@ -8,20 +8,20 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from repo_management.changes import Action
-from repo_management.config import RepoConfig, Settings
+from repo_management.config import Settings, SharedConfig
 from repo_management.managers.settings import SettingsManager
 
 
 def test_no_settings_is_noop(repo: MagicMock) -> None:
     """A repo config without a settings section yields no changes."""
-    desired = RepoConfig(name="o/r")
+    desired = SharedConfig()
     assert SettingsManager().plan(repo, desired) == []
 
 
 def test_changed_field_produces_update(repo: MagicMock) -> None:
     """A differing scalar field yields one batched settings change calling repo.edit."""
     repo.description = "old"
-    desired = RepoConfig(name="o/r", settings=Settings(description="new"))
+    desired = SharedConfig(settings=Settings(description="new"))
 
     changes = SettingsManager().plan(repo, desired)
 
@@ -38,14 +38,14 @@ def test_changed_field_produces_update(repo: MagicMock) -> None:
 def test_matching_field_is_skipped(repo: MagicMock) -> None:
     """A field already at the desired value produces no change."""
     repo.has_issues = True
-    desired = RepoConfig(name="o/r", settings=Settings(has_issues=True))
+    desired = SharedConfig(settings=Settings(has_issues=True))
     assert SettingsManager().plan(repo, desired) == []
 
 
 def test_unset_field_is_unmanaged(repo: MagicMock) -> None:
     """Fields left None in config are ignored even if the repo differs."""
     repo.description = "anything"
-    desired = RepoConfig(name="o/r", settings=Settings(private=True))
+    desired = SharedConfig(settings=Settings(private=True))
     repo.private = True
     assert SettingsManager().plan(repo, desired) == []
 
@@ -53,7 +53,7 @@ def test_unset_field_is_unmanaged(repo: MagicMock) -> None:
 def test_topics_change(repo: MagicMock) -> None:
     """A differing topics list yields a sorted-comparison update."""
     repo.get_topics.return_value = ["b", "a"]
-    desired = RepoConfig(name="o/r", settings=Settings(topics=["a", "b", "c"]))
+    desired = SharedConfig(settings=Settings(topics=["a", "b", "c"]))
 
     changes = SettingsManager().plan(repo, desired)
 
@@ -66,7 +66,7 @@ def test_topics_change(repo: MagicMock) -> None:
 def test_topics_unchanged_when_same_set(repo: MagicMock) -> None:
     """Topics differing only by order produce no change."""
     repo.get_topics.return_value = ["b", "a"]
-    desired = RepoConfig(name="o/r", settings=Settings(topics=["a", "b"]))
+    desired = SharedConfig(settings=Settings(topics=["a", "b"]))
     assert SettingsManager().plan(repo, desired) == []
 
 
@@ -75,8 +75,7 @@ def test_multiple_fields(repo: MagicMock) -> None:
     repo.description = "old"
     repo.has_wiki = False
     repo.get_topics.return_value = []
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         settings=Settings(description="new", has_wiki=True, topics=["x"]),
     )
 

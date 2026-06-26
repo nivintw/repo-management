@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from repo_management.managers.branch_protection import BranchProtectionManager
 from repo_management.managers.collaborators import CollaboratorsManager
 from repo_management.managers.labels import LabelsManager
+from repo_management.managers.rulesets import RulesetsManager
 from repo_management.managers.secrets import SecretsManager
 from repo_management.managers.settings import SettingsManager
 from repo_management.managers.webhooks import WebhooksManager
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from repo_management.changes import Change
-    from repo_management.config import RepoConfig
+    from repo_management.config import SharedConfig
 
 
 class Manager(Protocol):
@@ -32,14 +32,14 @@ class Manager(Protocol):
 
     domain: str
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return the changes needed to reconcile this domain for ``repo``."""
         ...
 
 
 MANAGERS: list[Manager] = [
     SettingsManager(),
-    BranchProtectionManager(),
+    RulesetsManager(),
     LabelsManager(),
     CollaboratorsManager(),
     WebhooksManager(),

@@ -11,21 +11,20 @@ import pytest
 from conftest import make_hook
 
 from repo_management.changes import Action
-from repo_management.config import RepoConfig, Webhook
+from repo_management.config import SharedConfig, Webhook
 from repo_management.managers.webhooks import WebhooksManager
 
 
 def test_no_webhooks_is_noop(repo: MagicMock) -> None:
     """A repo config without webhooks yields no changes."""
-    desired = RepoConfig(name="o/r")
+    desired = SharedConfig()
     assert WebhooksManager().plan(repo, desired) == []
 
 
 def test_new_webhook_produces_create(repo: MagicMock) -> None:
     """A new webhook URL not present among existing hooks yields a CREATE change."""
     repo.get_hooks.return_value = []
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[Webhook(url="https://example.com", events=["push"], active=True)],
     )
 
@@ -54,8 +53,7 @@ def test_new_webhook_produces_create(repo: MagicMock) -> None:
 def test_matching_webhook_is_skipped(repo: MagicMock) -> None:
     """An existing webhook with the same configuration produces no change."""
     repo.get_hooks.return_value = [make_hook("https://example.com", ["push"], active=True)]
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[Webhook(url="https://example.com", events=["push"], active=True)],
     )
     assert WebhooksManager().plan(repo, desired) == []
@@ -65,8 +63,7 @@ def test_different_events_produces_update(repo: MagicMock) -> None:
     """An existing webhook with different events yields an UPDATE change."""
     existing = make_hook("https://example.com", ["push"], active=True)
     repo.get_hooks.return_value = [existing]
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[Webhook(url="https://example.com", events=["pull_request"], active=True)],
     )
 
@@ -103,8 +100,7 @@ def test_webhook_with_secret_includes_secret_in_config(
     """A webhook with secret_from_env includes the resolved secret in the hook config."""
     repo.get_hooks.return_value = []
     monkeypatch.setenv("WEBHOOK_SECRET", "supersecret")
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[
             Webhook(
                 url="https://example.com",
@@ -136,8 +132,7 @@ def test_secret_rotation_always_updates(repo: MagicMock, monkeypatch: pytest.Mon
     existing = make_hook("https://example.com", ["push"], active=True)
     repo.get_hooks.return_value = [existing]
     monkeypatch.setenv("WEBHOOK_SECRET", "rotated")
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[
             Webhook(
                 url="https://example.com",
@@ -174,8 +169,7 @@ def test_each_field_difference_triggers_update(repo: MagicMock, existing: MagicM
     so each existing hook above differs in exactly one field.
     """
     repo.get_hooks.return_value = [existing]
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[Webhook(url="https://example.com", events=["push"])],
     )
 
@@ -186,18 +180,44 @@ def test_each_field_difference_triggers_update(repo: MagicMock, existing: MagicM
 
 
 def test_matches_correct_hook_among_many(repo: MagicMock) -> None:
-    """With several existing hooks, the one matching the URL is updated, others untouched."""
+    """With several existing hooks, the URL-matching one is updated; the rest are pruned."""
     other = make_hook("https://other.example/hook", ["push"], active=True)
     target = make_hook("https://example.com/hook", ["push"], active=True)
     repo.get_hooks.return_value = [other, target]
-    desired = RepoConfig(
-        name="o/r",
+    desired = SharedConfig(
         webhooks=[Webhook(url="https://example.com/hook", events=["pull_request"], active=True)],
     )
 
     changes = WebhooksManager().plan(repo, desired)
 
-    assert len(changes) == 1
-    changes[0].apply()
+    actions = {change.target: change.action for change in changes}
+    assert actions == {
+        "webhook:https://example.com/hook": Action.UPDATE,
+        "webhook:https://other.example/hook": Action.DELETE,
+    }
+    for change in changes:
+        change.apply()
     target.edit.assert_called_once()
     other.edit.assert_not_called()
+    other.delete.assert_called_once_with()
+
+
+def test_unlisted_webhook_is_deleted(repo: MagicMock) -> None:
+    """A declared webhooks section is authoritative: a hook absent from it is deleted."""
+    stale = make_hook("https://stale.example/hook", ["push"], active=True)
+    repo.get_hooks.return_value = [stale]
+    desired = SharedConfig(
+        webhooks=[Webhook(url="https://example.com", events=["push"], active=True)],
+    )
+
+    changes = WebhooksManager().plan(repo, desired)
+
+    actions = {change.target: change.action for change in changes}
+    assert actions == {
+        "webhook:https://example.com": Action.CREATE,
+        "webhook:https://stale.example/hook": Action.DELETE,
+    }
+    delete = next(change for change in changes if change.action is Action.DELETE)
+    assert delete.after is None
+    delete.apply()
+    stale.delete.assert_called_once_with()

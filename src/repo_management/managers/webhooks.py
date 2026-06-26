@@ -3,10 +3,11 @@
 
 """Manager for repository webhooks.
 
-Webhooks are matched against existing hooks by their delivery URL. This manager is
-additive: it creates and updates hooks but does not delete hooks absent from the config.
-A webhook secret is write-only in the API and cannot be read back, so a change to *only*
-the secret is not detected; the secret is (re)sent whenever the hook is otherwise updated.
+Webhooks are matched against existing hooks by their delivery URL. A declared ``webhooks``
+section is authoritative: hooks are created and updated to match, and hooks absent from the
+config are deleted. A webhook secret is write-only in the API and cannot be read back, so a
+change to *only* the secret is not detected; the secret is (re)sent whenever the hook is
+otherwise updated.
 """
 
 from __future__ import annotations
@@ -19,18 +20,18 @@ if TYPE_CHECKING:
     from github.Hook import Hook
     from github.Repository import Repository
 
-    from repo_management.config import RepoConfig, Webhook
+    from repo_management.config import SharedConfig, Webhook
 
 _HOOK_NAME = "web"
 
 
 class WebhooksManager:
-    """Create and update webhooks, matched by delivery URL."""
+    """Create, update, and delete webhooks (matched by URL) to match the config."""
 
     domain = "webhooks"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
-        """Return changes to create or update each configured webhook."""
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
+        """Return changes to create, update, and delete webhooks to match the config."""
         if desired.webhooks is None:
             return []
 
@@ -42,7 +43,23 @@ class WebhooksManager:
                 changes.append(self._create(repo, webhook))
             elif _differs(current, webhook):
                 changes.append(self._update(current, webhook))
+
+        wanted = {webhook.url for webhook in desired.webhooks}
+        changes.extend(self._delete(hook) for url, hook in existing.items() if url not in wanted)
         return changes
+
+    def _delete(self, hook: Hook) -> Change:
+        def apply() -> None:
+            hook.delete()
+
+        return Change(
+            domain=self.domain,
+            action=Action.DELETE,
+            target=f"webhook:{hook.config.get('url')}",
+            before=_display_hook(hook),
+            after=None,
+            apply=apply,
+        )
 
     def _create(self, repo: Repository, webhook: Webhook) -> Change:
         config = _config(webhook)

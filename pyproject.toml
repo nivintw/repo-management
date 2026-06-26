@@ -57,6 +57,14 @@ extend-select = ["ALL"]
 # contextual detail (paths, names) better expressed inline.
 ignore = ["D203", "D212", "D401", "COM812", "ISC001", "TRY003"]
 
+[tool.ruff.lint.flake8-type-checking]
+# pydantic resolves field annotations at runtime, so imports used only in model fields
+# must stay at module scope rather than move into a TYPE_CHECKING block.
+runtime-evaluated-base-classes = [
+  "pydantic.BaseModel",
+  "repo_management.base.Strict",
+]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 

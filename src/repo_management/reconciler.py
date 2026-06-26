@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from github.Repository import Repository
 
     from repo_management.changes import Change
-    from repo_management.config import Config, RepoConfig
+    from repo_management.config import Config, SharedConfig
 
 
 @dataclass
@@ -32,7 +32,7 @@ class RepoPlan:
         return not self.changes
 
 
-def plan_repo(repo: Repository, desired: RepoConfig) -> list[Change]:
+def plan_repo(repo: Repository, desired: SharedConfig) -> list[Change]:
     """Aggregate the changes from every manager for one repository."""
     changes: list[Change] = []
     for manager in MANAGERS:
@@ -41,11 +41,11 @@ def plan_repo(repo: Repository, desired: RepoConfig) -> list[Change]:
 
 
 def plan_config(client: Github, config: Config) -> list[RepoPlan]:
-    """Build a :class:`RepoPlan` for each repository in the config."""
+    """Build a :class:`RepoPlan` for each repository, applying the shared config to each."""
     plans: list[RepoPlan] = []
-    for repo_config in config.repos:
-        repo = get_repo(client, repo_config.name)
-        plans.append(RepoPlan(repo_config.name, plan_repo(repo, repo_config)))
+    for name in config.repos:
+        repo = get_repo(client, name)
+        plans.append(RepoPlan(name, plan_repo(repo, config)))
     return plans
 
 

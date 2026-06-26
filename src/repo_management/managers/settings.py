@@ -12,7 +12,7 @@ from repo_management.changes import Action, Change
 if TYPE_CHECKING:
     from github.Repository import Repository
 
-    from repo_management.config import RepoConfig, Settings
+    from repo_management.config import Settings, SharedConfig
 
 
 class SettingsManager:
@@ -20,7 +20,7 @@ class SettingsManager:
 
     domain = "settings"
 
-    def plan(self, repo: Repository, desired: RepoConfig) -> list[Change]:
+    def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return at most one batched settings change plus a topics change."""
         settings = desired.settings
         if settings is None:
