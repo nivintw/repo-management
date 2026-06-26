@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from github import GithubException
 from rich.console import Console
 
 from repo_management.client import get_client
@@ -19,6 +20,8 @@ app = typer.Typer(
     help="YAML-config-driven GitHub repository manager.",
     no_args_is_help=True,
     add_completion=False,
+    # Never dump frame locals on error — they can contain the token or secret values.
+    pretty_exceptions_show_locals=False,
 )
 console = Console()
 err_console = Console(stderr=True)
@@ -66,6 +69,9 @@ def _plans(config: Config, token: str | None) -> list[RepoPlan]:
         return plan_config(client, config)
     except ConfigError as exc:
         raise _fail(str(exc)) from exc
+    except GithubException as exc:
+        msg = f"GitHub API error: {exc.data or exc}"
+        raise _fail(msg) from exc
 
 
 def _print_plan(plan: RepoPlan) -> None:
@@ -116,7 +122,11 @@ def apply(
         msg = "aborted"
         raise _fail(msg)
     for repo_plan in plans:
-        apply_plan(repo_plan)
+        try:
+            apply_plan(repo_plan)
+        except GithubException as exc:
+            msg = f"applying {repo_plan.repo_name}: {exc.data or exc}"
+            raise _fail(msg) from exc
     console.print(f"\n[green]✓ applied {total} change(s)[/green]")
 
 

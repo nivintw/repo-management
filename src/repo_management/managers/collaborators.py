@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 
     from repo_management.config import Collaborator, RepoConfig
 
-# GitHub's permission API reports read/write; the config (and add API) use pull/push.
+# GitHub's role name reports read/write; the config (and add API) use pull/push.
+# triage/maintain/admin are reported verbatim.
 _API_TO_CONFIG = {"read": "pull", "write": "push"}
 _NONE = "none"
 
@@ -46,8 +47,14 @@ class CollaboratorsManager:
         repo: Repository,
         collaborator: Collaborator,
     ) -> Change | None:
-        raw = repo.get_collaborator_permission(collaborator.username)
-        current = _API_TO_CONFIG.get(raw, raw)
+        # The legacy permission field collapses maintain->write and triage->read, which
+        # would never converge for those roles; role_name reports the granular role. A
+        # non-collaborator reports permission "none".
+        if repo.get_collaborator_permission(collaborator.username) == _NONE:
+            current = _NONE
+        else:
+            role = repo.get_collaborator_role_name(collaborator.username)
+            current = _API_TO_CONFIG.get(role, role)
         want = collaborator.permission
         if current == want:
             return None

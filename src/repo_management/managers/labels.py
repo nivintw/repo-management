@@ -36,7 +36,7 @@ class LabelsManager:
             current = existing.get(item.name)
             if current is None:
                 changes.append(self._create(repo, item))
-            elif (current.color, current.description) != (item.color, item.description):
+            elif _label_differs(current, item):
                 changes.append(self._update(current, item))
 
         if desired.labels.prune:
@@ -68,12 +68,16 @@ class LabelsManager:
         def apply() -> None:
             current.edit(item.name, item.color, description=description)
 
+        # An unset description is unmanaged, so the after-state keeps the current value.
+        after_description = (
+            item.description if item.description is not None else current.description
+        )
         return Change(
             domain=self.domain,
             action=Action.UPDATE,
             target=f"label:{item.name}",
             before=_summary(current.color, current.description),
-            after=_summary(item.color, item.description),
+            after=_summary(item.color, after_description),
             apply=apply,
         )
 
@@ -89,6 +93,13 @@ class LabelsManager:
             after=None,
             apply=apply,
         )
+
+
+def _label_differs(current: GhLabel, item: Label) -> bool:
+    """Whether a label needs updating. An unset description is left unmanaged."""
+    if current.color != item.color:
+        return True
+    return item.description is not None and current.description != item.description
 
 
 def _summary(color: str, description: str | None) -> dict[str, Any]:

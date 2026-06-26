@@ -14,7 +14,7 @@ import os
 from typing import TYPE_CHECKING, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -68,11 +68,21 @@ class BranchProtection(_Strict):
 
 
 class Label(_Strict):
-    """A repository issue/PR label."""
+    """A repository issue/PR label.
+
+    ``description`` is unmanaged when omitted (left as-is on GitHub); set it to manage it.
+    """
 
     name: str
     color: str = "ededed"
     description: str | None = None
+
+    @field_validator("color")
+    @classmethod
+    def _normalize_color(cls, value: str) -> str:
+        # GitHub stores hex colors lowercased and without a leading '#'; normalize so the
+        # diff doesn't report a phantom change on every run.
+        return value.lstrip("#").lower()
 
 
 class Labels(_Strict):
@@ -177,6 +187,9 @@ def load_config(path: Path) -> Config:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         msg = f"cannot read config file {path}: {exc}"
+        raise ConfigError(msg) from exc
+    except UnicodeDecodeError as exc:
+        msg = f"config file {path} is not valid UTF-8: {exc}"
         raise ConfigError(msg) from exc
 
     try:

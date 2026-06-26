@@ -52,7 +52,10 @@ class BranchProtectionManager:
         if current is not None and all(current.get(key) == value for key, value in want.items()):
             return None
 
-        kwargs = _edit_kwargs(rules)
+        # edit_protection is a full replace (omitted fields are reset by the API), so the
+        # apply must re-send the live modeled state with the desired fields overlaid —
+        # otherwise managed-by-omission protections (e.g. enforce_admins) would be wiped.
+        kwargs = _edit_kwargs({**(current or {}), **want})
 
         def apply() -> None:
             branch.edit_protection(**kwargs)
@@ -111,18 +114,10 @@ def _read_protection(protection: GhBranchProtection) -> dict[str, Any]:
     return state
 
 
-def _edit_kwargs(rules: BranchProtection) -> dict[str, Any]:
-    """Map config fields onto :meth:`github.Branch.Branch.edit_protection` kwargs."""
-    mapping = {
-        "required_approving_review_count": rules.required_approving_review_count,
-        "dismiss_stale_reviews": rules.dismiss_stale_reviews,
-        "require_code_owner_reviews": rules.require_code_owner_reviews,
-        "contexts": rules.required_status_checks,
-        "strict": rules.strict_status_checks,
-        "enforce_admins": rules.enforce_admins,
-        "required_linear_history": rules.required_linear_history,
-        "allow_force_pushes": rules.allow_force_pushes,
-        "allow_deletions": rules.allow_deletions,
-        "required_conversation_resolution": rules.required_conversation_resolution,
-    }
-    return {key: value for key, value in mapping.items() if value is not None}
+# Config field names that differ from edit_protection's kwarg names.
+_EDIT_RENAME = {"required_status_checks": "contexts", "strict_status_checks": "strict"}
+
+
+def _edit_kwargs(state: dict[str, Any]) -> dict[str, Any]:
+    """Map a config-field-space state dict onto ``edit_protection`` kwargs."""
+    return {_EDIT_RENAME.get(key, key): value for key, value in state.items()}

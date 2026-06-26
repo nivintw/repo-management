@@ -92,6 +92,10 @@ def _config(webhook: Webhook) -> dict[str, str]:
 
 
 def _differs(current: Hook, webhook: Webhook) -> bool:
+    # A configured secret is write-only and can't be diffed, so (like Actions secrets) we
+    # always re-send it — otherwise a secret rotation would be silently skipped.
+    if webhook.secret_from_env is not None:
+        return True
     return (
         sorted(current.events) != sorted(webhook.events)
         or current.active != webhook.active
@@ -101,12 +105,15 @@ def _differs(current: Hook, webhook: Webhook) -> bool:
 
 
 def _display(webhook: Webhook) -> dict[str, Any]:
-    return {
+    display: dict[str, Any] = {
         "events": sorted(webhook.events),
         "active": webhook.active,
         "content_type": webhook.content_type,
         "insecure_ssl": webhook.insecure_ssl,
     }
+    if webhook.secret_from_env is not None:
+        display["secret"] = "(set)"  # noqa: S105 — redaction marker, not a secret value
+    return display
 
 
 def _display_hook(hook: Hook) -> dict[str, Any]:

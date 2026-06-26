@@ -88,7 +88,7 @@ def test_matching_protection_is_skipped(repo: MagicMock) -> None:
 
 
 def test_differing_protection_is_updated(repo: MagicMock) -> None:
-    """A differing field on a protected branch yields an UPDATE change."""
+    """A differing field on a protected branch yields an UPDATE that re-sends live state."""
     branch = repo.get_branch.return_value
     branch.get_protection.return_value = make_protection(enforce_admins=True)
     desired = RepoConfig(
@@ -101,7 +101,45 @@ def test_differing_protection_is_updated(repo: MagicMock) -> None:
     assert len(changes) == 1
     assert changes[0].action is Action.UPDATE
     changes[0].apply()
-    branch.edit_protection.assert_called_once_with(enforce_admins=False)
+    # edit_protection is a full replace, so all live modeled fields are re-sent with the
+    # desired override applied (enforce_admins flipped to False).
+    branch.edit_protection.assert_called_once_with(
+        enforce_admins=False,
+        required_linear_history=False,
+        allow_force_pushes=False,
+        allow_deletions=False,
+        required_conversation_resolution=False,
+    )
+
+
+def test_unmanaged_protections_are_preserved(repo: MagicMock) -> None:
+    """Regression: managing one field must not wipe other live protections."""
+    reviews = MagicMock()
+    reviews.required_approving_review_count = 2
+    reviews.dismiss_stale_reviews = True
+    reviews.require_code_owner_reviews = True
+    branch = repo.get_branch.return_value
+    branch.get_protection.return_value = make_protection(enforce_admins=True, reviews=reviews)
+    # Config manages only required_linear_history.
+    desired = RepoConfig(
+        name="o/r",
+        branch_protection={"main": BranchProtection(required_linear_history=True)},
+    )
+
+    changes = BranchProtectionManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    changes[0].apply()
+    branch.edit_protection.assert_called_once_with(
+        enforce_admins=True,
+        required_linear_history=True,
+        allow_force_pushes=False,
+        allow_deletions=False,
+        required_conversation_resolution=False,
+        required_approving_review_count=2,
+        dismiss_stale_reviews=True,
+        require_code_owner_reviews=True,
+    )
 
 
 def test_status_checks_and_reviews_match(repo: MagicMock) -> None:
@@ -151,7 +189,15 @@ def test_status_checks_differ_triggers_update(repo: MagicMock) -> None:
 
     assert len(changes) == 1
     changes[0].apply()
-    branch.edit_protection.assert_called_once_with(contexts=["ci", "lint"], strict=True)
+    branch.edit_protection.assert_called_once_with(
+        enforce_admins=False,
+        required_linear_history=False,
+        allow_force_pushes=False,
+        allow_deletions=False,
+        required_conversation_resolution=False,
+        contexts=["ci", "lint"],
+        strict=True,
+    )
 
 
 def test_unexpected_github_error_propagates(repo: MagicMock) -> None:

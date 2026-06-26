@@ -12,6 +12,7 @@ import pytest
 from repo_management.config import (
     Config,
     ConfigError,
+    Label,
     RepoConfig,
     Secret,
     Webhook,
@@ -104,6 +105,20 @@ def test_non_mapping_root(tmp_path: Path) -> None:
     path = write(tmp_path, "- just\n- a\n- list\n")
     with pytest.raises(ConfigError, match="must be a mapping"):
         load_config(path)
+
+
+def test_non_utf8_file(tmp_path: Path) -> None:
+    """A non-UTF-8 config file raises ConfigError, not an uncaught UnicodeDecodeError."""
+    path = tmp_path / "config.yaml"
+    path.write_bytes(b"\xff\xfe repos: []")
+    with pytest.raises(ConfigError, match="not valid UTF-8"):
+        load_config(path)
+
+
+def test_label_color_normalized() -> None:
+    """Label color is lowercased and stripped of a leading '#'."""
+    assert Label(name="bug", color="#FF00AA").color == "ff00aa"
+    assert Label(name="bug", color="EDEDED").color == "ededed"
 
 
 def test_secret_requires_exactly_one_source() -> None:

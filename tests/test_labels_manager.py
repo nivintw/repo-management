@@ -108,3 +108,36 @@ def test_no_prune_keeps_extra_labels(repo: MagicMock) -> None:
     repo.get_labels.return_value = [existing]
 
     assert LabelsManager().plan(repo, desired) == []
+
+
+def test_unset_description_is_unmanaged(repo: MagicMock) -> None:
+    """Regression: omitting description must not perpetually diff a label that has one."""
+    existing = make_label(name="bug", color="d73a49", description="GitHub's default text")
+    desired = RepoConfig(name="o/r", labels=Labels(items=[Label(name="bug", color="d73a49")]))
+    repo.get_labels.return_value = [existing]
+
+    assert LabelsManager().plan(repo, desired) == []
+
+
+def test_unset_description_preserved_when_color_changes(repo: MagicMock) -> None:
+    """When only color changes, the unmanaged description is preserved (NotSet) and shown as-is."""
+    existing = make_label(name="bug", color="ffffff", description="keep me")
+    desired = RepoConfig(name="o/r", labels=Labels(items=[Label(name="bug", color="d73a49")]))
+    repo.get_labels.return_value = [existing]
+
+    changes = LabelsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.after == {"color": "d73a49", "description": "keep me"}
+    change.apply()
+    existing.edit.assert_called_once_with("bug", "d73a49", description=GithubObject.NotSet)
+
+
+def test_color_normalized_no_phantom_diff(repo: MagicMock) -> None:
+    """Regression: an uppercase/#-prefixed config color matches GitHub's lowercased color."""
+    existing = make_label(name="bug", color="ff0000", description=None)
+    desired = RepoConfig(name="o/r", labels=Labels(items=[Label(name="bug", color="#FF0000")]))
+    repo.get_labels.return_value = [existing]
+
+    assert LabelsManager().plan(repo, desired) == []

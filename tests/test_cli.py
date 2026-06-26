@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from github import GithubException
 from typer.testing import CliRunner
 
 from repo_management import cli
@@ -104,6 +105,36 @@ def test_plan_token_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(cli, "get_client", _raise)
     result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
+    assert result.exit_code == 1
+
+
+def test_plan_github_error_is_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GithubException during planning exits cleanly, not with a traceback."""
+
+    def _raise(_client: object, _cfg: Config) -> list[RepoPlan]:
+        raise GithubException(403, {"message": "rate limited"}, None)
+
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "plan_config", _raise)
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def test_apply_github_error_is_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GithubException while applying exits cleanly with the repo named."""
+
+    def _raise(_plan: RepoPlan) -> None:
+        raise GithubException(422, {"message": "bad"}, None)
+
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [_change()])])
+    monkeypatch.setattr(cli, "apply_plan", _raise)
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
+
     assert result.exit_code == 1
 
 
