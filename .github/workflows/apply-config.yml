@@ -17,10 +17,10 @@
 #     - granted the permissions the managed sections need: Administration: read+write
 #       (settings, rulesets, collaborators, webhooks), Issues: read+write (labels),
 #       Secrets: read+write (the `secrets:` section), and Variables: read+write (the
-#       `variables:` section). Keep these grants tight: the token step currently INHERITS
-#       them wholesale (a temporary blanket token — see the honest caveat there) while we
-#       discover the Variables permission's API key, after which it'll pin them explicitly.
-#       Until then the App's grant + the repo scope are the only bounds.
+#       `variables:` section). The token step requests exactly these (plus the mandatory
+#       metadata:read) and scopes the token to the managed repos — least-privilege on both
+#       axes. (See that step for why we mint directly and why the Variables key is
+#       `actions_variables`.)
 #   The token below is scoped to the whole owner (no `repositories:` input) so one run can
 #   reach all installed repos, and down-scoped to just those permissions (zizmor github-app).
 #
@@ -85,18 +85,14 @@ jobs:
       - name: Mint an installation token scoped to the managed repos + permissions
         id: app-token
         # Mint the token directly (PyGithub builds the App JWT + finds the installation; the
-        # REST endpoint issues the token), scoped to the exact repo set from the configs.
-        #
-        # HONEST CAVEAT: sending no `permissions` object means the token INHERITS the
-        # installation's full grant — that's the same blanket-token shape zizmor's
-        # github-app audit warns about; it isn't flagged here only because zizmor doesn't
-        # audit a raw API call, NOT because it's actually narrow. We do this deliberately and
-        # temporarily: GitHub returns the granted permissions in the response (logged below),
-        # which tells us the exact API key for the Variables permission (the reason we can't
-        # request it explicitly yet — it isn't `variables`/`permission-variables`). Once we
-        # read that key, a follow-up pins an explicit `permissions` object so the token is
-        # genuinely least-privilege. Until then the bounds are the repo scope + the App's
-        # deliberately-tight grant. Inputs via env, never `${{ }}` in the script.
+        # REST endpoint issues the token), scoped on BOTH axes: the exact repo set from the
+        # configs AND an explicit `permissions` object — so it's genuinely least-privilege,
+        # not a blanket inherit. We mint by hand rather than via actions/create-github-app-token
+        # because that action has no input for the Variables permission. Its API key is
+        # `actions_variables` (NOT `variables` — discovered from a prior run's token response;
+        # that mismatch is why earlier explicit requests 422'd). `contents`/`metadata` are
+        # deliberately omitted — the apply only writes settings/rulesets/labels/secrets/vars.
+        # Inputs arrive via env, never `${{ }}` in the script (zizmor template-injection).
         env:
           CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
@@ -122,7 +118,15 @@ jobs:
           )
           request = urllib.request.Request(
               f"https://api.github.com/app/installations/{installation.id}/access_tokens",
-              data=json.dumps({"repositories": repos}).encode(),  # inherit the install's perms
+              data=json.dumps({
+                  "repositories": repos,
+                  "permissions": {
+                      "administration": "write",       # settings, rulesets, collaborators, webhooks
+                      "issues": "write",               # labels
+                      "secrets": "write",              # secrets section
+                      "actions_variables": "write",    # variables section (key is NOT `variables`)
+                  },
+              }).encode(),
               method="POST",
               headers={
                   "Authorization": f"Bearer {app_auth.create_jwt()}",
