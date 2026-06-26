@@ -57,6 +57,11 @@ rulesets:
       - actor_id: 5 # Repository Admins
         actor_type: RepositoryRole
         bypass_mode: pull_request
+      # The release App signs the commitizen bump commit and pushes it straight to the
+      # default branch — not via a PR — so it must bypass the pull_request requirement.
+      - actor_id: 998885 # nivintw-ci-app (release GitHub App)
+        actor_type: Integration
+        bypass_mode: always
 
   - name: Require ci checks
     target: branch
@@ -74,6 +79,13 @@ rulesets:
           required_checks: ["ci / lint-and-test"],
           strict_required_status_checks_policy: true,
         }
+    bypass_actors:
+      # The release App pushes the signed bump commit directly to the default branch, which
+      # never ran this check — so it must bypass, or every app-signed release is rejected
+      # with "Required status check 'ci / lint-and-test' is expected".
+      - actor_id: 998885 # nivintw-ci-app (release GitHub App)
+        actor_type: Integration
+        bypass_mode: always
 
 variables:
   # Actions variables. Unlike secrets, values are readable, shown in plans, and updated
