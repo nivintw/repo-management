@@ -104,12 +104,25 @@ secrets:
 labels:
   # ⚠️ AUTHORITATIVE: declaring `labels` deletes every label NOT listed here, on every
   # managed repo. Comment this whole section out to leave labels unmanaged instead.
-  - { name: bug, color: d73a4a, description: Something is not working }
-  - { name: enhancement, color: a2eeef, description: New feature or request }
-  - { name: documentation, color: 0075ca, description: Docs improvements }
-  - {
-      name: question,
-      color: d876e3,
-      description: Further information is requested,
-    }
-  - { name: wontfix, color: ffffff, description: This will not be worked on }
+  #
+  # The dev-kit task-tracking taxonomy — three orthogonal axes. An issue carries one
+  # `status:` progression label (with `status:blocked` layered on as an orthogonal flag),
+  # one `type:`, and one `priority:`. Keep this in sync with /dev-kit:handle-task-tracking.
+
+  # status — one of the first four at a time; `blocked` is an orthogonal flag on top.
+  - { name: "status:triage",      color: cccccc, description: Needs triage }
+  - { name: "status:ready",       color: 0e8a16, description: Ready to start }
+  - { name: "status:in-progress", color: fbca04, description: Being worked }
+  - { name: "status:in-review",   color: 1d76db, description: In review }
+  - { name: "status:blocked",     color: b60205, description: Blocked }
+
+  # type — one per issue; mirrors the commit type.
+  - { name: "type:bug",     color: d73a4a, description: Bug fix }
+  - { name: "type:feature", color: a2eeef, description: New feature }
+  - { name: "type:chore",   color: ededed, description: Chore / maintenance }
+  - { name: "type:docs",    color: 0075ca, description: Documentation }
+
+  # priority — one per issue; drives "what's next" from status:ready.
+  - { name: "priority:high",   color: b60205, description: High priority }
+  - { name: "priority:medium", color: fbca04, description: Medium priority }
+  - { name: "priority:low",    color: c5def5, description: Low priority }
