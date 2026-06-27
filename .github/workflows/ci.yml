@@ -4,7 +4,7 @@
 # CI — the shared lint/format/test gate. REUSABLE (on: workflow_call); the triggers
 # live in the callers:
 #   - pr.yml    (on: pull_request)  → this gate. The open-PR pipeline.
-#   - main.yml  (on: push to main)  → this gate, THEN a commitizen release stage.
+#   - main.yml  (on: push to main)  → this gate, THEN a release-please stage.
 # Defining the gate once means both pipelines run the exact same checks.
 #
 # Most prek hooks self-bootstrap their pinned env. taplo + hawkeye are `language:
