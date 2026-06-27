@@ -183,19 +183,14 @@ repos:
         name: "⚙️ uv · Keep uv.lock in sync with pyproject.toml"
 
   # ------------------------------ ✨ Commit Messages -------------------------------- #
-  - repo: https://github.com/ljnsn/cz-conventional-gitmoji
-    rev: v0.7.0
-    hooks:
-      - id: conventional-gitmoji
-        name: "✨ commit-msg · Add gitmoji to conventional commits"
-
+  # Plain Conventional Commits (no gitmoji): release-please derives version bumps from
+  # commit types and cannot parse a leading emoji, so commits must start with the bare type.
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.16.3
     hooks:
       - id: commitizen
-        name: "✨ commit-msg · Enforce Conventional Commits with Gitmoji"
+        name: "✨ commit-msg · Enforce Conventional Commits"
         stages: [commit-msg]
-        additional_dependencies: [cz-conventional-gitmoji]
 
   # --------------------- 🛠️ Local Tools (prek can't bootstrap) ---------------------- #
   - repo: local

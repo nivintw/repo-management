@@ -3,7 +3,9 @@ SPDX-FileCopyrightText: © 2026 Tyler Nivin
 SPDX-License-Identifier: MIT
 -->
 
-<!-- Managed by commitizen. The first release will populate this file. -->
+# Changelog
+
+<!-- release-please manages this file; new releases are prepended above the history below. -->
 
 ## v1.0.0 (2026-06-26)
 
