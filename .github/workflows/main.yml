@@ -44,6 +44,11 @@ concurrency:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
+    with:
+      # Skip the redundant full gate when release-please's version-bump commit lands on main:
+      # it was already validated as the Release PR, so re-running pytest+lint here is wasted
+      # CI minutes. The job still reports success, so the release job's `needs: ci` is intact.
+      skip-quality-gate: ${{ startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, 'release') }}
 
   # Guard: the release job needs the App's Client ID + private key. A secret can't be read
   # in a job-level `if:`, so a step (which CAN see them) reports whether BOTH are present,
@@ -107,4 +112,12 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
-        run: gh pr merge "$(printf '%s' "$RELEASE_PR" | jq -r '.number')" --auto --rebase
+        # Don't turn main red if the repo isn't set up for auto-merge yet: `gh pr merge
+        # --auto` errors when "Allow auto-merge" is off or main has no required status check.
+        # Surface a clear warning instead — the Release PR stays open and merges once the
+        # settings are in place (matching the header's promise that merging main is safe).
+        run: |
+          num="$(printf '%s' "$RELEASE_PR" | jq -r '.number')"
+          if ! gh pr merge "$num" --auto --rebase; then
+            echo "::warning::Could not enable auto-merge on Release PR #${num}. Enable 'Allow auto-merge' + 'Allow rebase merging' and require a status check on main, then merge the PR (manually for now)."
+          fi

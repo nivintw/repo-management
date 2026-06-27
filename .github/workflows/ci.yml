@@ -15,6 +15,15 @@ name: ci
 
 on:
   workflow_call:
+    inputs:
+      skip-quality-gate:
+        description: >-
+          Run the job as a fast no-op (skip the lint/format/test steps) while still
+          reporting success, so callers that gate on this job aren't disrupted. main.yml
+          sets this for release-please's version-bump commit, which was already validated
+          as the Release PR — re-running the full gate on it only burns CI minutes.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,6 +49,7 @@ jobs:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Install osv-scanner (dependency CVE scan — runs inside the prek gate)
+        if: ${{ !inputs.skip-quality-gate }}
         env:
           # renovate: datasource=github-releases depName=google/osv-scanner
           OSV_VERSION: "2.4.0"
@@ -50,6 +60,7 @@ jobs:
           echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
 
       - name: Run prek hooks (same as local)
+        if: ${{ !inputs.skip-quality-gate }}
         env:
           # taplo/hawkeye run as dedicated steps below; no-commit-to-branch is a
           # commit-time guard meaningless in CI (we're checked out on the branch).
@@ -57,6 +68,7 @@ jobs:
         run: uvx prek run --all-files
 
       - name: Check SPDX license headers (hawkeye)
+        if: ${{ !inputs.skip-quality-gate }}
         # renovate: datasource=github-releases depName=korandoru/hawkeye
         run: |
           curl -fsSL https://github.com/korandoru/hawkeye/releases/download/v6.5.1/hawkeye-x86_64-unknown-linux-gnu.tar.xz \
@@ -65,6 +77,7 @@ jobs:
           "$RUNNER_TEMP/hawkeye" check
 
       - name: Check TOML formatting (taplo)
+        if: ${{ !inputs.skip-quality-gate }}
         # renovate: datasource=github-releases depName=tamasfe/taplo
         run: |
           curl -fsSL https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz \
@@ -73,4 +86,5 @@ jobs:
           "$RUNNER_TEMP/taplo" fmt --check --diff
 
       - name: Tests (pytest)
+        if: ${{ !inputs.skip-quality-gate }}
         run: uv run pytest
