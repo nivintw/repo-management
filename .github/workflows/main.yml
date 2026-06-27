@@ -48,7 +48,10 @@ jobs:
       # Skip the redundant full gate when release-please's version-bump commit lands on main:
       # it was already validated as the Release PR, so re-running pytest+lint here is wasted
       # CI minutes. The job still reports success, so the release job's `needs: ci` is intact.
-      skip-quality-gate: ${{ startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, 'release') }}
+      # Match release-please's release-commit format (`chore: release X.Y.Z`, also
+      # `chore(scope): release X.Y.Z`) precisely, so an ordinary "chore: …release…" commit
+      # isn't mistaken for one. A miss just means the (safe) redundant run, never a false skip.
+      skip-quality-gate: "${{ startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, ': release ') }}"
 
   # Guard: the release job needs the App's Client ID + private key. A secret can't be read
   # in a job-level `if:`, so a step (which CAN see them) reports whether BOTH are present,
