@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Shared layer for repos that publish a Python package to PyPI. It extends base.yaml and
+# adds the TWINE upload tokens on top of the shared baseline. A package repo's config opts
+# in by extending THIS file instead of base.yaml directly:
+#
+#     extends: package.yaml
+#     settings: { private: false }   # or true
+#     repos:
+#       - nivintw/some-package
+#
+# Like base.yaml, this is a *layer*, not an applied config: it lists no repos and uses the
+# `.yaml` extension so the apply workflow's `config/*.yml` glob skips it — it only takes
+# effect where another config `extends:` it. First consumer will be ddns (see #22).
+#
+# AUTH: the TWINE secrets below are `value_from_env`, so apply-config.yml's apply step must
+# export TWINE_PYPI_UPLOAD_TOKEN and TWINE_PYPI_TEST_UPLOAD_TOKEN (it does) — otherwise the
+# first config that extends this layer fails on the missing env var.
+
+extends: base.yaml
+
+secrets:
+  # Merged by name on top of base.yaml's secrets (CI_APP_PRIVATE_KEY, GIST_PAT). PyPI upload
+  # tokens for the publish workflow; the test token targets TestPyPI.
+  - { name: TWINE_PYPI_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_UPLOAD_TOKEN }
+  - { name: TWINE_PYPI_TEST_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_TEST_UPLOAD_TOKEN }
