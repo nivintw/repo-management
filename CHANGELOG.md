@@ -7,6 +7,21 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.1.0](https://github.com/nivintw/repo-management/compare/v1.0.3...v1.1.0) (2026-06-28)
+
+
+### Features
+
+* Preview config plans on pull requests ([722f345](https://github.com/nivintw/repo-management/commit/722f3458a359058a1f659560959b833ea3dde514)), closes [#35](https://github.com/nivintw/repo-management/issues/35)
+* Skip already-present secrets on apply, add --force-secrets ([df7f54b](https://github.com/nivintw/repo-management/commit/df7f54b4bfc0303798f44575901c1f0776c643c9)), closes [#37](https://github.com/nivintw/repo-management/issues/37)
+
+
+### Bug Fixes
+
+* Allowlist release-please's autorelease labels fleet-wide ([3d726d4](https://github.com/nivintw/repo-management/commit/3d726d47eb4844f44cbf7ed7b0cf59857588649b))
+* Give the plan token write-level admin so the preview is accurate ([5298ae2](https://github.com/nivintw/repo-management/commit/5298ae28a10292cb286f6f7ab0607d36d91fc0ab))
+* Manage ddns credentials via the package layer ([f85945f](https://github.com/nivintw/repo-management/commit/f85945f4c3f55c8423f440c44f6f736b3fe1a349)), closes [#22](https://github.com/nivintw/repo-management/issues/22)
+
 ## [1.0.3](https://github.com/nivintw/repo-management/compare/v1.0.2...v1.0.3) (2026-06-28)
 
 
