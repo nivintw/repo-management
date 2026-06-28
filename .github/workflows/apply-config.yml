@@ -151,9 +151,14 @@ jobs:
       - name: Apply the configs
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # base.yaml's `secrets:` section sources CI_APP_PRIVATE_KEY via value_from_env, so
-          # the CLI needs it in the environment to propagate it to the managed repos.
+          # Every `value_from_env` secret across the configs must be exported here so the CLI
+          # can propagate it to the managed repos (the API can't read a secret back).
+          #   - CI_APP_PRIVATE_KEY / GIST_PAT: base.yaml, fleet-wide.
+          #   - TWINE_*: package.yaml layer (repos that extend it; first is ddns, see #22).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+          TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
+          TWINE_PYPI_TEST_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_TEST_UPLOAD_TOKEN }}
         run: |
           # Every applied config is a config/*.yml file; base.yaml (note the .yaml
           # extension) is the shared base they extend, so the glob skips it.
