@@ -150,6 +150,13 @@ def test_secret_resolve_missing_env(monkeypatch: pytest.MonkeyPatch) -> None:
         Secret(name="X", value_from_env="MISSING").resolve()
 
 
+def test_secret_resolve_empty_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty environment variable is treated as unset (Actions expands unset secrets to '')."""
+    monkeypatch.setenv("EMPTY", "")
+    with pytest.raises(ConfigError, match="not set or is empty"):
+        Secret(name="X", value_from_env="EMPTY").resolve()
+
+
 def test_variable_requires_exactly_one_source() -> None:
     """A variable with neither or both value sources is rejected."""
     with pytest.raises(ValueError, match="exactly one"):

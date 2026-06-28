@@ -177,9 +177,12 @@ class Config(SharedConfig):
 
 
 def _require_env(name: str) -> str:
+    # Treat empty as unset: in GitHub Actions `${{ secrets.X }}` for an unset secret expands
+    # to "" (the var is defined but empty), so a presence-only check would silently propagate
+    # an empty value to every managed repo. Fail fast instead.
     value = os.environ.get(name)
-    if value is None:
-        msg = f"environment variable {name!r} is not set"
+    if not value:
+        msg = f"environment variable {name!r} is not set or is empty"
         raise ConfigError(msg)
     return value
 
