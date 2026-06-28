@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# repo-management manages the fleet — including ITSELF — and is also the fleet's secret
+# SOURCE: apply-config.yml injects every `value_from_env` secret from THIS repo's Actions
+# secrets into the managed repos, so this repo must itself retain the full union of those
+# secrets. Left in gha-private.yml (which extends base.yaml), base's authoritative
+# `secrets:` (CI_APP_PRIVATE_KEY, GIST_PAT) would prune the package-layer TWINE tokens it
+# holds purely as that source — which is exactly what silently happened once.
+#
+# So it gets its own config extending package.yaml: as a Python package that also vaults the
+# publish tokens, it keeps base's two secrets PLUS TWINE_PYPI_UPLOAD_TOKEN +
+# TWINE_PYPI_TEST_UPLOAD_TOKEN. Extending the layer (rather than re-listing the secrets here)
+# keeps the vault automatically in sync with whatever package.yaml defines. private: true.
+
+extends: package.yaml
+
+settings:
+  private: true
+
+repos:
+  - nivintw/repo-management

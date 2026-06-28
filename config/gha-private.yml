@@ -11,7 +11,9 @@ settings:
   private: true
 
 repos:
-  - nivintw/repo-management
+  # repo-management is private too, but as the fleet's secret source it must retain the
+  # package-layer TWINE tokens that base.yaml's authoritative secrets would prune — so it
+  # has its own config (repo-management.yml) that extends package.yaml.
   - nivintw/ansible-rpi-k3s-node
   - nivintw/assignment-report-generator
   - nivintw/ansible-rpi-nivintw-baseline
