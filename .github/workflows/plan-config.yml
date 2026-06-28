@@ -133,10 +133,12 @@ jobs:
       - name: Plan every config (read-only) and write the diff to the job summary
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # plan resolves each value_from_env secret eagerly to build the change set (it never
-          # transmits the value — only apply writes it). So, exactly like apply, every
-          # value_from_env secret across the configs must be present and non-empty here, or
-          # plan fails fast. Kept in sync with apply-config.yml's apply step.
+          # plan resolves a value_from_env secret only when it would WRITE it — a secret being
+          # created (absent on the target) or re-pushed with --force-secrets; secrets already
+          # present are skipped and never resolved. plan never transmits a value (only apply
+          # writes it). We still export every value_from_env secret the configs reference, since
+          # any of them may need creating on some repo — a missing one fails fast only when a
+          # write actually needs it. Kept in sync with apply-config.yml's apply step.
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
           GIST_PAT: ${{ secrets.GIST_PAT }}
           TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
@@ -145,6 +147,8 @@ jobs:
           NO_COLOR: "1"
           COLUMNS: "200"
         run: |
+          # pipefail so a plan failure propagates through the `| tee` below (tee always exits 0).
+          set -o pipefail
           status=0
           {
             echo "## Config plan — read-only preview"
@@ -161,7 +165,9 @@ jobs:
               echo ""
               echo '```'
             } >>"$GITHUB_STEP_SUMMARY"
-            if ! uv run repo-management plan -c "$cfg" >>"$GITHUB_STEP_SUMMARY" 2>&1; then
+            # tee, not a bare redirect: the diff lands in the rendered job summary AND in the
+            # collapsible step log (under ::group::) for debugging, instead of an empty group.
+            if ! uv run repo-management plan -c "$cfg" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"; then
               status=1
             fi
             echo '```' >>"$GITHUB_STEP_SUMMARY"
