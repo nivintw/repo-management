@@ -99,7 +99,8 @@ secrets:
   # from the CI environment at apply time — the apply-config workflow injects each secret's
   # value into the matching env var (there is no API to read a secret back, so
   # `value_from_env` is how a CI secret reaches the tool). Every `value_from_env` name here
-  # MUST be exported in apply-config.yml's apply step, or apply fails on the missing env var.
+  # MUST be exported — with a non-empty value — in apply-config.yml's apply step; apply fails
+  # fast if the env var is unset or empty (Actions expands an unset secret to "").
   - { name: CI_APP_PRIVATE_KEY, value_from_env: CI_APP_PRIVATE_KEY }
   # GIST_PAT: a PAT for updating coverage-badge (and other badge) gists. Fleet-wide — the
   # scaffold's CI writes a coverage badge to a gist, so every managed repo gets it.

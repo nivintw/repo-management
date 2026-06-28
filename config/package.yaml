@@ -15,8 +15,9 @@
 # effect where another config `extends:` it. First consumer will be ddns (see #22).
 #
 # AUTH: the TWINE secrets below are `value_from_env`, so apply-config.yml's apply step must
-# export TWINE_PYPI_UPLOAD_TOKEN and TWINE_PYPI_TEST_UPLOAD_TOKEN (it does) — otherwise the
-# first config that extends this layer fails on the missing env var.
+# export TWINE_PYPI_UPLOAD_TOKEN and TWINE_PYPI_TEST_UPLOAD_TOKEN (it does) with non-empty
+# values — otherwise the first config that extends this layer fails fast (apply rejects an
+# unset-or-empty env var rather than propagating a blank secret).
 
 extends: base.yaml
 

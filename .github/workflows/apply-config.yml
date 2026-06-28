@@ -152,7 +152,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           # Every `value_from_env` secret across the configs must be exported here so the CLI
-          # can propagate it to the managed repos (the API can't read a secret back).
+          # can propagate it to the managed repos (the API can't read a secret back). apply
+          # fails fast on an unset-or-empty value, so a missing repo secret can't silently
+          # blank one out across the fleet.
           #   - CI_APP_PRIVATE_KEY / GIST_PAT: base.yaml, fleet-wide.
           #   - TWINE_*: package.yaml layer (repos that extend it; first is ddns, see #22).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
