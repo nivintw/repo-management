@@ -172,11 +172,25 @@ def test_variable_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Variable(name="X", value_from_env="MY_VAR").resolve() == "fromenv"
 
 
+def test_variable_resolve_empty_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A variable sourced from an empty env var is treated as unset (shared _require_env)."""
+    monkeypatch.setenv("EMPTY", "")
+    with pytest.raises(ConfigError, match="not set or is empty"):
+        Variable(name="X", value_from_env="EMPTY").resolve()
+
+
 def test_webhook_resolve_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """A webhook secret resolves from the environment, or None when unset."""
     assert Webhook(url="https://e.x").resolve_secret() is None
     monkeypatch.setenv("HOOK_SECRET", "s3cr3t")
     assert Webhook(url="https://e.x", secret_from_env="HOOK_SECRET").resolve_secret() == "s3cr3t"
+
+
+def test_webhook_resolve_empty_secret_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A webhook secret sourced from an empty env var is treated as unset (shared _require_env)."""
+    monkeypatch.setenv("EMPTY", "")
+    with pytest.raises(ConfigError, match="not set or is empty"):
+        Webhook(url="https://e.x", secret_from_env="EMPTY").resolve_secret()
 
 
 # --- extends / merge ---------------------------------------------------------------
