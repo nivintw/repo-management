@@ -7,8 +7,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from conftest import make_secret
+
 from repo_management.changes import Action, Change
-from repo_management.config import Config, Settings, SharedConfig
+from repo_management.config import Config, Secret, Settings, SharedConfig
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config, plan_repo
 
 
@@ -23,6 +25,15 @@ def test_plan_repo_aggregates_managers(repo: MagicMock) -> None:
     targets = {c.target for c in changes}
     assert "settings" in targets
     assert "topics" in targets
+
+
+def test_plan_repo_force_secrets_repushes(repo: MagicMock) -> None:
+    """force_secrets threads through build_managers so existing secrets are re-pushed."""
+    repo.get_secrets.return_value = [make_secret("EXISTING")]
+    desired = SharedConfig(secrets=[Secret(name="EXISTING", value="v")])
+
+    assert plan_repo(repo, desired) == []
+    assert [c.action for c in plan_repo(repo, desired, force_secrets=True)] == [Action.UPDATE]
 
 
 def test_plan_config_builds_a_plan_per_repo() -> None:

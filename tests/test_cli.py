@@ -49,7 +49,9 @@ def test_validate_bad(tmp_path: Path) -> None:
 def test_plan_shows_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Plan prints the changes returned by the reconciler."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
-    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [_change()])])
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change()])]
+    )
 
     result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
 
@@ -61,7 +63,7 @@ def test_plan_shows_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_plan_in_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Plan reports an in-sync repo."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
-    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [])])
+    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
 
     result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
 
@@ -73,7 +75,7 @@ def test_plan_repo_filter_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     """Plan with a matching --repo narrows to that repo."""
     seen: list[int] = []
 
-    def _capture(_client: object, cfg: Config) -> list[RepoPlan]:
+    def _capture(_client: object, cfg: Config, **_kw: object) -> list[RepoPlan]:
         seen.append(len(cfg.repos))
         return [RepoPlan("owner/repo", [])]
 
@@ -111,7 +113,7 @@ def test_plan_token_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 def test_plan_github_error_is_clean(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A GithubException during planning exits cleanly, not with a traceback."""
 
-    def _raise(_client: object, _cfg: Config) -> list[RepoPlan]:
+    def _raise(_client: object, _cfg: Config, **_kw: object) -> list[RepoPlan]:
         raise GithubException(403, {"message": "rate limited"}, None)
 
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
@@ -130,7 +132,9 @@ def test_apply_github_error_is_clean(tmp_path: Path, monkeypatch: pytest.MonkeyP
         raise GithubException(422, {"message": "bad"}, None)
 
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
-    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [_change()])])
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change()])]
+    )
     monkeypatch.setattr(cli, "apply_plan", _raise)
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
@@ -142,7 +146,9 @@ def test_apply_with_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     """Apply --yes applies without prompting."""
     applied: list[str] = []
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
-    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [_change()])])
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change()])]
+    )
     monkeypatch.setattr(cli, "apply_plan", lambda plan: applied.append(plan.repo_name))
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
@@ -152,10 +158,32 @@ def test_apply_with_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert "applied 1 change(s)" in result.stdout
 
 
+def test_apply_force_secrets_threads_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--force-secrets reaches plan_config; without it the flag defaults to False."""
+    seen: list[bool] = []
+
+    def _capture(_client: object, _cfg: Config, *, force_secrets: bool = False) -> list[RepoPlan]:
+        seen.append(force_secrets)
+        return [RepoPlan("owner/repo", [])]
+
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "plan_config", _capture)
+
+    path = str(write(tmp_path))
+    assert runner.invoke(cli.app, ["apply", "--config", path, "--yes"]).exit_code == 0
+    assert (
+        runner.invoke(cli.app, ["apply", "--config", path, "--yes", "--force-secrets"]).exit_code
+        == 0
+    )
+    assert seen == [False, True]
+
+
 def test_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Apply on an in-sync repo does nothing."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
-    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [])])
+    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
     called: list[str] = []
     monkeypatch.setattr(cli, "apply_plan", lambda plan: called.append(plan.repo_name))
 
@@ -169,7 +197,9 @@ def test_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def test_apply_declined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Declining the confirmation aborts with a non-zero exit."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
-    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg: [RepoPlan("owner/repo", [_change()])])
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change()])]
+    )
     applied: list[str] = []
     monkeypatch.setattr(cli, "apply_plan", lambda plan: applied.append(plan.repo_name))
 

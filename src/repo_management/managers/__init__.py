@@ -38,14 +38,21 @@ class Manager(Protocol):
         ...
 
 
-MANAGERS: list[Manager] = [
-    SettingsManager(),
-    RulesetsManager(),
-    LabelsManager(),
-    CollaboratorsManager(),
-    WebhooksManager(),
-    SecretsManager(),
-    VariablesManager(),
-]
+def build_managers(*, force_secrets: bool = False) -> list[Manager]:
+    """Build the ordered manager registry the reconciler runs for each repo.
 
-__all__ = ["MANAGERS", "Manager"]
+    ``force_secrets`` re-pushes existing secret values (rotation) instead of skipping them;
+    every other manager is stateless, so the flag only reaches :class:`SecretsManager`.
+    """
+    return [
+        SettingsManager(),
+        RulesetsManager(),
+        LabelsManager(),
+        CollaboratorsManager(),
+        WebhooksManager(),
+        SecretsManager(force=force_secrets),
+        VariablesManager(),
+    ]
+
+
+__all__ = ["Manager", "build_managers"]
