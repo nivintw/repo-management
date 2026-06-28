@@ -6,12 +6,14 @@
 # merges and apply-config.yml runs it for real on main. This is the preview half the
 # apply-config.yml header promises ("plan runs read-only in PRs"); apply is the deploy half.
 #
-# AUTH: mints an installation token from the same CI App as apply, but requests READ
-# permissions only — genuinely least-privilege for a preview. `plan` resolves each
-# `value_from_env` secret eagerly while building the change set, so the same secret env vars
-# apply exports must be present here too; their VALUES are never transmitted by plan (it only
-# reads current state from the API and prints the diff). On a fork PR, secrets are absent —
-# the preflight gate checks the App key and skips the job cleanly (green, no token mint).
+# AUTH: mints an installation token from the same CI App as apply. The job only ever READS
+# (it runs `plan`, never `apply`), but the token needs `administration: write` — GitHub returns
+# the `allow_*` merge settings and ruleset bypass actors ONLY to write-level admin tokens, so a
+# read-scoped token reports false drift on every repo's settings/rulesets. The other scopes stay
+# read. `plan` resolves a `value_from_env` secret only when it would create (or, with
+# --force-secrets, re-push) it — never transmitting the value — so the same secret env vars apply
+# exports are still provided. On a fork PR, secrets are absent — the preflight gate checks the
+# App key and skips the job cleanly (green, no token mint).
 
 name: plan-config
 
@@ -67,14 +69,16 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Mint a READ-ONLY installation token scoped to the managed repos
+      - name: Mint an installation token (used read-only) scoped to the managed repos
         id: app-token
         # Same bespoke mint as apply-config.yml (we mint by hand because
         # create-github-app-token has no input for the Variables permission, whose API key is
-        # `actions_variables`), but requesting READ permissions only — least-privilege for a
-        # preview. The duplication with apply-config.yml's mint is deliberate, tracked debt:
-        # #35 extracts it into a shared composite action. Inputs arrive via env, never
-        # `${{ }}` in the script (zizmor template-injection).
+        # `actions_variables`). The job only READS (runs `plan`), but `administration` must be
+        # `write`: GitHub returns the `allow_*` merge settings and ruleset bypass actors only to
+        # write-level admin tokens, so a read-scoped token reports false settings/ruleset drift.
+        # The other scopes stay read. The duplication with apply-config.yml's mint is deliberate,
+        # tracked debt: #35 extracts it into a shared composite action. Inputs arrive via env,
+        # never `${{ }}` in the script (zizmor template-injection).
         env:
           CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
@@ -103,7 +107,9 @@ jobs:
               data=json.dumps({
                   "repositories": repos,
                   "permissions": {
-                      "administration": "read",        # settings, rulesets, collaborators, webhooks
+                      # write — but used read-only: GitHub returns allow_* settings + ruleset
+                      # bypass actors ONLY to write-level admin tokens (see step comment).
+                      "administration": "write",       # settings, rulesets, collaborators, webhooks
                       "issues": "read",                # labels
                       "secrets": "read",               # secrets section (names only; values are write-only)
                       "actions_variables": "read",     # variables section (key is NOT `variables`)
@@ -127,7 +133,7 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"token={result['token']}\n")
           granted = ", ".join(f"{k}:{v}" for k, v in sorted(result.get("permissions", {}).items()))
-          print(f"::notice::Read-only token scoped to {len(repos)} repos; permissions: {granted}")
+          print(f"::notice::Token (used read-only) scoped to {len(repos)} repos; permissions: {granted}")
           PY
 
       - name: Plan every config (read-only) and write the diff to the job summary
