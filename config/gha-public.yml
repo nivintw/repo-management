@@ -14,6 +14,5 @@ repos:
   - nivintw/nivintw-claude-skills
   - nivintw/copier-everything
   - nivintw/dotfiles
-  # ddns is public too, but it carries unrelated publish secrets (GIST_SECRET,
-  # TWINE_PYPI_UPLOAD_TOKEN), so it lives in its own config (ddns.yml) that opts out of
-  # secret management to avoid pruning them.
+  # ddns is public too, but as a PyPI package repo it needs the package.yaml layer (TWINE
+  # tokens), which this config doesn't extend — so it lives in its own config (ddns.yml).
