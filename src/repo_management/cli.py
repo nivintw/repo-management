@@ -39,6 +39,14 @@ _TokenOpt = Annotated[
     typer.Option("--token", help="GitHub token (defaults to $GITHUB_TOKEN).", show_default=False),
 ]
 _YesOpt = Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")]
+_ForceSecretsOpt = Annotated[
+    bool,
+    typer.Option(
+        "--force-secrets",
+        help="Re-push existing secret values (for rotation). By default secrets already "
+        "present on the repo are left untouched.",
+    ),
+]
 
 
 def _fail(message: str) -> typer.Exit:
@@ -63,10 +71,10 @@ def _select(config: Config, repo: str | None) -> Config:
     return config.model_copy(update={"repos": [repo]})
 
 
-def _plans(config: Config, token: str | None) -> list[RepoPlan]:
+def _plans(config: Config, token: str | None, *, force_secrets: bool = False) -> list[RepoPlan]:
     try:
         client = get_client(token)
-        return plan_config(client, config)
+        return plan_config(client, config, force_secrets=force_secrets)
     except ConfigError as exc:
         raise _fail(str(exc)) from exc
     except GithubException as exc:
@@ -91,10 +99,16 @@ def validate(config: _ConfigOpt) -> None:
 
 
 @app.command()
-def plan(config: _ConfigOpt, repo: _RepoOpt = None, token: _TokenOpt = None) -> None:
+def plan(
+    config: _ConfigOpt,
+    repo: _RepoOpt = None,
+    token: _TokenOpt = None,
+    *,
+    force_secrets: _ForceSecretsOpt = False,
+) -> None:
     """Show the changes needed to reconcile each repo (no writes)."""
     selected = _select(_load(config), repo)
-    plans = _plans(selected, token)
+    plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
     total = sum(len(item.changes) for item in plans)
@@ -108,10 +122,11 @@ def apply(
     token: _TokenOpt = None,
     *,
     yes: _YesOpt = False,
+    force_secrets: _ForceSecretsOpt = False,
 ) -> None:
     """Apply the planned changes to GitHub."""
     selected = _select(_load(config), repo)
-    plans = _plans(selected, token)
+    plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
     total = sum(len(item.changes) for item in plans)

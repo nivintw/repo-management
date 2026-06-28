@@ -38,17 +38,26 @@ def test_new_secret_produces_create(repo: MagicMock) -> None:
     assert "literalvalue" not in change.describe()
 
 
-def test_existing_secret_produces_update(repo: MagicMock) -> None:
-    """A secret in get_secrets() yields one update change with redacted values."""
+def test_existing_secret_is_skipped(repo: MagicMock) -> None:
+    """A secret already present is left untouched by default — no churn, no resolve."""
+    repo.get_secrets.return_value = [make_secret("EXISTING_SECRET")]
+    # A value_from_env source whose env var is unset would raise if resolved — proving the
+    # skipped secret is never resolved.
+    desired = SharedConfig(secrets=[Secret(name="EXISTING_SECRET", value_from_env="UNSET_VAR")])
+
+    assert SecretsManager().plan(repo, desired) == []
+
+
+def test_force_repushes_existing_secret(repo: MagicMock) -> None:
+    """force=True re-pushes an existing secret as an update (for rotation)."""
     repo.get_secrets.return_value = [make_secret("EXISTING_SECRET")]
     desired = SharedConfig(secrets=[Secret(name="EXISTING_SECRET", value="literalvalue")])
 
-    changes = SecretsManager().plan(repo, desired)
+    changes = SecretsManager(force=True).plan(repo, desired)
 
     assert len(changes) == 1
     change = changes[0]
     assert change.action is Action.UPDATE
-    assert change.target == "secret:EXISTING_SECRET"
     assert (change.before, change.after) == ("(exists)", "(set)")
     assert change.secret is True
     change.apply()

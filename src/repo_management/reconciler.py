@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from repo_management.client import get_repo
-from repo_management.managers import MANAGERS
+from repo_management.managers import build_managers
 
 if TYPE_CHECKING:
     from github import Github
@@ -32,20 +32,22 @@ class RepoPlan:
         return not self.changes
 
 
-def plan_repo(repo: Repository, desired: SharedConfig) -> list[Change]:
+def plan_repo(
+    repo: Repository, desired: SharedConfig, *, force_secrets: bool = False
+) -> list[Change]:
     """Aggregate the changes from every manager for one repository."""
     changes: list[Change] = []
-    for manager in MANAGERS:
+    for manager in build_managers(force_secrets=force_secrets):
         changes.extend(manager.plan(repo, desired))
     return changes
 
 
-def plan_config(client: Github, config: Config) -> list[RepoPlan]:
+def plan_config(client: Github, config: Config, *, force_secrets: bool = False) -> list[RepoPlan]:
     """Build a :class:`RepoPlan` for each repository, applying the shared config to each."""
     plans: list[RepoPlan] = []
     for name in config.repos:
         repo = get_repo(client, name)
-        plans.append(RepoPlan(name, plan_repo(repo, config)))
+        plans.append(RepoPlan(name, plan_repo(repo, config, force_secrets=force_secrets)))
     return plans
 
 
