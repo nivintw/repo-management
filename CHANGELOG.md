@@ -7,6 +7,14 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.0.3](https://github.com/nivintw/repo-management/compare/v1.0.2...v1.0.3) (2026-06-28)
+
+
+### Bug Fixes
+
+* Reject empty env values so unset secrets fail fast ([0516e04](https://github.com/nivintw/repo-management/commit/0516e04cac87e097485b94f5a24baea00b36161f))
+* Track the scaffold repo's rename to copier-batteries-included-template ([4088e44](https://github.com/nivintw/repo-management/commit/4088e447c822608302bd0ff1f327c3fa84042eea)), closes [#29](https://github.com/nivintw/repo-management/issues/29)
+
 ## [1.0.2](https://github.com/nivintw/repo-management/compare/v1.0.1...v1.0.2) (2026-06-28)
 
 
