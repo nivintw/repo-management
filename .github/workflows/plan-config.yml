@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Plan pipeline: on PRs that touch the config, run a READ-ONLY plan of every applied config
+# and surface the diff in the job summary — so a config change is reviewable BEFORE it
+# merges and apply-config.yml runs it for real on main. This is the preview half the
+# apply-config.yml header promises ("plan runs read-only in PRs"); apply is the deploy half.
+#
+# AUTH: mints an installation token from the same CI App as apply, but requests READ
+# permissions only — genuinely least-privilege for a preview. `plan` resolves each
+# `value_from_env` secret eagerly while building the change set, so the same secret env vars
+# apply exports must be present here too; their VALUES are never transmitted by plan (it only
+# reads current state from the API and prints the diff). On a fork PR, secrets are absent —
+# the preflight gate checks the App key and skips the job cleanly (green, no token mint).
+
+name: plan-config
+
+on:
+  pull_request:
+    paths:
+      - config/**
+      - .github/workflows/plan-config.yml
+
+permissions:
+  contents: read
+
+# A newer push to the PR supersedes an in-flight preview; reads are safe to cancel.
+concurrency:
+  group: plan-config-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      plan_enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        # Gate on the App private KEY (a secret), not just CI_CLIENT_ID (a variable, which is
+        # readable even on fork PRs): on a fork PR the secret is absent, so this skips cleanly
+        # rather than letting the token mint fail. Both must be present to plan.
+        env:
+          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
+          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$CI_CLIENT_ID" ] && [ -n "$CI_APP_PRIVATE_KEY" ]; then
+            echo "enabled=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Plan skipped — CI App credentials unavailable (repo unconfigured, or a fork PR without secrets)."
+          fi
+
+  plan:
+    needs: preflight
+    if: needs.preflight.outputs.plan_enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout + uv first (default read-only token) so we can read the configs and derive
+      # the exact repo set BEFORE minting the App token — scoping it to just those repos.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # Read-only gate — don't leave the checkout token in .git/config (zizmor artipacked).
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Mint a READ-ONLY installation token scoped to the managed repos
+        id: app-token
+        # Same bespoke mint as apply-config.yml (we mint by hand because
+        # create-github-app-token has no input for the Variables permission, whose API key is
+        # `actions_variables`), but requesting READ permissions only — least-privilege for a
+        # preview. The duplication with apply-config.yml's mint is deliberate, tracked debt:
+        # #35 extracts it into a shared composite action. Inputs arrive via env, never
+        # `${{ }}` in the script (zizmor template-injection).
+        env:
+          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
+          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          OWNER: ${{ github.repository_owner }}
+          THIS_REPO: ${{ github.event.repository.name }}
+        run: |
+          uv run python - <<'PY'
+          import glob, json, os, urllib.error, urllib.request
+          from pathlib import Path
+
+          from github import Auth, GithubIntegration
+
+          from repo_management.config import load_config
+
+          repos = sorted({
+              repo.split("/", 1)[1]
+              for path in glob.glob("config/*.yml")
+              for repo in load_config(Path(path)).repos
+          })
+          app_auth = Auth.AppAuth(os.environ["CI_CLIENT_ID"], os.environ["CI_APP_PRIVATE_KEY"])
+          installation = GithubIntegration(auth=app_auth).get_repo_installation(
+              os.environ["OWNER"], os.environ["THIS_REPO"],
+          )
+          request = urllib.request.Request(
+              f"https://api.github.com/app/installations/{installation.id}/access_tokens",
+              data=json.dumps({
+                  "repositories": repos,
+                  "permissions": {
+                      "administration": "read",        # settings, rulesets, collaborators, webhooks
+                      "issues": "read",                # labels
+                      "secrets": "read",               # secrets section (names only; values are write-only)
+                      "actions_variables": "read",     # variables section (key is NOT `variables`)
+                  },
+              }).encode(),
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {app_auth.create_jwt()}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request) as response:  # noqa: S310 — fixed api.github.com URL
+                  result = json.load(response)
+          except urllib.error.HTTPError as error:  # surface GitHub's actual reason, not a bare 422
+              detail = error.read().decode("utf-8", "replace")
+              print(f"::error::Token request failed ({error.code}): {detail}")
+              raise SystemExit(1) from error
+          print(f"::add-mask::{result['token']}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"token={result['token']}\n")
+          granted = ", ".join(f"{k}:{v}" for k, v in sorted(result.get("permissions", {}).items()))
+          print(f"::notice::Read-only token scoped to {len(repos)} repos; permissions: {granted}")
+          PY
+
+      - name: Plan every config (read-only) and write the diff to the job summary
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # plan resolves each value_from_env secret eagerly to build the change set (it never
+          # transmits the value — only apply writes it). So, exactly like apply, every
+          # value_from_env secret across the configs must be present and non-empty here, or
+          # plan fails fast. Kept in sync with apply-config.yml's apply step.
+          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+          TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
+          TWINE_PYPI_TEST_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_TEST_UPLOAD_TOKEN }}
+          # Render rich output as plain, wide text for the summary (no TTY in CI).
+          NO_COLOR: "1"
+          COLUMNS: "200"
+        run: |
+          status=0
+          {
+            echo "## Config plan — read-only preview"
+            echo ""
+            echo "_What an apply on \`main\` would change on the live repos. No writes happen here._"
+          } >>"$GITHUB_STEP_SUMMARY"
+          # base.yaml / package.yaml are layers (.yaml), pulled in via extends — the glob skips
+          # them; every applied config is a config/*.yml file.
+          for cfg in config/*.yml; do
+            echo "::group::plan $cfg"
+            {
+              echo ""
+              echo "### \`$cfg\`"
+              echo ""
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
+            if ! uv run repo-management plan -c "$cfg" >>"$GITHUB_STEP_SUMMARY" 2>&1; then
+              status=1
+            fi
+            echo '```' >>"$GITHUB_STEP_SUMMARY"
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: Revoke the installation token
+        # The token isn't auto-revoked (we minted it ourselves, not via the action), so
+        # revoke it at job end rather than leaving it valid for its full hour.
+        if: always() && steps.app-token.outputs.token
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          curl -sS -X DELETE \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/installation/token || true
