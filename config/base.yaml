@@ -131,3 +131,10 @@ labels:
   - { name: "priority:high",   color: b60205, description: High priority }
   - { name: "priority:medium", color: fbca04, description: Medium priority }
   - { name: "priority:low",    color: c5def5, description: Low priority }
+
+  # release-please's release-state labels. It creates these on repos where its release
+  # workflow runs (the scaffold's main.yml); listed here so this authoritative set doesn't
+  # prune them out from under it. Fleet-wide per epic #11 (every repo is moving onto the
+  # scaffold). `color` matches what release-please sets; description left unmanaged.
+  - { name: "autorelease: pending", color: ededed }
+  - { name: "autorelease: tagged",  color: ededed }
