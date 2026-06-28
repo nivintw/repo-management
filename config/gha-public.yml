@@ -12,7 +12,7 @@ settings:
 
 repos:
   - nivintw/nivintw-claude-skills
-  - nivintw/copier-batteries-included-template
+  - nivintw/copier-everything
   - nivintw/dotfiles
   # ddns is public too, but it carries unrelated publish secrets (GIST_SECRET,
   # TWINE_PYPI_UPLOAD_TOKEN), so it lives in its own config (ddns.yml) that opts out of
