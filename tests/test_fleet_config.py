@@ -92,8 +92,8 @@ def test_fleet_repos_is_the_union_of_applied_configs() -> None:
 
     result = fleet_repos(CONFIG_DIR)
 
+    # expected is itself sorted+de-duplicated, so this asserts fleet_repos is too.
     assert result == expected
-    assert result == sorted(set(result)), "fleet must be sorted and de-duplicated"
     assert "nivintw/repo-management" in result, "the control-plane repo is part of the fleet"
 
 
