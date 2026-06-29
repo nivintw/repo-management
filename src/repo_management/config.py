@@ -313,12 +313,13 @@ def load_config(path: Path) -> Config:
 def fleet_repos(config_dir: Path) -> list[str]:
     """Return the managed-repo fleet: the union of every config's ``repos:`` list.
 
-    The authoritative fleet definition, shared by the apply pipeline and the central
-    Renovate runner. Each *applied* config (``config/*.yml``) carries its own ``repos:``
-    list and the fleet is their union; the ``*.yaml`` layer files are only bases that
-    applied configs ``extends:``, so the ``*.yml`` glob deliberately skips them. Loading
-    validates schema only — it never resolves ``value_from_env`` secrets — so this needs
-    no credentials in the environment.
+    The authoritative fleet definition. The central Renovate runner uses it to scope its
+    App token; the apply/plan workflows still inline the same derivation and should be
+    routed through here too (tracked in #39). Each *applied* config (``config/*.yml``)
+    carries its own ``repos:`` list and the fleet is their union; the ``*.yaml`` layer
+    files are only bases that applied configs ``extends:``, so the ``*.yml`` glob
+    deliberately skips them. Loading validates schema only — it never resolves
+    ``value_from_env`` secrets — so this needs no credentials in the environment.
 
     Args:
         config_dir: Directory holding the applied ``*.yml`` config files.
