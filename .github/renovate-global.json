@@ -3,11 +3,22 @@
   "description": [
     "Global (self-hosted admin) config for the central Renovate runner — NOT this repo's own",
     "dependency config (that stays in .github/renovate.json). Loaded by .github/workflows/",
-    "renovate.yml; see its header comment for the full auth/token-scope rationale."
+    "renovate.yml; see its header comment for the full auth/token-scope rationale.",
+    "customEnvVariables.BASE_REF arms the supply-chain tamper gate in the binary-checksum",
+    "postUpgradeTask fleet-wide: scripts/refresh-binary-checksums.sh only activates its gate",
+    "when BASE_REF is set, so it then re-pins a *_SHA256 only when the adjacent *_VERSION",
+    "actually changed vs BASE_REF and FAILS if a SHA changed under an unchanged version (a",
+    "swapped release asset on a fixed tag). origin/HEAD is base-branch-agnostic — it resolves",
+    "to each managed repo's default branch in Renovate's working clone, so `git show",
+    "origin/HEAD:<file>` reads the pre-upgrade version regardless of main/master. Renovate",
+    "injects customEnvVariables into the postUpgradeTask child env directly (no shell executor",
+    "needed); it is NOT in allowedEnv on purpose, so a managed repo's own `env` can't override",
+    "BASE_REF and disarm its gate."
   ],
   "extends": ["config:recommended", ":semanticCommits"],
   "autodiscover": true,
   "onboarding": false,
   "requireConfig": "optional",
-  "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"]
+  "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"],
+  "customEnvVariables": { "BASE_REF": "origin/HEAD" }
 }
