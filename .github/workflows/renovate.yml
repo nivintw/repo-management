@@ -1,0 +1,136 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Central self-hosted Renovate runner for the managed-repo fleet. This control-plane repo runs
+# Renovate on a schedule, authenticated as the CI GitHub App, and opens dependency PRs across
+# every managed repo — replacing reliance on the Mend hosted Renovate app. Running it ourselves
+# unlocks `postUpgradeTasks` (the hosted app forbids them), which lets a bumped binary's
+# *_SHA256 be refreshed inside Renovate's OWN commit (see allowedCommands below + nivintw/
+# copier-everything#88, which this unblocks).
+#
+# AUTH: like apply-config.yml, this writes to OTHER repos, which the default GITHUB_TOKEN can't.
+# It mints an installation token from the CI App (client ID in the CI_CLIENT_ID variable, key in
+# the CI_APP_PRIVATE_KEY secret). Unlike apply-config's bespoke mint, Renovate needs none of the
+# Variables permission (the only reason that mint exists), so we use actions/create-github-app-
+# token directly — it auto-revokes the token at job end. The token is SCOPED to exactly the fleet
+# (`repositories:` derived from config/*.yml, same set apply-config reconciles), so it is the hard
+# boundary on which repos Renovate can touch: a repo the App happens to be installed on but that
+# ISN'T in config/ (e.g. cxxserv/cxxtests) is unreachable. Renovate's `autodiscover` then simply
+# enumerates the repos that scoped token can see — no separate, softer repo filter needed.
+#
+#   The App must hold, and the token requests, least-privilege on these axes:
+#     - Contents: write       — open branches / commit dependency bumps
+#     - Pull requests: write  — open and update the PRs
+#     - Workflows: write      — Renovate edits *_VERSION env vars inside .github/workflows/**,
+#                               which GitHub blocks without this (granted on the App out-of-band)
+#     - Issues: write         — Renovate's dependency dashboard issue + PR labels. (The App
+#                               already holds Issues for apply-config's label management, so this
+#                               needs no extra grant beyond Workflows.)
+#
+# SAFE UNTIL CONFIGURED: a preflight reports whether CI_CLIENT_ID + CI_APP_PRIVATE_KEY are
+# present; every step gates on it, so the workflow SKIPS cleanly (green, no writes) until the
+# App is wired up. First-run safety: dispatch manually with dryRun=true to log the discovered
+# scope and proposed changes WITHOUT opening any PRs.
+
+name: renovate
+
+on:
+  schedule:
+    # Daily at 06:00 UTC. Renovate's own scheduling/limits govern PR cadence beyond this.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: "Dry run — discover repos and log proposed changes without opening/updating PRs."
+        type: boolean
+        default: false
+      logLevel:
+        description: "Renovate log verbosity."
+        type: choice
+        default: "info"
+        options: ["debug", "info", "warn"]
+
+permissions:
+  contents: read
+
+# One fleet run at a time; never cancel an in-flight run (it may be mid-push to a repo).
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    # Cheap fast-skip when the App's client ID isn't set at all.
+    if: vars.CI_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      # A secret can't be read in a job-level `if:`, so require the private key here too: if
+      # CI_CLIENT_ID is set but CI_APP_PRIVATE_KEY isn't, skip cleanly (green run) instead of
+      # failing at token mint. Matches apply-config.yml / refresh-binary-checksums.yml.
+      - name: Preflight — App fully configured?
+        id: preflight
+        env:
+          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$CI_APP_PRIVATE_KEY" ]; then
+            echo "enabled=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Renovate skipped — CI_CLIENT_ID is set but CI_APP_PRIVATE_KEY is missing."
+          fi
+
+      # Checked out so we can read config/ to derive the autodiscover filter and so the Renovate
+      # action can read the global config file from the workspace.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        if: steps.preflight.outputs.enabled == 'true'
+        with:
+          # Read-only checkout — all writes use the App token via the API, not git (zizmor artipacked).
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        if: steps.preflight.outputs.enabled == 'true'
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Derive the fleet repo set from config (for the scoped token)
+        id: fleet
+        if: steps.preflight.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          # The fleet is the union of repos: across config/*.yml — the same set apply-config
+          # reconciles. Scoping the token to exactly these names is what bounds Renovate to the
+          # fleet (and excludes a stray installed repo like cxxserv/cxxtests).
+          names="$(uv run repo-management list-repos --format names)"
+          echo "names=${names}" >>"$GITHUB_OUTPUT"
+          echo "::notice::Renovate token scoped to fleet repos: ${names}"
+
+      - name: Enable dry-run (manual dispatch only)
+        # Set RENOVATE_DRY_RUN only when explicitly requested, so scheduled runs are live and we
+        # never feed Renovate an empty/invalid dryRun value.
+        if: steps.preflight.outputs.enabled == 'true' && inputs.dryRun
+        run: echo "RENOVATE_DRY_RUN=full" >>"$GITHUB_ENV"
+
+      - name: Mint an installation token scoped to the fleet
+        id: app-token
+        if: steps.preflight.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.CI_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          # Scope the token to exactly the fleet (owner defaults to this repo's owner). This is
+          # the security boundary — least-privilege on the repo axis, like apply-config.yml.
+          repositories: ${{ steps.fleet.outputs.names }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+          permission-issues: write
+
+      - name: Run Renovate across the fleet
+        if: steps.preflight.outputs.enabled == 'true'
+        uses: renovatebot/github-action@dd5302ec17783b2fc721b19ae7209b57b1587765 # v46.1.17
+        env:
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          configurationFile: .github/renovate-global.json

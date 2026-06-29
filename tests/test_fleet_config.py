@@ -18,7 +18,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from repo_management.config import Secret, Variable, load_config
+import pytest
+
+from repo_management.config import ConfigError, Secret, Variable, fleet_repos, load_config
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 
@@ -76,3 +78,34 @@ def test_repo_management_vault_holds_every_injected_secret() -> None:
     }
     missing = injected - _names(vault.secrets)
     assert missing == set(), f"vault is missing injected secrets: {missing}"
+
+
+def test_fleet_repos_is_the_union_of_applied_configs() -> None:
+    """fleet_repos returns exactly the union of every config/*.yml ``repos:`` list.
+
+    This set is what the central Renovate runner autodiscovers, so it must equal what the
+    apply pipeline reconciles — every applied config's repos, de-duplicated and sorted.
+    """
+    expected = sorted(
+        {repo for path in CONFIG_DIR.glob("*.yml") for repo in load_config(path).repos}
+    )
+
+    result = fleet_repos(CONFIG_DIR)
+
+    assert result == expected
+    assert result == sorted(set(result)), "fleet must be sorted and de-duplicated"
+    assert "nivintw/repo-management" in result, "the control-plane repo is part of the fleet"
+
+
+def test_fleet_repos_excludes_commented_out_repos() -> None:
+    """Repos commented out in a config (cxxserv/cxxtests) never reach the fleet."""
+    result = fleet_repos(CONFIG_DIR)
+
+    assert "nivintw/cxxserv" not in result
+    assert "nivintw/cxxtests" not in result
+
+
+def test_fleet_repos_errors_on_empty_dir(tmp_path: Path) -> None:
+    """An empty config dir is an error, not a silently-empty (fleet-wiping) filter."""
+    with pytest.raises(ConfigError, match="no applied config files"):
+        fleet_repos(tmp_path)

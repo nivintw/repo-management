@@ -209,6 +209,40 @@ def test_apply_declined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert applied == []
 
 
+def _fleet(tmp_path: Path) -> Path:
+    """Write a two-file config dir (one repo each) and return the directory."""
+    (tmp_path / "a.yml").write_text("repos:\n  - owner/beta\n", encoding="utf-8")
+    (tmp_path / "b.yml").write_text("repos:\n  - owner/alpha\n", encoding="utf-8")
+    # A *.yaml layer must be ignored (it is a base, not an applied config).
+    (tmp_path / "base.yaml").write_text("repos:\n  - owner/should-be-ignored\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_list_repos_lines_sorted(tmp_path: Path) -> None:
+    """list-repos prints the union of *.yml repos, sorted, one per line, skipping *.yaml."""
+    result = runner.invoke(cli.app, ["list-repos", "--config-dir", str(_fleet(tmp_path))])
+
+    assert result.exit_code == 0
+    assert result.stdout == "owner/alpha\nowner/beta\n"
+
+
+def test_list_repos_names_are_owner_relative_csv(tmp_path: Path) -> None:
+    """The names format emits one comma-separated line of bare names for a scoped token."""
+    result = runner.invoke(
+        cli.app, ["list-repos", "--config-dir", str(_fleet(tmp_path)), "--format", "names"]
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "alpha,beta"
+
+
+def test_list_repos_empty_dir_errors(tmp_path: Path) -> None:
+    """An empty config dir exits non-zero rather than printing an empty (fleet-wiping) set."""
+    result = runner.invoke(cli.app, ["list-repos", "--config-dir", str(tmp_path)])
+
+    assert result.exit_code == 1
+
+
 def test_no_args_shows_help() -> None:
     """Invoking with no command prints help."""
     result = runner.invoke(cli.app, [])

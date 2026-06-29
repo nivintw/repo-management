@@ -308,3 +308,36 @@ def load_config(path: Path) -> Config:
     except ValidationError as exc:
         msg = f"invalid configuration in {path}:\n{exc}"
         raise ConfigError(msg) from exc
+
+
+def fleet_repos(config_dir: Path) -> list[str]:
+    """Return the managed-repo fleet: the union of every config's ``repos:`` list.
+
+    This is the authoritative fleet definition. Each *applied* config (``config/*.yml``)
+    carries its own ``repos:`` list and the fleet is their union; the ``*.yaml`` layer
+    files (``base.yaml``, ``package.yaml``) are only bases that applied configs
+    ``extends:``, so the ``*.yml`` glob deliberately skips them — exactly the set the
+    apply pipeline reconciles, and so the precise set the central Renovate runner should
+    autodiscover (commented-out repos like ``cxxserv``/``cxxtests`` are excluded by
+    construction, even from a token that could otherwise see them).
+
+    Loading validates schema only; it never resolves ``value_from_env`` secrets, so this
+    needs no credentials in the environment.
+
+    Args:
+        config_dir: Directory holding the applied ``*.yml`` config files.
+
+    Returns:
+        Every managed ``owner/repo``, sorted and de-duplicated.
+
+    Raises:
+        ConfigError: If no ``*.yml`` config files are found, or any fails to load.
+    """
+    paths = sorted(config_dir.glob("*.yml"))
+    if not paths:
+        msg = f"no applied config files found at {config_dir}/*.yml"
+        raise ConfigError(msg)
+    repos: set[str] = set()
+    for path in paths:
+        repos.update(load_config(path).repos)
+    return sorted(repos)

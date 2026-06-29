@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Global (self-hosted admin) config for the central Renovate runner that manages the whole",
+    "managed-repo fleet from this control-plane repo — NOT this repo's own dependency config",
+    "(that stays in .github/renovate.json). The scheduled .github/workflows/renovate.yml passes",
+    "this file as the global config and authenticates as the CI GitHub App with a token scoped",
+    "to exactly the fleet (repositories: derived from config/*.yml). `autodiscover` then just",
+    "enumerates the repos that scoped token can see, so the token scope — not a soft filter — is",
+    "the boundary on which repos this runner touches."
+  ],
+  "extends": ["config:recommended", ":semanticCommits"],
+  "autodiscover": true,
+  "onboarding": false,
+  "requireConfig": "optional",
+  "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"]
+}

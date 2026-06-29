@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import enum
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +14,7 @@ from github import GithubException
 from rich.console import Console
 
 from repo_management.client import get_client
-from repo_management.config import Config, ConfigError, load_config
+from repo_management.config import Config, ConfigError, fleet_repos, load_config
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config
 
 app = typer.Typer(
@@ -26,9 +27,30 @@ app = typer.Typer(
 console = Console()
 err_console = Console(stderr=True)
 
+
+class ReposFormat(enum.StrEnum):
+    """Output shape for ``list-repos``."""
+
+    lines = "lines"
+    names = "names"
+
+
 _ConfigOpt = Annotated[
     Path,
     typer.Option("--config", "-c", help="Path to the YAML config file.", show_default=False),
+]
+_ConfigDirOpt = Annotated[
+    Path,
+    typer.Option("--config-dir", help="Directory of applied config/*.yml files."),
+]
+_ReposFormatOpt = Annotated[
+    ReposFormat,
+    typer.Option(
+        "--format",
+        "-f",
+        help="lines: owner/repo, one per line. names: bare repo names, comma-separated "
+        "(for a scoped App token's `repositories:`).",
+    ),
 ]
 _RepoOpt = Annotated[
     str | None,
@@ -96,6 +118,33 @@ def validate(config: _ConfigOpt) -> None:
     """Validate the config file without contacting GitHub."""
     loaded = _load(config)
     console.print(f"[green]✓[/green] {config} is valid ({len(loaded.repos)} repo(s))")
+
+
+@app.command(name="list-repos")
+def list_repos(
+    config_dir: _ConfigDirOpt = Path("config"),
+    output_format: _ReposFormatOpt = ReposFormat.lines,
+) -> None:
+    """List the managed-repo fleet: the union of every ``config/*.yml`` ``repos:`` list.
+
+    No network access — reads the configs only. The ``names`` format prints a single
+    comma-separated line of bare repo names, sized to scope the central Renovate runner's
+    GitHub App token to exactly the fleet (``repositories:``), so the token itself — not a
+    soft filter — is the boundary on which repos Renovate can touch.
+    """
+    try:
+        repos = fleet_repos(config_dir)
+    except ConfigError as exc:
+        raise _fail(str(exc)) from exc
+    # Plain stdout (not the rich console): keep machine output unwrapped and unstyled so a
+    # long line survives a narrow CI terminal intact.
+    if output_format is ReposFormat.names:
+        # owner/repo -> repo: create-github-app-token's `repositories:` wants owner-relative
+        # names (the owner is implied by the App installation), like apply-config.yml's mint.
+        typer.echo(",".join(repo.split("/", 1)[1] for repo in repos))
+    else:
+        for repo in repos:
+            typer.echo(repo)
 
 
 @app.command()
