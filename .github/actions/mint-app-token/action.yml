@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # Mint a CI GitHub App installation token, scoped on BOTH axes to least privilege: the exact
-# managed fleet (repo names derived from config/*.yml via repo_management.fleet_repos — the
+# managed fleet (repo names derived from config/*.yml via repo_management.fleet_repo_names — the
 # same authoritative set apply/plan/renovate use) AND an explicit permissions object keyed off
 # `mode`. Minted by hand (PyGithub builds the App JWT + finds the installation; the REST
 # endpoint issues the token) rather than via actions/create-github-app-token, because that
@@ -52,7 +52,7 @@ runs:
       shell: bash
       # Inputs arrive via env, never `${{ }}` interpolation inside the script (zizmor
       # template-injection). The script's CWD is the workspace root (github.workspace), so
-      # fleet_repos(Path("config")) and `uv run` resolve against the checked-out repo.
+      # fleet_repo_names(Path("config")) and `uv run` resolve against the checked-out repo.
       env:
         CI_CLIENT_ID: ${{ inputs.client-id }}
         CI_APP_PRIVATE_KEY: ${{ inputs.private-key }}
