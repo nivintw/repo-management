@@ -104,7 +104,8 @@ jobs:
           # blank one out across the fleet.
           #   - CI_APP_PRIVATE_KEY / GIST_PAT: base.yaml, fleet-wide.
           #   - TWINE_*: package.yaml layer (repos that extend it; first is ddns, see #22).
-          # This set MUST equal the configs' `value_from_env` names; GitHub Actions requires a
+          # This set MUST equal the configs' env-source names (every `value_from_env` plus any
+          # webhook `secret_from_env` — i.e. fleet_env_sources). GitHub Actions requires a
           # literal `${{ secrets.X }}` per secret (so the block can't be derived at runtime),
           # but tests/test_workflow_secrets.py fails CI if this block and plan-config.yml's
           # drift from the configs — so they can't silently fall out of sync (#39).
