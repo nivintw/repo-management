@@ -7,6 +7,19 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.2.0](https://github.com/nivintw/repo-management/compare/v1.1.0...v1.2.0) (2026-06-29)
+
+
+### Features
+
+* Add central self-hosted Renovate runner for the fleet ([73d69da](https://github.com/nivintw/repo-management/commit/73d69da44c81174b397281cbfabfdf594574af60)), closes [#42](https://github.com/nivintw/repo-management/issues/42)
+
+
+### Bug Fixes
+
+* Gate Renovate dry-run on workflow_dispatch event explicitly ([38750de](https://github.com/nivintw/repo-management/commit/38750deaff30df3596a1ab0890ab894fc5dd2326))
+* Reject multi-owner fleets in list-repos --format names ([a1526c8](https://github.com/nivintw/repo-management/commit/a1526c84c422267b73219e5e9ab45ae9ff712939))
+
 ## [1.1.0](https://github.com/nivintw/repo-management/compare/v1.0.3...v1.1.0) (2026-06-28)
 
 
