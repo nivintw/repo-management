@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Publish to PyPI. release-please (main.yml) cuts the `vX.Y.Z` tag + GitHub Release; this
+# job fires on that Release (event `release: published`) and uploads the built dists.
+#
+# LOAD-BEARING: this only fires because release-please in main.yml creates the Release using
+# a GitHub App token, NOT the default GITHUB_TOKEN. Releases created with GITHUB_TOKEN do not
+# trigger downstream workflows, so switching release-please back to GITHUB_TOKEN would
+# silently stop PyPI publishing. Triggering on `release: published` (no `ref:` on checkout)
+# means the build resolves to the release's tag, so `uv build` builds exactly the released
+# version.
+#
+# AUTH — OIDC Trusted Publishing (no long-lived secret). `uv publish` with `id-token: write`
+# and no token uses PyPI Trusted Publishing automatically, which is why no token secret and no
+# `.github/zizmor.yml` ignore are needed. One-time repo setup: add a Trusted Publisher for
+# this distribution on PyPI (project → Publishing) pointing at owner `nivintw`, repo
+# `repo-management`, workflow `publish.yml`. Until that exists, `uv publish` fails loudly on
+# the canonical repo (no silent no-op). Forks skip cleanly via the job `if` below.
+#   Token fallback (if you can't use Trusted Publishing): set a PyPI API token as the repo
+#   secret UV_PUBLISH_TOKEN, pass it as `env: UV_PUBLISH_TOKEN`, and add a `use-trusted-
+#   publishing` ignore for this file in `.github/zizmor.yml`.
+
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    # Skip on forks only. A fork's release shouldn't try (and fail) to publish — it has no
+    # Trusted Publisher configured — and this keeps forks green. We gate on the event payload's
+    # `fork` flag rather than a baked-in `owner/repo` literal on purpose: a literal silently
+    # stops matching if the canonical repo is renamed or transferred (or its answer was typo'd),
+    # turning every release into a green no-op that never publishes. `fork == false` survives a
+    # rename, so the canonical repo keeps publishing; a real misconfig instead fails loudly at
+    # `uv publish` below (no Trusted Publisher → non-zero exit), never a silent skip.
+    # (Written as a bare expression: a job `if:` is already evaluated as one, and GitHub's
+    # dollar-brace expression wrapper would collide with Jinja's delimiters at render time.)
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # OIDC token for PyPI Trusted Publishing
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        # No dependency cache here: this job builds the artifact that gets published, so a
+        # poisoned cache would taint the release (zizmor cache-poisoning). The minor speedup
+        # isn't worth that on a release path. setup-uv caches by default, so disable explicitly.
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
+
+      - name: Build and publish to PyPI (Trusted Publishing)
+        run: |
+          uv build
+          uv publish

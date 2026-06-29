@@ -1,0 +1,22 @@
+{
+  // VS Code workspace settings. Layers VS Code-specific behavior on top of .editorconfig,
+  // which owns indent / whitespace / final-newline hygiene — those rules live there (and the
+  // recommended editorconfig extension feeds them into VS Code), not duplicated here.
+  // Comments are intentional — this file is JSONC, excluded from the check-json hook.
+  "editor.formatOnSave": true,
+  // Don't prompt for a gitmoji; commit tooling handles commit messages.
+  "conventionalCommits.gitmoji": false,
+  "[python]": {
+    // Autofix + organize imports on save, scoped to ruff so a second provider (e.g. Pylance)
+    // doesn't also run and produce an ordering the ruff hook then rejects.
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    },
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  // Test discovery: pytest against tests/ (matches the project's pytest setup).
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+}

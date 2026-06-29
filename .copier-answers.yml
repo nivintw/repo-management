@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
-_commit: v1.0.1
+_commit: v1.4.0
 _src_path: gh:nivintw/copier-everything
 author_email: tyler@nivin.tech
 author_name: Tyler Nivin
@@ -12,15 +12,18 @@ include_docker: false
 include_helm: false
 include_sql: false
 include_terraform: false
+initialize_repository: true
 is_package: true
 license: MIT
 markdown_has_frontmatter: false
 project_description: YAML-config-driven GitHub repository manager
 project_name: Repo Management
 project_slug: repo-management
+publish_to_pypi: true
 python_package: repo_management
 python_source: true
-python_version: '3.13'
+python_version: '3.14'
+repo_name: repo-management
 repo_owner: nivintw
 test_frameworks:
 - pytest

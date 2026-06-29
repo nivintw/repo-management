@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Dead-link check for the Markdown docs (lychee). Kept OUT of the reusable ci.yml gate on
+# purpose: link checking is a network operation (flaky, depends on third-party uptime),
+# whereas ci.yml is the deterministic, offline-reproducible gate. Run it as its own check so
+# branch protection can require `ci` without making a flaky external link block every merge.
+
+name: link-check
+
+on:
+  pull_request:
+    # lychee only crawls Markdown, so a PR touching no docs gains nothing from running it —
+    # and re-crawling every PR needlessly exposes them to third-party-uptime flakiness.
+    # `**/*.md` covers any subdirectory depth; `*.md` covers root-level files — together
+    # they match every Markdown file regardless of how the filter engine treats `**`.
+    paths: ['**/*.md', '*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Check links (lychee)
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
+        with:
+          # --max-retries/--timeout keep a slow-but-valid host (a single transient TIMEOUT)
+          # from reddening the check. Self-referential links are otherwise validated (the repo
+          # exists on GitHub and GITHUB_TOKEN authenticates even a private repo's own URLs), with
+          # one exception: this repo's own /compare/ URLs. release-please's generated CHANGELOG
+          # links to compare/<prev>...<next>, but the <next> tag isn't cut until the Release PR
+          # merges, so it 404s on every Release PR until then (then self-heals) — exclude it.
+          # (lychee excludes mailto: by default.) Scope to Markdown so LICENSES/lockfiles aren't crawled.
+          args: "--no-progress --max-retries 5 --timeout 30 --exclude 'github\\.com/nivintw/repo-management/compare/' '**/*.md'"
+          fail: true
+        env:
+          # Authenticated requests raise GitHub's rate limit, so github.com links don't flake.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
