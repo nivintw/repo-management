@@ -25,7 +25,10 @@ runs:
       # must not be silent either — a swallowed failure leaves the token live for up to its full
       # ~1h lifetime. So warn (don't `|| true`) and still exit 0.
       run: |
-        if ! curl -sS -X DELETE \
+        # --fail: curl exits 0 on an HTTP error status by default (it only fails on transport
+        # errors), so without this a 401/403/404 from the API would look like a successful
+        # revoke. With --fail a non-2xx exits non-zero and trips the warning path below.
+        if ! curl -fsS -X DELETE \
           -H "Authorization: Bearer $TOKEN" \
           -H "Accept: application/vnd.github+json" \
           https://api.github.com/installation/token; then
