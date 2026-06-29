@@ -21,8 +21,9 @@
 #       metadata:read) and scopes the token to the managed repos — least-privilege on both
 #       axes. (See that step for why we mint directly and why the Variables key is
 #       `actions_variables`.)
-#   The token below is scoped to the whole owner (no `repositories:` input) so one run can
-#   reach all installed repos, and down-scoped to just those permissions (zizmor github-app).
+#   The token below is scoped to exactly the managed repos (the `repositories:` set derived
+#   from config/*.yml in the mint step — least-privilege on the repo axis, not the whole owner)
+#   and down-scoped to just those permissions (zizmor github-app).
 #
 # SAFE UNTIL CONFIGURED: a preflight step reports whether CI_CLIENT_ID is present and the
 # apply job gates on it. Until the App's variable + key exist, apply SKIPS cleanly (green
