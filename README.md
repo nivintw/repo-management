@@ -27,9 +27,10 @@ needs the scopes for whatever you manage (repo administration, Actions secrets, 
 ```bash
 export GITHUB_TOKEN=ghp_...
 
-repo-management validate -c examples/repos.yaml   # check the YAML (no network)
-repo-management plan     -c examples/repos.yaml   # show the diff (read-only)
-repo-management apply    -c examples/repos.yaml   # reconcile (prompts before writing)
+repo-management validate  -c examples/repos.yaml   # check the YAML (no network)
+repo-management plan      -c examples/repos.yaml   # show the diff (read-only)
+repo-management apply     -c examples/repos.yaml   # reconcile (prompts before writing)
+repo-management list-repos                         # the managed fleet across config/*.yml (no network)
 ```
 
 Useful flags:
@@ -40,6 +41,11 @@ Useful flags:
 
 `plan` prints one line per change: `+` create, `~` update, `-` delete. Secret values are
 always redacted.
+
+`list-repos` prints the managed fleet — the union of the `repos:` lists across every applied
+`config/*.yml` (the `*.yaml` layer files are bases, not configs, and are skipped). `--format
+names` emits a single comma-separated line of owner-relative names, used to scope the central
+Renovate runner's App token (see [Fleet automation](#fleet-automation)).
 
 ## Config format
 
@@ -121,6 +127,25 @@ for a fully-annotated, working pair.
   in plain text in the plan. Variables take a literal `value:` or `value_from_env:` (same
   shape as secrets, minus the secrecy).
 
+## Fleet automation
+
+Beyond the CLI, this control-plane repo runs scheduled GitHub Actions that operate on the
+whole fleet, authenticating as the CI GitHub App (see each workflow's header comment for the
+details):
+
+- **`apply-config` / `plan-config`** — reconcile the live repos to `config/*.yml`: `apply` on
+  push to `main`, `plan` as a read-only PR preview.
+- **`renovate`** — a central, self-hosted [Renovate] runner that opens dependency-update PRs
+  across the managed fleet on a schedule, replacing the hosted Renovate app (and unlocking
+  `postUpgradeTasks`, so a bumped binary's checksum is refreshed inside Renovate's own commit).
+  It scopes its App token to exactly the fleet — `repo-management list-repos --format names`
+  derives that set from `config/*.yml`, so the same config that drives `apply` is the single
+  source of truth for what Renovate touches. Its global behaviour (autodiscover, onboarding
+  off, the `postUpgradeTasks` command allowlist) lives in
+  [`.github/renovate-global.json`](.github/renovate-global.json), separate from this repo's own
+  dependency policy in [`.github/renovate.json`](.github/renovate.json). Dispatch it manually
+  with **`dryRun`** to preview the scope and proposed changes without opening any PRs.
+
 ## Development
 
 ```bash
@@ -139,3 +164,4 @@ tools** prek can't bootstrap — install them locally too (most are in Homebrew)
 [MIT](LICENSE) — and [REUSE](https://reuse.software)-compliant.
 
 [PyGithub]: https://github.com/PyGithub/PyGithub
+[Renovate]: https://docs.renovatebot.com
