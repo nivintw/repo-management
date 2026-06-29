@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # Mint a CI GitHub App installation token, scoped on BOTH axes to least privilege: the exact
-# managed fleet (repo names derived from config/*.yml via repo_management.fleet_repo_names — the
+# managed fleet (repo names derived from config/*.yml via repo_management.config.fleet_repo_names — the
 # same authoritative set apply/plan/renovate use) AND an explicit permissions object keyed off
 # `mode`. Minted by hand (PyGithub builds the App JWT + finds the installation; the REST
 # endpoint issues the token) rather than via actions/create-github-app-token, because that
@@ -16,7 +16,7 @@
 # REVOKE: composite actions cannot register a post-job step, so this does NOT auto-revoke the
 # token the way create-github-app-token would. Pair every use with the revoke-app-token action
 # in a trailing `if: always()` step. (A JavaScript action *can* declare a `post:` step and
-# self-revoke, but it couldn't reuse `uv run` + repo_management.fleet_repo_names without
+# self-revoke, but it couldn't reuse `uv run` + repo_management.config.fleet_repo_names without
 # reimplementing the fleet derivation and adding a node/ncc toolchain to a Python project — so
 # the composite + companion-revoke split is the deliberate trade to keep the single source of
 # truth.)
