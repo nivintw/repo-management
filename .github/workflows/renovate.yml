@@ -17,6 +17,8 @@
 # boundary on which repos Renovate can touch: a repo the App happens to be installed on but that
 # ISN'T in config/ (e.g. cxxserv/cxxtests) is unreachable. Renovate's `autodiscover` then simply
 # enumerates the repos that scoped token can see — no separate, softer repo filter needed.
+# (Conversely, fail-closed: if config/ lists a repo the App is NOT installed on, the token mint
+# 422s and the whole run fails — install the App on a managed repo before adding it to config/.)
 #
 #   The App must hold, and the token requests, least-privilege on these axes:
 #     - Contents: write       — open branches / commit dependency bumps
