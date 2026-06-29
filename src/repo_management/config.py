@@ -373,10 +373,11 @@ def fleet_repos(config_dir: Path) -> list[str]:
 
 
 def fleet_env_sources(config_dir: Path) -> set[str]:
-    """Return the fleet's ``value_from_env`` set: every env var the applied configs read from.
+    """Return the fleet's env-source set: every env var the applied configs read a value from.
 
-    The union of :meth:`SharedConfig.env_sources` across every applied config — i.e. the env
-    vars the apply/plan workflows must export so the CLI can resolve and propagate them. The
+    The union of :meth:`SharedConfig.env_sources` across every applied config — i.e.
+    ``value_from_env`` (secrets/variables) plus ``secret_from_env`` (webhooks), the env vars
+    the apply/plan workflows must export so the CLI can resolve and propagate them. The
     authoritative set for ``tests/test_workflow_secrets.py`` to check the workflows against,
     derived over the same applied-config set as :func:`fleet_repos` (so the two can't diverge
     on which files count).

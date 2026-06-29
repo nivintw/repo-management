@@ -11,8 +11,10 @@ it used to drift (a new managed secret needed editing the config layer AND both 
 nothing catching a missed spot).
 
 This test closes that gap: it makes ``config/`` the single source of truth and fails CI if
-either workflow's exported secret set drifts from the configs' ``value_from_env`` names. So the
-literal block stays (a GHA invariant) but can no longer silently fall out of sync (#39).
+either workflow's exported secret set drifts from the configs' env-source names — every
+``value_from_env`` (secrets/variables) plus webhook ``secret_from_env``, i.e.
+:func:`~repo_management.config.fleet_env_sources`. So the literal block stays (a GHA
+invariant) but can no longer silently fall out of sync (#39).
 """
 
 from __future__ import annotations

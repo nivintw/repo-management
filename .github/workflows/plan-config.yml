@@ -90,7 +90,8 @@ jobs:
           # writes it). We still export every value_from_env secret the configs reference, since
           # any of them may need creating on some repo — a missing one fails fast only when a
           # write actually needs it. This block must match apply-config.yml's and the configs'
-          # value_from_env set — enforced by tests/test_workflow_secrets.py (#39).
+          # env-source set (every `value_from_env` plus any webhook `secret_from_env`, i.e.
+          # fleet_env_sources) — enforced by tests/test_workflow_secrets.py (#39).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
           GIST_PAT: ${{ secrets.GIST_PAT }}
           TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
