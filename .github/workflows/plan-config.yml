@@ -71,70 +71,15 @@ jobs:
 
       - name: Mint an installation token (used read-only) scoped to the managed repos
         id: app-token
-        # Same bespoke mint as apply-config.yml (we mint by hand because
-        # create-github-app-token has no input for the Variables permission, whose API key is
-        # `actions_variables`). The job only READS (runs `plan`), but `administration` must be
-        # `write`: GitHub returns the `allow_*` merge settings and ruleset bypass actors only to
-        # write-level admin tokens, so a read-scoped token reports false settings/ruleset drift.
-        # The other scopes stay read. The duplication with apply-config.yml's mint is deliberate,
-        # tracked debt: #35 extracts it into a shared composite action. Inputs arrive via env,
-        # never `${{ }}` in the script (zizmor template-injection).
-        env:
-          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
-          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
-          OWNER: ${{ github.repository_owner }}
-          THIS_REPO: ${{ github.event.repository.name }}
-        run: |
-          uv run python - <<'PY'
-          import glob, json, os, urllib.error, urllib.request
-          from pathlib import Path
-
-          from github import Auth, GithubIntegration
-
-          from repo_management.config import load_config
-
-          repos = sorted({
-              repo.split("/", 1)[1]
-              for path in glob.glob("config/*.yml")
-              for repo in load_config(Path(path)).repos
-          })
-          app_auth = Auth.AppAuth(os.environ["CI_CLIENT_ID"], os.environ["CI_APP_PRIVATE_KEY"])
-          installation = GithubIntegration(auth=app_auth).get_repo_installation(
-              os.environ["OWNER"], os.environ["THIS_REPO"],
-          )
-          request = urllib.request.Request(
-              f"https://api.github.com/app/installations/{installation.id}/access_tokens",
-              data=json.dumps({
-                  "repositories": repos,
-                  "permissions": {
-                      # write — but used read-only: GitHub returns allow_* settings + ruleset
-                      # bypass actors ONLY to write-level admin tokens (see step comment).
-                      "administration": "write",       # settings, rulesets, collaborators, webhooks
-                      "issues": "read",                # labels
-                      "secrets": "read",               # secrets section (names only; values are write-only)
-                      "actions_variables": "read",     # variables section (key is NOT `variables`)
-                  },
-              }).encode(),
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {app_auth.create_jwt()}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          try:
-              with urllib.request.urlopen(request) as response:  # noqa: S310 — fixed api.github.com URL
-                  result = json.load(response)
-          except urllib.error.HTTPError as error:  # surface GitHub's actual reason, not a bare 422
-              detail = error.read().decode("utf-8", "replace")
-              print(f"::error::Token request failed ({error.code}): {detail}")
-              raise SystemExit(1) from error
-          print(f"::add-mask::{result['token']}")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"token={result['token']}\n")
-          granted = ", ".join(f"{k}:{v}" for k, v in sorted(result.get("permissions", {}).items()))
-          print(f"::notice::Token (used read-only) scoped to {len(repos)} repos; permissions: {granted}")
-          PY
+        # Shared composite action (see .github/actions/mint-app-token), the same one apply uses.
+        # The job only READS (runs `plan`), so mode: read — note `mode` governs only
+        # issues/secrets/actions_variables; the action always requests `administration: write`
+        # even here (see its `mode` input doc for why a read-only plan still needs it).
+        uses: ./.github/actions/mint-app-token
+        with:
+          client-id: ${{ vars.CI_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          mode: read
 
       - name: Plan every config (read-only) and write the diff to the job summary
         env:
@@ -144,7 +89,8 @@ jobs:
           # present are skipped and never resolved. plan never transmits a value (only apply
           # writes it). We still export every value_from_env secret the configs reference, since
           # any of them may need creating on some repo — a missing one fails fast only when a
-          # write actually needs it. Kept in sync with apply-config.yml's apply step.
+          # write actually needs it. This block must match apply-config.yml's and the configs'
+          # value_from_env set — enforced by tests/test_workflow_secrets.py (#39).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
           GIST_PAT: ${{ secrets.GIST_PAT }}
           TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
@@ -182,13 +128,10 @@ jobs:
           exit $status
 
       - name: Revoke the installation token
-        # The token isn't auto-revoked (we minted it ourselves, not via the action), so
-        # revoke it at job end rather than leaving it valid for its full hour.
+        # The token isn't auto-revoked (we mint it ourselves, not via create-github-app-token,
+        # and a composite action can't register a post-job step), so revoke it at job end via
+        # the shared action rather than leaving it valid for its full hour.
         if: always() && steps.app-token.outputs.token
-        env:
-          TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          curl -sS -X DELETE \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/installation/token || true
+        uses: ./.github/actions/revoke-app-token
+        with:
+          token: ${{ steps.app-token.outputs.token }}

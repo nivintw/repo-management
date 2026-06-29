@@ -85,69 +85,15 @@ jobs:
 
       - name: Mint an installation token scoped to the managed repos + permissions
         id: app-token
-        # Mint the token directly (PyGithub builds the App JWT + finds the installation; the
-        # REST endpoint issues the token), scoped on BOTH axes: the exact repo set from the
-        # configs AND an explicit `permissions` object — so it's genuinely least-privilege,
-        # not a blanket inherit. We mint by hand rather than via actions/create-github-app-token
-        # because that action has no input for the Variables permission. Its API key is
-        # `actions_variables` (NOT `variables` — discovered from a prior run's token response;
-        # that mismatch is why earlier explicit requests 422'd). `contents`/`metadata` are
-        # deliberately omitted — the apply only writes settings/rulesets/labels/secrets/vars.
-        # Inputs arrive via env, never `${{ }}` in the script (zizmor template-injection).
-        env:
-          CI_CLIENT_ID: ${{ vars.CI_CLIENT_ID }}
-          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
-          OWNER: ${{ github.repository_owner }}
-          THIS_REPO: ${{ github.event.repository.name }}
-        run: |
-          uv run python - <<'PY'
-          import glob, json, os, urllib.error, urllib.request
-          from pathlib import Path
-
-          from github import Auth, GithubIntegration
-
-          from repo_management.config import load_config
-
-          repos = sorted({
-              repo.split("/", 1)[1]
-              for path in glob.glob("config/*.yml")
-              for repo in load_config(Path(path)).repos
-          })
-          app_auth = Auth.AppAuth(os.environ["CI_CLIENT_ID"], os.environ["CI_APP_PRIVATE_KEY"])
-          installation = GithubIntegration(auth=app_auth).get_repo_installation(
-              os.environ["OWNER"], os.environ["THIS_REPO"],
-          )
-          request = urllib.request.Request(
-              f"https://api.github.com/app/installations/{installation.id}/access_tokens",
-              data=json.dumps({
-                  "repositories": repos,
-                  "permissions": {
-                      "administration": "write",       # settings, rulesets, collaborators, webhooks
-                      "issues": "write",               # labels
-                      "secrets": "write",              # secrets section
-                      "actions_variables": "write",    # variables section (key is NOT `variables`)
-                  },
-              }).encode(),
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {app_auth.create_jwt()}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          try:
-              with urllib.request.urlopen(request) as response:  # noqa: S310 — fixed api.github.com URL
-                  result = json.load(response)
-          except urllib.error.HTTPError as error:  # surface GitHub's actual reason, not a bare 422
-              detail = error.read().decode("utf-8", "replace")
-              print(f"::error::Token request failed ({error.code}): {detail}")
-              raise SystemExit(1) from error
-          print(f"::add-mask::{result['token']}")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"token={result['token']}\n")
-          granted = ", ".join(f"{k}:{v}" for k, v in sorted(result.get("permissions", {}).items()))
-          print(f"::notice::Token scoped to {len(repos)} repos; permissions: {granted}")
-          PY
+        # Shared composite action (see .github/actions/mint-app-token): scopes the token on
+        # BOTH axes — the exact fleet from config/*.yml AND least-privilege permissions. apply
+        # writes, so mode: write (issues/secrets/actions_variables: write; administration is
+        # always write — see the action). plan-config.yml uses the same action with mode: read.
+        uses: ./.github/actions/mint-app-token
+        with:
+          client-id: ${{ vars.CI_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          mode: write
 
       - name: Apply the configs
         env:
@@ -158,6 +104,10 @@ jobs:
           # blank one out across the fleet.
           #   - CI_APP_PRIVATE_KEY / GIST_PAT: base.yaml, fleet-wide.
           #   - TWINE_*: package.yaml layer (repos that extend it; first is ddns, see #22).
+          # This set MUST equal the configs' `value_from_env` names; GitHub Actions requires a
+          # literal `${{ secrets.X }}` per secret (so the block can't be derived at runtime),
+          # but tests/test_workflow_secrets.py fails CI if this block and plan-config.yml's
+          # drift from the configs — so they can't silently fall out of sync (#39).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
           GIST_PAT: ${{ secrets.GIST_PAT }}
           TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
@@ -172,13 +122,10 @@ jobs:
           done
 
       - name: Revoke the installation token
-        # The token isn't auto-revoked (we minted it ourselves, not via the action), so
-        # revoke it at job end rather than leaving it valid for its full hour.
+        # The token isn't auto-revoked (we mint it ourselves, not via create-github-app-token,
+        # and a composite action can't register a post-job step), so revoke it at job end via
+        # the shared action rather than leaving it valid for its full hour.
         if: always() && steps.app-token.outputs.token
-        env:
-          TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          curl -sS -X DELETE \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/installation/token || true
+        uses: ./.github/actions/revoke-app-token
+        with:
+          token: ${{ steps.app-token.outputs.token }}

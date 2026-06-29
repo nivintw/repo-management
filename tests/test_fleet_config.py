@@ -20,7 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from repo_management.config import ConfigError, Secret, Variable, fleet_repos, load_config
+from repo_management.config import (
+    ConfigError,
+    Secret,
+    Variable,
+    fleet_repo_names,
+    fleet_repos,
+    load_config,
+)
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 
@@ -109,3 +116,23 @@ def test_fleet_repos_errors_on_empty_dir(tmp_path: Path) -> None:
     """An empty config dir is an error, not a silently-empty (fleet-wiping) filter."""
     with pytest.raises(ConfigError, match="no applied config files"):
         fleet_repos(tmp_path)
+
+
+def test_fleet_repo_names_strips_owner_for_a_single_owner_fleet() -> None:
+    """fleet_repo_names returns the fleet as bare, owner-stripped names (token scope)."""
+    full = fleet_repos(CONFIG_DIR)
+    names = fleet_repo_names(CONFIG_DIR)
+
+    assert "repo-management" in names
+    assert all("/" not in name for name in names), names
+    # Same membership as fleet_repos, just owner-stripped.
+    assert names == [repo.split("/", 1)[1] for repo in full]
+
+
+def test_fleet_repo_names_rejects_multi_owner_fleet(tmp_path: Path) -> None:
+    """A multi-owner fleet can't scope a per-owner App token — fail loud, never scope it wrong."""
+    (tmp_path / "a.yml").write_text("repos:\n  - alice/svc\n", encoding="utf-8")
+    (tmp_path / "b.yml").write_text("repos:\n  - bob/svc\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="single-owner fleet"):
+        fleet_repo_names(tmp_path)

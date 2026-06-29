@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Revoke an installation token minted by the mint-app-token action. mint-app-token is a
+# composite action, which cannot register a post-job step, so it can't auto-revoke the token
+# the way actions/create-github-app-token would. Call this in a trailing `if: always()` step
+# so the token is revoked at job end rather than left valid for its full hour.
+
+name: Revoke CI App installation token
+description: Revoke an installation token minted by the mint-app-token action.
+
+inputs:
+  token:
+    description: The installation token to revoke (mint-app-token's `token` output).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Revoke installation token
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      # Best-effort: a failed revoke must NOT fail the job (the real work already ran), but it
+      # must not be silent either — a swallowed failure leaves the token live for up to its full
+      # ~1h lifetime. So warn (don't `|| true`) and still exit 0.
+      run: |
+        if ! curl -sS -X DELETE \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          https://api.github.com/installation/token; then
+          echo "::warning::Failed to revoke the installation token; it will expire on its own within ~1h."
+        fi

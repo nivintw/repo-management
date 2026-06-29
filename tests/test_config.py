@@ -73,6 +73,36 @@ secrets:
     assert config.labels[0].name == "bug"
 
 
+def test_env_sources_unions_secret_variable_and_webhook_names(tmp_path: Path) -> None:
+    """env_sources() returns every value_from_env / secret_from_env across all sections."""
+    config = load_config(
+        write(
+            tmp_path,
+            """
+repos:
+  - owner/repo
+secrets:
+  - {name: TOK, value_from_env: TOK_ENV}
+  - {name: INLINE, value: literal}
+variables:
+  - {name: VAR, value_from_env: VAR_ENV}
+webhooks:
+  - {url: https://e.x/hook, secret_from_env: HOOK_ENV}
+""",
+        )
+    )
+    # Only env-backed values appear; the inline-valued secret contributes nothing.
+    assert config.env_sources() == {"TOK_ENV", "VAR_ENV", "HOOK_ENV"}
+
+
+def test_env_sources_empty_without_env_backed_values(tmp_path: Path) -> None:
+    """A config whose values are all inline (or absent) has an empty env_sources set."""
+    config = load_config(
+        write(tmp_path, "repos:\n  - owner/repo\nsecrets:\n  - {name: T, value: x}\n")
+    )
+    assert config.env_sources() == set()
+
+
 def test_repos_required(tmp_path: Path) -> None:
     """A config with no repos is rejected."""
     with pytest.raises(ConfigError):
