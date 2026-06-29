@@ -6,7 +6,9 @@
 # every managed repo — replacing reliance on the Mend hosted Renovate app. Running it ourselves
 # unlocks `postUpgradeTasks` (the hosted app forbids them), which lets a bumped binary's
 # *_SHA256 be refreshed inside Renovate's OWN commit (see allowedCommands below + nivintw/
-# copier-everything#88, which this unblocks).
+# copier-everything#88, which this unblocks). The supply-chain tamper gate on that refresh is
+# armed fleet-wide via `customEnvVariables.BASE_REF` in renovate-global.json (see that file) —
+# without it the postUpgradeTask would run the script bare and silently re-pin a swapped asset.
 #
 # AUTH: like apply-config.yml, this writes to OTHER repos, which the default GITHUB_TOKEN can't.
 # It mints an installation token from the CI App (client ID in the CI_CLIENT_ID variable, key in
