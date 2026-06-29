@@ -14,7 +14,13 @@ from github import GithubException
 from rich.console import Console
 
 from repo_management.client import get_client
-from repo_management.config import Config, ConfigError, fleet_repos, load_config
+from repo_management.config import (
+    Config,
+    ConfigError,
+    fleet_repo_names,
+    fleet_repos,
+    load_config,
+)
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config
 
 app = typer.Typer(
@@ -132,29 +138,19 @@ def list_repos(
     GitHub App token to exactly the fleet (``repositories:``), so the token itself — not a
     soft filter — is the boundary on which repos Renovate can touch.
     """
-    try:
-        repos = fleet_repos(config_dir)
-    except ConfigError as exc:
-        raise _fail(str(exc)) from exc
     # Plain stdout (not the rich console): keep machine output unwrapped and unstyled so a
     # long line survives a narrow CI terminal intact.
-    if output_format is ReposFormat.names:
-        # owner/repo -> repo: create-github-app-token's `repositories:` is owner-relative (a
-        # GitHub App installation is per-owner, so one token can't span owners). fleet_repos
-        # doesn't enforce a single owner, so make that precondition explicit and fail LOUD —
-        # stripping the owner silently would scope the token to the wrong owner's same-named
-        # repo (or 422 the mint), per apply-config.yml's mint.
-        owners = {repo.split("/", 1)[0] for repo in repos}
-        if len(owners) > 1:
-            msg = (
-                "--format names needs a single-owner fleet (a GitHub App token is per-owner); "
-                f"found {len(owners)} owners: {', '.join(sorted(owners))}"
-            )
-            raise _fail(msg)
-        typer.echo(",".join(repo.split("/", 1)[1] for repo in repos))
-    else:
-        for repo in repos:
-            typer.echo(repo)
+    try:
+        if output_format is ReposFormat.names:
+            # Bare names for a scoped App token's owner-relative `repositories:`; fleet_repo_names
+            # enforces the single-owner precondition (a GitHub App token is per-owner) and is the
+            # same derivation apply/plan's token mint uses.
+            typer.echo(",".join(fleet_repo_names(config_dir)))
+        else:
+            for repo in fleet_repos(config_dir):
+                typer.echo(repo)
+    except ConfigError as exc:
+        raise _fail(str(exc)) from exc
 
 
 @app.command()

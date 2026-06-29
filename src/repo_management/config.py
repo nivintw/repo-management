@@ -160,6 +160,26 @@ class SharedConfig(Strict):
     secrets: list[Secret] | None = None
     variables: list[Variable] | None = None
 
+    def env_sources(self) -> set[str]:
+        """Return every environment-variable name this config reads a value from.
+
+        The union of ``value_from_env`` across ``secrets`` and ``variables`` plus
+        ``secret_from_env`` across ``webhooks`` — i.e. the env vars that must be set for an
+        apply/plan of this config to resolve its values. The apply/plan workflows must export
+        exactly the fleet's union of these (enforced by ``tests/test_workflow_secrets.py``).
+        """
+        names: set[str] = set()
+        for secret in self.secrets or []:
+            if secret.value_from_env is not None:
+                names.add(secret.value_from_env)
+        for variable in self.variables or []:
+            if variable.value_from_env is not None:
+                names.add(variable.value_from_env)
+        for webhook in self.webhooks or []:
+            if webhook.secret_from_env is not None:
+                names.add(webhook.secret_from_env)
+        return names
+
 
 class Config(SharedConfig):
     """Top-level config: the repositories to manage plus the shared section block."""
@@ -310,16 +330,32 @@ def load_config(path: Path) -> Config:
         raise ConfigError(msg) from exc
 
 
-def fleet_repos(config_dir: Path) -> list[str]:
-    """Return the managed-repo fleet: the union of every config's ``repos:`` list.
+def _applied_config_paths(config_dir: Path) -> list[Path]:
+    """The applied config files: every ``config/*.yml``, sorted, with the empty-dir guard.
 
-    The authoritative fleet definition. The central Renovate runner uses it to scope its
-    App token; the apply/plan workflows still inline the same derivation and should be
-    routed through here too (tracked in #39). Each *applied* config (``config/*.yml``)
-    carries its own ``repos:`` list and the fleet is their union; the ``*.yaml`` layer
-    files are only bases that applied configs ``extends:``, so the ``*.yml`` glob
-    deliberately skips them. Loading validates schema only — it never resolves
-    ``value_from_env`` secrets — so this needs no credentials in the environment.
+    The single definition of "which files are applied configs": each carries its own
+    ``repos:`` list and section block, and the fleet derivations are unions over them. The
+    ``*.yaml`` layer files are only bases that applied configs ``extends:``, so the ``*.yml``
+    glob deliberately skips them. An empty result is an error, not a silently-empty (and so
+    fleet-wiping / fleet-blanking) set — every fleet derivation inherits that guard from here.
+
+    Raises:
+        ConfigError: If no ``*.yml`` config files are found.
+    """
+    paths = sorted(config_dir.glob("*.yml"))
+    if not paths:
+        msg = f"no applied config files found at {config_dir}/*.yml"
+        raise ConfigError(msg)
+    return paths
+
+
+def fleet_repos(config_dir: Path) -> list[str]:
+    """Return the managed-repo fleet: the union of every applied config's ``repos:`` list.
+
+    The authoritative fleet definition. The central Renovate runner and the apply/plan token
+    mint both scope their App token through it (the latter via :func:`fleet_repo_names`).
+    Loading validates schema only — it never resolves ``value_from_env`` secrets — so this
+    needs no credentials in the environment.
 
     Args:
         config_dir: Directory holding the applied ``*.yml`` config files.
@@ -330,11 +366,61 @@ def fleet_repos(config_dir: Path) -> list[str]:
     Raises:
         ConfigError: If no ``*.yml`` config files are found, or any fails to load.
     """
-    paths = sorted(config_dir.glob("*.yml"))
-    if not paths:
-        msg = f"no applied config files found at {config_dir}/*.yml"
-        raise ConfigError(msg)
     repos: set[str] = set()
-    for path in paths:
+    for path in _applied_config_paths(config_dir):
         repos.update(load_config(path).repos)
     return sorted(repos)
+
+
+def fleet_env_sources(config_dir: Path) -> set[str]:
+    """Return the fleet's ``value_from_env`` set: every env var the applied configs read from.
+
+    The union of :meth:`SharedConfig.env_sources` across every applied config — i.e. the env
+    vars the apply/plan workflows must export so the CLI can resolve and propagate them. The
+    authoritative set for ``tests/test_workflow_secrets.py`` to check the workflows against,
+    derived over the same applied-config set as :func:`fleet_repos` (so the two can't diverge
+    on which files count).
+
+    Args:
+        config_dir: Directory holding the applied ``*.yml`` config files.
+
+    Returns:
+        Every env-var name sourced across the fleet's secrets/variables/webhooks.
+
+    Raises:
+        ConfigError: If no ``*.yml`` config files are found, or any fails to load.
+    """
+    names: set[str] = set()
+    for path in _applied_config_paths(config_dir):
+        names |= load_config(path).env_sources()
+    return names
+
+
+def fleet_repo_names(config_dir: Path) -> list[str]:
+    """Return the fleet as bare repo names (owner stripped), for a per-owner App token.
+
+    A scoped GitHub App token's ``repositories:`` is owner-relative — an App installation is
+    per-owner, so one token can't span owners. This wraps :func:`fleet_repos` and strips the
+    owner, but first enforces a single-owner fleet and fails LOUD on more than one: silently
+    stripping a multi-owner fleet would scope the token to the wrong owner's same-named repo
+    (or 422 the mint). The central Renovate runner (``list-repos --format names``) and the
+    apply/plan token mint both derive their scope through here, so the rule lives in one place.
+
+    Args:
+        config_dir: Directory holding the applied ``*.yml`` config files.
+
+    Returns:
+        Every managed repo's bare name, sorted and de-duplicated.
+
+    Raises:
+        ConfigError: If no configs are found, any fails to load, or the fleet spans >1 owner.
+    """
+    repos = fleet_repos(config_dir)
+    owners = {repo.split("/", 1)[0] for repo in repos}
+    if len(owners) > 1:
+        msg = (
+            "a single-owner fleet is required to derive bare repo names (a GitHub App token "
+            f"is per-owner); found {len(owners)} owners: {', '.join(sorted(owners))}"
+        )
+        raise ConfigError(msg)
+    return [repo.split("/", 1)[1] for repo in repos]

@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Mint a CI GitHub App installation token, scoped on BOTH axes to least privilege: the exact
+# managed fleet (repo names derived from config/*.yml via repo_management.fleet_repos — the
+# same authoritative set apply/plan/renovate use) AND an explicit permissions object keyed off
+# `mode`. Minted by hand (PyGithub builds the App JWT + finds the installation; the REST
+# endpoint issues the token) rather than via actions/create-github-app-token, because that
+# action has no input for the Variables permission — whose API key is `actions_variables`, NOT
+# `variables` (a mismatch that 422s if requested as `variables`).
+#
+# PREREQUISITES — the calling job MUST run these earlier steps first:
+#   - actions/checkout (so config/ and the package source are in the workspace), and
+#   - astral-sh/setup-uv (so `uv run` works).
+#
+# REVOKE: composite actions cannot register a post-job step, so this does NOT auto-revoke the
+# token the way create-github-app-token would. Pair every use with the revoke-app-token action
+# in a trailing `if: always()` step. (A JavaScript action *can* declare a `post:` step and
+# self-revoke, but it couldn't reuse `uv run` + repo_management.fleet_repo_names without
+# reimplementing the fleet derivation and adding a node/ncc toolchain to a Python project — so
+# the composite + companion-revoke split is the deliberate trade to keep the single source of
+# truth.)
+
+name: Mint CI App installation token
+description: Mint a fleet-scoped, least-privilege CI App installation token (apply=write / plan=read).
+
+inputs:
+  client-id:
+    description: CI App client ID (the CI_CLIENT_ID repository variable).
+    required: true
+  private-key:
+    description: CI App private key (the CI_APP_PRIVATE_KEY secret).
+    required: true
+  mode:
+    description: >-
+      'write' (apply) or 'read' (plan): the level requested for issues/secrets/actions_variables.
+      `administration` is ALWAYS write — GitHub returns the allow_* merge settings and ruleset
+      bypass actors only to write-level admin tokens, so even a read-only plan needs write here
+      or it reports false settings/ruleset drift on every repo.
+    required: true
+
+outputs:
+  token:
+    description: The scoped installation token. Revoke at job end via the revoke-app-token action.
+    value: ${{ steps.mint.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint installation token
+      id: mint
+      shell: bash
+      # Inputs arrive via env, never `${{ }}` interpolation inside the script (zizmor
+      # template-injection). The script's CWD is the workspace root (github.workspace), so
+      # fleet_repos(Path("config")) and `uv run` resolve against the checked-out repo.
+      env:
+        CI_CLIENT_ID: ${{ inputs.client-id }}
+        CI_APP_PRIVATE_KEY: ${{ inputs.private-key }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        uv run python - <<'PY'
+        import json, os, urllib.error, urllib.request
+        from pathlib import Path
+
+        from github import Auth, GithubIntegration
+
+        from repo_management.config import fleet_repo_names
+
+        mode = os.environ["MODE"]
+        if mode not in {"read", "write"}:
+            print(f"::error::mint-app-token: mode must be 'read' or 'write', got {mode!r}")
+            raise SystemExit(1)
+
+        # GITHUB_REPOSITORY ("owner/repo", always set by Actions) locates the App installation
+        # — the repo running this workflow is where the CI App is installed.
+        owner, this_repo = os.environ["GITHUB_REPOSITORY"].split("/", 1)
+
+        # The fleet is the union of `repos:` across config/*.yml. fleet_repo_names is the single
+        # source of truth for the token's owner-relative `repositories:` scope — it carries the
+        # empty-dir guard (refuses an empty, fleet-wiping scope) and the single-owner check (an
+        # App token is per-owner), the same derivation `list-repos --format names` uses.
+        repos = fleet_repo_names(Path("config"))
+
+        # `administration` is always write (see the `mode` input doc); the rest track mode.
+        # `contents`/`metadata` are deliberately omitted — apply/plan only touch settings/
+        # rulesets/labels/secrets/variables (metadata:read is granted implicitly).
+        permissions = {
+            "administration": "write",
+            "issues": mode,
+            "secrets": mode,
+            "actions_variables": mode,
+        }
+
+        app_auth = Auth.AppAuth(os.environ["CI_CLIENT_ID"], os.environ["CI_APP_PRIVATE_KEY"])
+        installation = GithubIntegration(auth=app_auth).get_repo_installation(owner, this_repo)
+        request = urllib.request.Request(
+            f"https://api.github.com/app/installations/{installation.id}/access_tokens",
+            data=json.dumps({"repositories": repos, "permissions": permissions}).encode(),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {app_auth.create_jwt()}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request) as response:  # noqa: S310 — fixed api.github.com URL
+                result = json.load(response)
+        except urllib.error.HTTPError as error:  # surface GitHub's actual reason, not a bare 422
+            detail = error.read().decode("utf-8", "replace")
+            print(f"::error::Token request failed ({error.code}): {detail}")
+            raise SystemExit(1) from error
+        print(f"::add-mask::{result['token']}")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+            out.write(f"token={result['token']}\n")
+        granted = ", ".join(f"{k}:{v}" for k, v in sorted(result.get("permissions", {}).items()))
+        usage = "used read-only" if mode == "read" else "write"
+        print(f"::notice::Token ({usage}) scoped to {len(repos)} repos; permissions: {granted}")
+        PY
