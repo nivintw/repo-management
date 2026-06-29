@@ -243,6 +243,26 @@ def test_list_repos_empty_dir_errors(tmp_path: Path) -> None:
     assert result.exit_code == 1
 
 
+def test_list_repos_names_rejects_multiple_owners(tmp_path: Path) -> None:
+    """`--format names` fails loud on a multi-owner fleet rather than scoping the token wrong.
+
+    A GitHub App token is per-owner, so stripping the owner from a cross-owner fleet would
+    scope the token to the wrong owner's same-named repo. The command must error instead.
+    """
+    (tmp_path / "a.yml").write_text("repos:\n  - alice/svc\n", encoding="utf-8")
+    (tmp_path / "b.yml").write_text("repos:\n  - bob/svc\n", encoding="utf-8")
+
+    result = runner.invoke(
+        cli.app, ["list-repos", "--config-dir", str(tmp_path), "--format", "names"]
+    )
+
+    assert result.exit_code == 1
+    # The human-default `lines` format has no such restriction.
+    lines = runner.invoke(cli.app, ["list-repos", "--config-dir", str(tmp_path)])
+    assert lines.exit_code == 0
+    assert lines.stdout == "alice/svc\nbob/svc\n"
+
+
 def test_no_args_shows_help() -> None:
     """Invoking with no command prints help."""
     result = runner.invoke(cli.app, [])

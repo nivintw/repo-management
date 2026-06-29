@@ -139,8 +139,18 @@ def list_repos(
     # Plain stdout (not the rich console): keep machine output unwrapped and unstyled so a
     # long line survives a narrow CI terminal intact.
     if output_format is ReposFormat.names:
-        # owner/repo -> repo: create-github-app-token's `repositories:` wants owner-relative
-        # names (the owner is implied by the App installation), like apply-config.yml's mint.
+        # owner/repo -> repo: create-github-app-token's `repositories:` is owner-relative (a
+        # GitHub App installation is per-owner, so one token can't span owners). fleet_repos
+        # doesn't enforce a single owner, so make that precondition explicit and fail LOUD —
+        # stripping the owner silently would scope the token to the wrong owner's same-named
+        # repo (or 422 the mint), per apply-config.yml's mint.
+        owners = {repo.split("/", 1)[0] for repo in repos}
+        if len(owners) > 1:
+            msg = (
+                "--format names needs a single-owner fleet (a GitHub App token is per-owner); "
+                f"found {len(owners)} owners: {', '.join(sorted(owners))}"
+            )
+            raise _fail(msg)
         typer.echo(",".join(repo.split("/", 1)[1] for repo in repos))
     else:
         for repo in repos:
