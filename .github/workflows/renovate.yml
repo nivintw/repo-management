@@ -109,8 +109,9 @@ jobs:
 
       - name: Enable dry-run (manual dispatch only)
         # Set RENOVATE_DRY_RUN only when explicitly requested, so scheduled runs are live and we
-        # never feed Renovate an empty/invalid dryRun value.
-        if: steps.preflight.outputs.enabled == 'true' && inputs.dryRun
+        # never feed Renovate an empty/invalid dryRun value. Gate on the event explicitly so the
+        # boolean `inputs.dryRun` is only read on workflow_dispatch (on schedule it is null).
+        if: steps.preflight.outputs.enabled == 'true' && github.event_name == 'workflow_dispatch' && inputs.dryRun
         run: echo "RENOVATE_DRY_RUN=full" >>"$GITHUB_ENV"
 
       - name: Mint an installation token scoped to the fleet
