@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# label-hygiene — strip status:* progression labels when an issue closes.
+#
+# The status-label workflow (status:triage → ready → in-progress → in-review, plus the
+# orthogonal status:blocked) tracks an OPEN issue's progress. A CLOSED issue is the
+# terminal state and should carry NO progression label. But closes most often happen
+# server-side via `Closes #N` on PR merge — no human and no interactive tool is present at
+# that moment to clear the label — so closed issues accumulate stale status:in-review /
+# in-progress / ready labels and the ledger fills with fiction that has to be hand-groomed.
+# This runs on the close event and clears them.
+#
+# SELF-DISABLING: it removes only the status:* labels actually PRESENT on the issue, so a
+# repo that never adopted the taxonomy (this template does not provision these labels) is a
+# clean no-op — nothing gates the file, and there's nothing to error on. type:* / priority:*
+# are left intact as a historical record. Reopen is deliberately left to manual triage: we
+# act on `closed` only, so a reopened issue isn't silently shoved back to a status.
+
+name: label-hygiene
+
+on:
+  issues:
+    types: [closed]
+
+# Serialize per issue so a rapid close → reopen → close doesn't run overlapping cleanups
+# that race on the same labels; the newest close wins. Mirrors the concurrency guards on
+# the other generated workflows (main.yml, refresh-binary-checksums.yml).
+concurrency:
+  group: label-hygiene-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+# Editing labels needs issues:write; the default GITHUB_TOKEN suffices (no App token). All
+# other scopes default to none — there's no checkout and no other API surface in play. If an
+# org pins the workflow token to read-only, the edit 403s and the job goes red — visible,
+# never a silent skip.
+permissions:
+  issues: write
+
+jobs:
+  strip-status-labels:
+    # Only boot a runner when the closing issue actually carries a status:* label — read
+    # straight from the event payload, so the no-op case (including repos that never adopted
+    # the taxonomy) costs zero Actions minutes and adds no run to the checks list. The step
+    # below still re-reads live state to decide what to strip.
+    if: >-
+      contains(github.event.issue.labels.*.name, 'status:triage') ||
+      contains(github.event.issue.labels.*.name, 'status:ready') ||
+      contains(github.event.issue.labels.*.name, 'status:in-progress') ||
+      contains(github.event.issue.labels.*.name, 'status:in-review') ||
+      contains(github.event.issue.labels.*.name, 'status:blocked')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove status:* progression labels from the closed issue
+        env:
+          # Routed through env (not interpolated into the script) per zizmor's
+          # template-injection guidance.
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Fetch + filter to the progression set in ONE command substitution, so a failed
+          # API call (network, secondary-rate-limit, read-only token) aborts the job under
+          # `set -e`. Do NOT read this via `mapfile < <(gh ...)`: a command's exit status
+          # inside `< <(...)` process substitution is invisible to set -e/pipefail, so a gh
+          # failure would be masked as "no labels" and silently skip the cleanup — the exact
+          # opposite of this workflow's purpose. Exact-match (== / or) needs no regex engine.
+          matched="$(
+            gh issue view "$ISSUE" --repo "$REPO" --json labels \
+              --jq '.labels[].name | select(. == "status:triage" or . == "status:ready" or . == "status:in-progress" or . == "status:in-review" or . == "status:blocked")'
+          )"
+          if [ -z "$matched" ]; then
+            echo "No status:* progression labels on issue #$ISSUE — nothing to do."
+            exit 0
+          fi
+          # Strip them in a single edit (one API call, one timeline event); the per-label
+          # echo keeps the run log readable.
+          args=()
+          while IFS= read -r label; do
+            echo "Removing '$label' from issue #$ISSUE"
+            args+=(--remove-label "$label")
+          done <<<"$matched"
+          gh issue edit "$ISSUE" --repo "$REPO" "${args[@]}"

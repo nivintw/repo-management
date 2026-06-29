@@ -8,8 +8,8 @@
 # Plain conventional (NOT gitmoji): release-please derives version bumps from commit types
 # and cannot parse a leading emoji, so commits must start with the bare type.
 #
-# Releases are NOT commitizen's job — release-please owns versioning (release-please-config.json
-# + .release-please-manifest.json; see .github/workflows/main.yml). So no version-of-record
+# Releases are NOT commitizen's job — release-please owns versioning (.config/release-please-config.json
+# + .config/.release-please-manifest.json; see .github/workflows/main.yml). So no version-of-record
 # / bump / tag config lives here: `name` is all the linter needs.
 
 [tool.commitizen]

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# yamllint config (https://yamllint.readthedocs.io). Enforces YAML *style*; check-yaml (a
+# separate hook) only checks that it parses. The hook runs without --strict, so error-level
+# rules fail the gate while warning-level rules are advisory. Each rule below overrides one
+# option of yamllint's `default`; everything else keeps the default.
+extends: default
+
+rules:
+  # Workflows and config legitimately run long; flag length but don't fail on it.
+  line-length:
+    max: 120
+    level: warning
+  # GitHub Actions' `on:` key reads as a boolean — stop policing keys (values stay checked).
+  truthy:
+    check-keys: false
+  # Most files here open with a comment (the SPDX header), not a `---` marker.
+  document-start: disable
+  # SHA-pinned actions write a single space before the `# vX.Y` comment; default wants two.
+  comments:
+    min-spaces-from-content: 1
+  # Copier writes some block sequences without indenting them under their key — accept both.
+  indentation:
+    spaces: 2
+    indent-sequences: consistent

@@ -33,26 +33,26 @@ rulesets:
     target: branch
     enforcement: active
     conditions:
-      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }
+      ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
     rules:
       # History/ref guards that apply to everyone — this ruleset has no bypass_actors.
-      - { type: required_linear_history }
-      - { type: non_fast_forward }
-      - { type: deletion }
+      - {type: required_linear_history}
+      - {type: non_fast_forward}
+      - {type: deletion}
 
   - name: Require Pull Requests
     target: branch
     enforcement: active
     conditions:
-      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }
+      ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
     rules:
       # Solo-owner baseline: require a PR but allow self-merge (0 approvals). Bump the
       # count and/or add a bypass_actors entry once there are other reviewers.
       - {
-          type: pull_request,
-          required_approving_review_count: 0,
-          dismiss_stale_reviews_on_push: true,
-        }
+        type: pull_request,
+        required_approving_review_count: 0,
+        dismiss_stale_reviews_on_push: true,
+      }
     bypass_actors:
       - actor_id: 5 # Repository Admins
         actor_type: RepositoryRole
@@ -67,7 +67,7 @@ rulesets:
     target: branch
     enforcement: active
     conditions:
-      ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }
+      ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
     rules:
       # The required context is the check-run name GitHub reports, which for the scaffold's
       # reusable workflow (caller job `ci` -> reusable job `lint-and-test`) is
@@ -75,10 +75,10 @@ rulesets:
       # have its PRs blocked until it does — which is fine here: onboarding a repo includes
       # adding that workflow, and the onboarding PR itself reports the check.
       - {
-          type: required_status_checks,
-          required_checks: ["ci / lint-and-test"],
-          strict_required_status_checks_policy: true,
-        }
+        type: required_status_checks,
+        required_checks: ["ci / lint-and-test"],
+        strict_required_status_checks_policy: true,
+      }
     bypass_actors:
       # The release App pushes the signed bump commit directly to the default branch, which
       # never ran this check — so it must bypass, or every app-signed release is rejected
@@ -92,7 +92,7 @@ variables:
   # only when they differ. Authoritative: a variable not listed here is deleted — so if a
   # workflow authenticates with a variable (e.g. an App client ID), declare it here or an
   # apply will remove it.
-  - { name: CI_CLIENT_ID, value: Iv23lieFW7nh4fTOAbgf }
+  - {name: CI_CLIENT_ID, value: Iv23lieFW7nh4fTOAbgf}
 
 secrets:
   # Actions secrets. Values are write-only and never printed in plans. The value is read
@@ -101,10 +101,10 @@ secrets:
   # `value_from_env` is how a CI secret reaches the tool). Every `value_from_env` name here
   # MUST be exported — with a non-empty value — in apply-config.yml's apply step; apply fails
   # fast if the env var is unset or empty (Actions expands an unset secret to "").
-  - { name: CI_APP_PRIVATE_KEY, value_from_env: CI_APP_PRIVATE_KEY }
+  - {name: CI_APP_PRIVATE_KEY, value_from_env: CI_APP_PRIVATE_KEY}
   # GIST_PAT: a PAT for updating coverage-badge (and other badge) gists. Fleet-wide — the
   # scaffold's CI writes a coverage badge to a gist, so every managed repo gets it.
-  - { name: GIST_PAT, value_from_env: GIST_PAT }
+  - {name: GIST_PAT, value_from_env: GIST_PAT}
 
 labels:
   # ⚠️ AUTHORITATIVE: declaring `labels` deletes every label NOT listed here, on every
@@ -115,26 +115,26 @@ labels:
   # one `type:`, and one `priority:`. Keep this in sync with /dev-kit:handle-task-tracking.
 
   # status — one of the first four at a time; `blocked` is an orthogonal flag on top.
-  - { name: "status:triage",      color: cccccc, description: Needs triage }
-  - { name: "status:ready",       color: 0e8a16, description: Ready to start }
-  - { name: "status:in-progress", color: fbca04, description: Being worked }
-  - { name: "status:in-review",   color: 1d76db, description: In review }
-  - { name: "status:blocked",     color: b60205, description: Blocked }
+  - {name: "status:triage", color: cccccc, description: Needs triage}
+  - {name: "status:ready", color: 0e8a16, description: Ready to start}
+  - {name: "status:in-progress", color: fbca04, description: Being worked}
+  - {name: "status:in-review", color: 1d76db, description: In review}
+  - {name: "status:blocked", color: b60205, description: Blocked}
 
   # type — one per issue; mirrors the commit type.
-  - { name: "type:bug",     color: d73a4a, description: Bug fix }
-  - { name: "type:feature", color: a2eeef, description: New feature }
-  - { name: "type:chore",   color: ededed, description: Chore / maintenance }
-  - { name: "type:docs",    color: 0075ca, description: Documentation }
+  - {name: "type:bug", color: d73a4a, description: Bug fix}
+  - {name: "type:feature", color: a2eeef, description: New feature}
+  - {name: "type:chore", color: ededed, description: Chore / maintenance}
+  - {name: "type:docs", color: 0075ca, description: Documentation}
 
   # priority — one per issue; drives "what's next" from status:ready.
-  - { name: "priority:high",   color: b60205, description: High priority }
-  - { name: "priority:medium", color: fbca04, description: Medium priority }
-  - { name: "priority:low",    color: c5def5, description: Low priority }
+  - {name: "priority:high", color: b60205, description: High priority}
+  - {name: "priority:medium", color: fbca04, description: Medium priority}
+  - {name: "priority:low", color: c5def5, description: Low priority}
 
   # release-please's release-state labels. It creates these on repos where its release
   # workflow runs (the scaffold's main.yml); listed here so this authoritative set doesn't
   # prune them out from under it. Fleet-wide per epic #11 (every repo is moving onto the
   # scaffold). `color` matches what release-please sets; description left unmanaged.
-  - { name: "autorelease: pending", color: ededed }
-  - { name: "autorelease: tagged",  color: ededed }
+  - {name: "autorelease: pending", color: ededed}
+  - {name: "autorelease: tagged", color: ededed}

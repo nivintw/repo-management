@@ -6,8 +6,8 @@
 #
 # RELEASE FLOW (release-please, manifest mode — single package):
 #   1. On push to main, release-please scans Conventional Commits since the last release
-#      and maintains a "Release PR" that bumps the version (.release-please-manifest.json,
-#      mirrored into the version-of-record via release-please-config.json's extra-files)
+#      and maintains a "Release PR" that bumps the version (.config/.release-please-manifest.json,
+#      mirrored into the version-of-record via .config/release-please-config.json's extra-files)
 #      + CHANGELOG.md.
 #   2. That Release PR is auto-merged (`--auto --rebase`) once its required checks pass, so
 #      releases are continuous; release-please then cuts the `vX.Y.Z` tag + GitHub Release.
@@ -44,14 +44,14 @@ concurrency:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
+    # release-please's bump commit was already validated as the Release PR, so skip the heavy
+    # gate when it lands on main — the ci job still succeeds, so `needs: ci` and the release
+    # job are unaffected. Scope to `push` (head_commit is absent on workflow_dispatch, which
+    # then runs the full gate) and anchor on release-please's exact bump-commit prefix
+    # (`chore(main): release ` — scope + colon-space, so the value must be quoted) so an
+    # innocent human commit like `chore: release notes cleanup` doesn't skip the gate.
     with:
-      # Skip the redundant full gate when release-please's version-bump commit lands on main:
-      # it was already validated as the Release PR, so re-running pytest+lint here is wasted
-      # CI minutes. The job still reports success, so the release job's `needs: ci` is intact.
-      # Match release-please's release-commit format (`chore: release X.Y.Z`, also
-      # `chore(scope): release X.Y.Z`) precisely, so an ordinary "chore: …release…" commit
-      # isn't mistaken for one. A miss just means the (safe) redundant run, never a false skip.
-      skip-quality-gate: "${{ startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, ': release ') }}"
+      skip-quality-gate: "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
 
   # Guard: the release job needs the App's Client ID + private key. A secret can't be read
   # in a job-level `if:`, so a step (which CAN see them) reports whether BOTH are present,
@@ -100,8 +100,8 @@ jobs:
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ steps.app-token.outputs.token }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          config-file: .config/release-please-config.json
+          manifest-file: .config/.release-please-manifest.json
 
       # Continuous release: enable auto-merge on the Release PR so it lands (rebase) once
       # required checks pass. On the next run (release cut, no PR) `pr` is empty and this
@@ -109,18 +109,25 @@ jobs:
       # GH_REPO tells gh which repo to act on: this job has no checkout, so without it
       # `gh pr merge` probes the working dir for a git remote and dies ("not a git
       # repository"). gh reads GH_REPO natively, so no `actions/checkout` is needed.
+      # Tolerate ONLY the documented setup gap — a repo that hasn't turned on "Allow
+      # auto-merge" — by detecting it up front (the repo's allow_auto_merge flag) and warning
+      # cleanly. Every OTHER failure (gh API 5xx, auth, a missing required check on main)
+      # then reddens the job under `set -euo pipefail`, so a stalled release is loud instead
+      # of hiding as a ::warning:: on an otherwise-green run.
       - name: Auto-merge the Release PR
         if: ${{ steps.release.outputs.pr }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}
-        # Don't turn main red if the repo isn't set up for auto-merge yet: `gh pr merge
-        # --auto` errors when "Allow auto-merge" is off or main has no required status check.
-        # Surface a clear warning instead — the Release PR stays open and merges once the
-        # settings are in place (matching the header's promise that merging main is safe).
         run: |
+          set -euo pipefail
           num="$(printf '%s' "$RELEASE_PR" | jq -r '.number')"
-          if ! gh pr merge "$num" --auto --rebase; then
-            echo "::warning::Could not enable auto-merge on Release PR #${num}. Enable 'Allow auto-merge' + 'Allow rebase merging' and require a status check on main, then merge the PR (manually for now)."
+          # Read the setting in its own statement so a gh API failure here (5xx/auth) trips
+          # set -e and reddens the job, rather than the empty result masquerading as "off".
+          auto_merge_allowed="$(gh api "repos/${GH_REPO}" --jq '.allow_auto_merge')"
+          if [ "$auto_merge_allowed" != "true" ]; then
+            echo "::warning::Auto-merge is off for ${GH_REPO}, so Release PR #${num} was left open. Enable 'Allow auto-merge' + 'Allow rebase merging' and require a status check on main, then merge it (manually for now)."
+            exit 0
           fi
+          gh pr merge "$num" --auto --rebase

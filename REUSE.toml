@@ -4,7 +4,7 @@
 version = 1
 
 # Files that can't carry an SPDX header (no comment syntax / generated). Everything
-# else gets a real header from hawkeye (see licenserc.toml).
+# else gets a real header from hawkeye (see .config/licenserc.toml).
 [[annotations]]
 path = ["**/*.json", "**/.vscode/*", "**/.python-version", "uv.lock"]
 SPDX-FileCopyrightText = "© 2026 Tyler Nivin"

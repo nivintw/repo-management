@@ -24,5 +24,5 @@ extends: base.yaml
 secrets:
   # Merged by name on top of base.yaml's secrets (CI_APP_PRIVATE_KEY, GIST_PAT). PyPI upload
   # tokens for the publish workflow; the test token targets TestPyPI.
-  - { name: TWINE_PYPI_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_UPLOAD_TOKEN }
-  - { name: TWINE_PYPI_TEST_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_TEST_UPLOAD_TOKEN }
+  - {name: TWINE_PYPI_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_UPLOAD_TOKEN}
+  - {name: TWINE_PYPI_TEST_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_TEST_UPLOAD_TOKEN}
