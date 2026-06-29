@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.2.1](https://github.com/nivintw/repo-management/compare/v1.2.0...v1.2.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* Arm the binary-checksum tamper gate in the central Renovate runner ([6bb3c15](https://github.com/nivintw/repo-management/commit/6bb3c154126db8987c89c98f9f9b5cff556c25ca)), closes [#48](https://github.com/nivintw/repo-management/issues/48)
+
 ## [1.2.0](https://github.com/nivintw/repo-management/compare/v1.1.0...v1.2.0) (2026-06-29)
 
 
