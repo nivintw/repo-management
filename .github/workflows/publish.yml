@@ -55,7 +55,7 @@ jobs:
         # No dependency cache here: this job builds the artifact that gets published, so a
         # poisoned cache would taint the release (zizmor cache-poisoning). The minor speedup
         # isn't worth that on a release path. setup-uv caches by default, so disable explicitly.
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
 
