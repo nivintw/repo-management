@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nivintw/repo-management"
+Homepage = "https://nivintw.github.io/repo-management/"
 Repository = "https://github.com/nivintw/repo-management"
 Issues = "https://github.com/nivintw/repo-management/issues"
 Changelog = "https://github.com/nivintw/repo-management/blob/main/CHANGELOG.md"

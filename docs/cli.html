@@ -1,0 +1,134 @@
+<!--
+
+    SPDX-FileCopyrightText: © 2026 Tyler Nivin
+    SPDX-License-Identifier: MIT
+
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CLI reference — repo-management</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ctext y=%2713%27 font-size=%2713%27 fill=%27%230b6e4f%27%3E%E2%96%B8%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="index.html">repo-management</a>
+  <nav class="top-nav">
+    <a href="cli.html">CLI</a>
+    <a href="config.html">Config</a>
+    <a href="rulesets.html">Rulesets</a>
+    <a href="https://github.com/nivintw/repo-management">GitHub</a>
+    <a href="https://pypi.org/project/repo-management/">PyPI</a>
+  </nav>
+  <div class="tools">
+    <input id="search" type="search" placeholder="Search docs…" autocomplete="off">
+    <button id="theme-toggle" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+<div id="search-results" hidden></div>
+<main class="page">
+
+<h1>CLI reference</h1>
+<p class="lead">The <code>repo-management</code> command drives a <a href="config.html">YAML config</a> against GitHub: validate it offline, preview the diff, or apply it.</p>
+
+<h2 id="validate">validate</h2>
+<pre><code>repo-management validate -c CONFIG</code></pre>
+<p>Validates the config file without contacting GitHub — no network access. Use it to catch schema errors before you need a token.</p>
+<dl class="options">
+  <dt>--config / -c</dt>
+  <dd>Path to the YAML config file. Required.</dd>
+</dl>
+<p>On success:</p>
+<pre><code>✓ {config} is valid ({n} repo(s))</code></pre>
+
+<h2 id="plan">plan</h2>
+<pre><code>repo-management plan -c CONFIG [--repo owner/name] [--token TOKEN] [--force-secrets]</code></pre>
+<p>Read-only. Computes the diff between the config and each repo's current state on GitHub, and prints it without writing anything.</p>
+<dl class="options">
+  <dt>--config / -c</dt>
+  <dd>Path to the YAML config file. Required.</dd>
+  <dt>--repo / -r</dt>
+  <dd>Limit the run to a single <code>owner/name</code> repo from the config. Errors if the repo isn't in the config.</dd>
+  <dt>--token</dt>
+  <dd>GitHub token to authenticate with. <span class="badge default">default: $GITHUB_TOKEN</span></dd>
+  <dt>--force-secrets</dt>
+  <dd>Re-push existing secret values, as if rotating them. By default, secrets already present on the repo are left untouched.</dd>
+</dl>
+
+<h3 id="plan-output">Output</h3>
+<p>For each repo, either it's already in sync:</p>
+<pre><code>✓ {repo}: in sync</code></pre>
+<p>or it lists the pending changes, one indented line per change:</p>
+<pre><code>{repo} — {n} change(s):
+  + [domain] target = value
+  ~ [domain] target: before -> after
+  - [domain] target (was value)</code></pre>
+<p><code>+</code> marks a create, <code>~</code> an update, <code>-</code> a delete. The run ends with a summary line:</p>
+<pre><code>{total} change(s) across {n} repo(s).</code></pre>
+<div class="callout">
+<p>Secret values are always redacted in output, regardless of <code>--force-secrets</code>. Variable values are shown in plaintext, so don't put anything sensitive in a <code>variables:</code> entry — use a secret instead.</p>
+</div>
+
+<h2 id="apply">apply</h2>
+<pre><code>repo-management apply -c CONFIG [--repo owner/name] [--token TOKEN] [--force-secrets] [--yes]</code></pre>
+<p>Applies the same diff <a href="#plan"><code>plan</code></a> would show. Prints the plan first, then writes the changes to GitHub.</p>
+<dl class="options">
+  <dt>--config / -c</dt>
+  <dd>Path to the YAML config file. Required.</dd>
+  <dt>--repo / -r</dt>
+  <dd>Limit the run to a single <code>owner/name</code> repo from the config. Errors if the repo isn't in the config.</dd>
+  <dt>--token</dt>
+  <dd>GitHub token to authenticate with. <span class="badge default">default: $GITHUB_TOKEN</span></dd>
+  <dt>--force-secrets</dt>
+  <dd>Re-push existing secret values, as if rotating them. By default, secrets already present on the repo are left untouched.</dd>
+  <dt>--yes / -y</dt>
+  <dd>Skip the confirmation prompt.</dd>
+</dl>
+<p>If every repo is already in sync, it prints <code>nothing to do</code> and exits without prompting. Otherwise, unless <code>--yes</code> is given, it asks:</p>
+<pre><code>Apply {total} change(s)?</code></pre>
+<div class="callout warn">
+<p>Declining the prompt exits with <code>error: aborted</code> and applies nothing.</p>
+</div>
+<p>On success:</p>
+<pre><code>✓ applied {n} change(s)</code></pre>
+
+<h2 id="list-repos">list-repos</h2>
+<pre><code>repo-management list-repos [--config-dir DIR] [--format lines|names]</code></pre>
+<p>Lists the managed-repo fleet: the union of the <code>repos:</code> lists across every applied <code>*.yml</code> file in the config directory. <code>*.yaml</code> files are treated as extends-only base layers and skipped. No network access.</p>
+<dl class="options">
+  <dt>--config-dir</dt>
+  <dd>Directory of applied config files to scan. <span class="badge default">default: config</span></dd>
+  <dt>--format / -f</dt>
+  <dd>Output shape: <code>lines</code> or <code>names</code>. <span class="badge default">default: lines</span></dd>
+</dl>
+
+<h3 id="list-repos-formats">Formats</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Format</th><th>Output</th></tr></thead>
+<tbody>
+<tr><td><code>lines</code></td><td>One <code>owner/repo</code> per line.</td></tr>
+<tr><td><code>names</code></td><td>A single comma-separated line of bare repo names, with the owner stripped. Requires the fleet to have a single owner — errors otherwise.</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>names</code> output is sized for scoping a GitHub App token's <code>repositories:</code> list to exactly the fleet. Output is plain stdout — no styling or line wrapping — so it's safe to pipe or capture in a narrow terminal.</p>
+
+<h2 id="global-behavior">Global behavior</h2>
+
+<h3 id="authentication">Authentication</h3>
+<p>Commands that talk to GitHub (<a href="#plan"><code>plan</code></a>, <a href="#apply"><code>apply</code></a>) need a token, from <code>--token</code> or the <code>$GITHUB_TOKEN</code> environment variable. The token needs scopes covering whatever the config manages on the target repos. <a href="#validate"><code>validate</code></a> and <a href="#list-repos"><code>list-repos</code></a> never contact GitHub and don't need a token.</p>
+
+<h3 id="errors">Errors</h3>
+<p>All errors print to stderr as <code>error: {message}</code> and exit with status 1. Errors returned by the GitHub API surface as:</p>
+<pre><code>error: GitHub API error: {detail}</code></pre>
+
+</main>
+<footer class="site-footer">MIT · <a href="https://reuse.software">REUSE</a>-compliant · © 2026 Tyler Nivin · <a href="https://github.com/nivintw/repo-management">Source</a></footer>
+<script src="search-index.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
