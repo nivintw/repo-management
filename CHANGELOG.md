@@ -7,6 +7,22 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.3.0](https://github.com/nivintw/repo-management/compare/v1.2.2...v1.3.0) (2026-07-03)
+
+
+### Features
+
+* Add a documentation site (GitHub Pages, docs/) ([1d26452](https://github.com/nivintw/repo-management/commit/1d26452fc6b1f6656706ef16a7fd6770b3f4d16f)), closes [#74](https://github.com/nivintw/repo-management/issues/74)
+* Automerge non-major dependency PRs fleet-wide ([535d7dd](https://github.com/nivintw/repo-management/commit/535d7dd0423bfb5588ee1ba8e8d52ab5577a2bf6)), closes [#69](https://github.com/nivintw/repo-management/issues/69)
+* Manage the Actions workflow-approval permission in settings ([6782e00](https://github.com/nivintw/repo-management/commit/6782e00dfff27203d94f5c302377fa98ea967937)), closes [#70](https://github.com/nivintw/repo-management/issues/70)
+
+
+### Bug Fixes
+
+* Address Copilot review on PR [#75](https://github.com/nivintw/repo-management/issues/75) ([cc883ac](https://github.com/nivintw/repo-management/commit/cc883ac1c17fa66de6fabb33f5dc2666e2473ea4))
+* Address review-battery findings ([5483ec5](https://github.com/nivintw/repo-management/commit/5483ec5b6885a428eae287396625188a3afa4dd8))
+* Make the README stand alone as the PyPI long description ([60df255](https://github.com/nivintw/repo-management/commit/60df255f30b5e6e62f90a391470e7be937d095bb)), closes [#74](https://github.com/nivintw/repo-management/issues/74)
+
 ## [1.2.2](https://github.com/nivintw/repo-management/compare/v1.2.1...v1.2.2) (2026-07-03)
 
 
