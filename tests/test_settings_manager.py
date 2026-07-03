@@ -70,6 +70,49 @@ def test_topics_unchanged_when_same_set(repo: MagicMock) -> None:
     assert SettingsManager().plan(repo, desired) == []
 
 
+def test_workflow_permissions_unset_is_unmanaged(repo: MagicMock) -> None:
+    """Leaving can_approve_pull_request_reviews unset never touches the Actions endpoint."""
+    repo.has_issues = True
+    desired = SharedConfig(settings=Settings(has_issues=True))
+    assert SettingsManager().plan(repo, desired) == []
+    repo.requester.requestJsonAndCheck.assert_not_called()
+
+
+def test_workflow_permissions_change(repo: MagicMock) -> None:
+    """A differing workflow-permissions toggle yields a change that PUTs only that field."""
+    repo.url = "https://api.github.com/repos/o/r"
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"default_workflow_permissions": "read", "can_approve_pull_request_reviews": False},
+    )
+    desired = SharedConfig(settings=Settings(can_approve_pull_request_reviews=True))
+
+    changes = SettingsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.action is Action.UPDATE
+    assert change.target == "workflow permissions"
+    assert change.before == {"can_approve_pull_request_reviews": False}
+    assert change.after == {"can_approve_pull_request_reviews": True}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        "https://api.github.com/repos/o/r/actions/permissions/workflow",
+        input={"can_approve_pull_request_reviews": True},
+    )
+
+
+def test_workflow_permissions_in_sync(repo: MagicMock) -> None:
+    """A matching workflow-permissions toggle produces no change."""
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"can_approve_pull_request_reviews": True},
+    )
+    desired = SharedConfig(settings=Settings(can_approve_pull_request_reviews=True))
+    assert SettingsManager().plan(repo, desired) == []
+
+
 def test_multiple_fields(repo: MagicMock) -> None:
     """Several differing scalar fields batch into one settings change; topics is separate."""
     repo.description = "old"

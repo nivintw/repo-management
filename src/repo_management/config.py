@@ -64,6 +64,10 @@ class Settings(Strict):
     allow_auto_merge: bool | None = None
     delete_branch_on_merge: bool | None = None
     allow_update_branch: bool | None = None
+    # Actions workflow permissions ("Allow GitHub Actions to create and approve pull
+    # requests") — lives on a separate API endpoint, not Repository.edit; the settings
+    # manager special-cases it the way it does topics.
+    can_approve_pull_request_reviews: bool | None = None
 
 
 class Label(Strict):
