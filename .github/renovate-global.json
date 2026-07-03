@@ -20,5 +20,18 @@
   "onboarding": false,
   "requireConfig": "optional",
   "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"],
-  "customEnvVariables": { "BASE_REF": "origin/HEAD" }
+  "customEnvVariables": { "BASE_REF": "origin/HEAD" },
+  "packageRules": [
+    {
+      "description": [
+        "Fleet-wide automerge for non-major updates. platformAutomerge (default on) rides",
+        "GitHub native auto-merge, so a PR only lands once its required checks are green;",
+        "base.yaml sets allow_auto_merge fleet-wide and the shared ruleset requires CI.",
+        "Majors stay human-reviewed. A repo's own renovate.json packageRules can override."
+      ],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    }
+  ]
 }
