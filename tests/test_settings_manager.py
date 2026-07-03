@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 from repo_management.changes import Action
 from repo_management.config import Settings, SharedConfig
-from repo_management.managers.settings import SettingsManager
+from repo_management.managers.settings import _SPECIAL_FIELDS, SettingsManager
 
 
 def test_no_settings_is_noop(repo: MagicMock) -> None:
@@ -68,6 +68,37 @@ def test_topics_unchanged_when_same_set(repo: MagicMock) -> None:
     repo.get_topics.return_value = ["b", "a"]
     desired = SharedConfig(settings=Settings(topics=["a", "b"]))
     assert SettingsManager().plan(repo, desired) == []
+
+
+def test_every_settings_field_produces_a_change(repo: MagicMock) -> None:
+    """Guard the _SPECIAL_FIELDS seam: every Settings field must be diffed somewhere.
+
+    A field added to _SPECIAL_FIELDS without a plan() handler would silently become
+    unmanaged. Set every Settings field to a value the fake repo can't already have
+    and require a change to account for each one.
+    """
+    values: dict[str, object] = {}
+    for name, field in Settings.model_fields.items():
+        if field.annotation == (list[str] | None):
+            values[name] = ["changed"]
+        elif field.annotation == (bool | None):
+            values[name] = True
+        else:
+            values[name] = "changed"
+    repo.configure_mock(**dict.fromkeys(set(values) - _SPECIAL_FIELDS))
+    repo.get_topics.return_value = []
+    repo.requester.requestJsonAndCheck.return_value = ({}, {})
+
+    changes = SettingsManager().plan(repo, SharedConfig(settings=Settings.model_validate(values)))
+
+    managed: set[str] = set()
+    for change in changes:
+        if change.target == "topics":
+            managed.add("topics")
+        else:
+            assert isinstance(change.after, dict)
+            managed.update(str(key) for key in change.after)
+    assert managed == set(Settings.model_fields)
 
 
 def test_workflow_permissions_unset_is_unmanaged(repo: MagicMock) -> None:
