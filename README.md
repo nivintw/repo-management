@@ -13,24 +13,28 @@ It is **declarative and idempotent**: re-running when nothing has changed does n
 A section you don't mention is left unmanaged; a section you *do* declare is authoritative —
 it's the complete desired set, so anything on the repo not listed in it is removed.
 
+The source code, issue tracker, and annotated example configs live in the
+[nivintw/repo-management repository][repo] on GitHub.
+
 ## Install
 
 ```bash
-uv sync                      # create the venv + install everything
+uv tool install repo-management    # or: pip install repo-management
 ```
 
-Authentication uses a GitHub token, read from `$GITHUB_TOKEN` (or `--token`). The token
-needs the scopes for whatever you manage (repo administration, Actions secrets, etc.).
+Requires Python 3.14+. Authentication uses a GitHub token, read from `$GITHUB_TOKEN` (or
+`--token`). The token needs the scopes for whatever you manage (repo administration,
+Actions secrets, etc.).
 
 ## Usage
 
 ```bash
 export GITHUB_TOKEN=ghp_...
 
-repo-management validate  -c examples/repos.yaml   # check the YAML (no network)
-repo-management plan      -c examples/repos.yaml   # show the diff (read-only)
-repo-management apply     -c examples/repos.yaml   # reconcile (prompts before writing)
-repo-management list-repos                         # the managed fleet across config/*.yml (no network)
+repo-management validate  -c repos.yaml   # check the YAML (no network)
+repo-management plan      -c repos.yaml   # show the diff (read-only)
+repo-management apply     -c repos.yaml   # reconcile (prompts before writing)
+repo-management list-repos                # the managed fleet across a config dir (no network)
 ```
 
 Useful flags:
@@ -42,10 +46,12 @@ Useful flags:
 `plan` prints one line per change: `+` create, `~` update, `-` delete. Secret values are
 always redacted.
 
-`list-repos` prints the managed fleet — the union of the `repos:` lists across every applied
-`config/*.yml` (the `*.yaml` layer files are bases, not configs, and are skipped). `--format
-names` emits a single comma-separated line of owner-relative names, used to scope the central
-Renovate runner's App token (see [Fleet automation](#fleet-automation)).
+`list-repos` prints the managed fleet — the union of the `repos:` lists across every
+applied `*.yml` file in a config directory (`--config-dir`, default `config/`; `*.yaml`
+files are treated as base layers, not applied configs, and are skipped). `--format names`
+emits a single comma-separated line of owner-relative names, which the
+[repo-management repository][repo] uses to scope its central Renovate runner's App token
+(see [Fleet automation](#fleet-automation)).
 
 ## Config format
 
@@ -80,8 +86,8 @@ settings:
   description: Managed by repo-management   # added on top of base.settings
 ```
 
-See [`examples/base.yaml`](examples/base.yaml) + [`examples/repos.yaml`](examples/repos.yaml)
-for a fully-annotated, working pair.
+See [`examples/base.yaml`][example-base] + [`examples/repos.yaml`][example-repos] in the
+repository for a fully-annotated, working pair.
 
 > `extends:` reads and merges local files by relative path, so only point it at config you
 > trust — treat a base file the same as the config that includes it.
@@ -129,39 +135,48 @@ for a fully-annotated, working pair.
 
 ## Fleet automation
 
-Beyond the CLI, this control-plane repo runs scheduled GitHub Actions that operate on the
-whole fleet, authenticating as the CI GitHub App (see each workflow's header comment for the
-details):
+Beyond the CLI, the [nivintw/repo-management repository][repo] — the tool's home — is
+itself a working deployment: a control plane that manages its author's repositories (its
+"fleet") with scheduled GitHub Actions, authenticating as a CI GitHub App. It doubles as a
+reference for running the tool this way:
 
-- **`apply-config` / `plan-config`** — reconcile the live repos to `config/*.yml`: `apply` on
-  push to `main`, `plan` as a read-only PR preview.
-- **`renovate`** — a central, self-hosted [Renovate] runner that opens dependency-update PRs
-  across the managed fleet on a schedule, replacing the hosted Renovate app (and unlocking
-  `postUpgradeTasks`, so a bumped binary's checksum is refreshed inside Renovate's own commit).
-  It scopes its App token to exactly the fleet — `repo-management list-repos --format names`
-  derives that set from `config/*.yml`, so the same config that drives `apply` is the single
-  source of truth for what Renovate touches. Its global behaviour (autodiscover, onboarding
-  off, the `postUpgradeTasks` command allowlist) lives in
-  [`.github/renovate-global.json`](.github/renovate-global.json), separate from this repo's own
-  dependency policy in [`.github/renovate.json`](.github/renovate.json). Dispatch it manually
-  with **`dryRun`** to preview the scope and proposed changes without opening any PRs.
+- **`apply-config` / `plan-config`** — reconcile the live repos to the repository's
+  `config/*.yml`: `apply` on push to `main`, `plan` as a read-only PR preview.
+- **`renovate`** — a central, self-hosted [Renovate] runner that opens dependency-update
+  PRs across the managed fleet on a schedule, replacing the hosted Renovate app (and
+  unlocking `postUpgradeTasks`, so a bumped binary's checksum is refreshed inside
+  Renovate's own commit). It scopes its App token to exactly the fleet —
+  `repo-management list-repos --format names` derives that set from the same `config/*.yml`
+  that drives `apply`, so one config is the single source of truth for what Renovate
+  touches. Its global behaviour lives in the repository's
+  [`.github/renovate-global.json`][renovate-global], separate from the repository's own
+  dependency policy in [`.github/renovate.json`][renovate-json]. Dispatch it manually with
+  **`dryRun`** to preview the scope and proposed changes without opening any PRs.
 
 ## Development
 
+Clone [the repository][repo], then:
+
 ```bash
+uv sync                      # create the venv + install everything
 uv run pytest                # tests + coverage (gate: 90%; currently 100%)
 uvx prek run --all-files     # the full quality gate (ruff, format, REUSE, typos, …)
 ```
 
-The project carries the shared quality spine: prek hooks (git hygiene, gitleaks, typos,
-rumdl, SPDX/REUSE headers, ruff) that run identically locally and in CI. Conventional
-Commits (gitmoji) are enforced at commit-msg time. A few hooks shell out to **system
-tools** prek can't bootstrap — install them locally too (most are in Homebrew):
-`hawkeye`, `taplo`, `osv-scanner`.
+Quality checks run identically locally and in CI via prek hooks: git hygiene, gitleaks,
+typos, rumdl, SPDX/REUSE headers, and ruff. Conventional Commits (gitmoji) are enforced at
+commit-msg time. A few hooks shell out to **system tools** prek can't bootstrap — install
+them locally too (most are in Homebrew): `hawkeye`, `taplo`, `osv-scanner`.
 
 ## License
 
-[MIT](LICENSE) — and [REUSE](https://reuse.software)-compliant.
+[MIT][license] — and [REUSE](https://reuse.software)-compliant.
 
 [PyGithub]: https://github.com/PyGithub/PyGithub
 [Renovate]: https://docs.renovatebot.com
+[repo]: https://github.com/nivintw/repo-management
+[example-base]: https://github.com/nivintw/repo-management/blob/main/examples/base.yaml
+[example-repos]: https://github.com/nivintw/repo-management/blob/main/examples/repos.yaml
+[renovate-global]: https://github.com/nivintw/repo-management/blob/main/.github/renovate-global.json
+[renovate-json]: https://github.com/nivintw/repo-management/blob/main/.github/renovate.json
+[license]: https://github.com/nivintw/repo-management/blob/main/LICENSE
