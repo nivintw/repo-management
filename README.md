@@ -13,7 +13,8 @@ It is **declarative and idempotent**: re-running when nothing has changed does n
 A section you don't mention is left unmanaged; a section you *do* declare is authoritative —
 it's the complete desired set, so anything on the repo not listed in it is removed.
 
-The source code, issue tracker, and annotated example configs live in the
+Full documentation lives at **[nivintw.github.io/repo-management][docs]**; the source code,
+issue tracker, and annotated example configs live in the
 [nivintw/repo-management repository][repo] on GitHub.
 
 ## Install
@@ -124,8 +125,9 @@ repository for a fully-annotated, working pair.
   `includes_parents=false`, so inherited org/enterprise rulesets are never matched or
   deleted through the repo.
 - **Secrets and webhook secrets are write-only.** The API never returns a secret value, so
-  a change to *only* a secret can't be diffed: an Actions secret is re-sent on every apply,
-  and a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
+  a change to *only* a secret can't be diffed: an Actions secret already present on the repo
+  is left untouched by default (pass `--force-secrets` to re-push values for rotation), and
+  a webhook with a configured secret is always re-sent (shown as `(set)` in the plan).
   Values are sourced from the environment (`value_from_env` / `secret_from_env`) and never
   printed. A literal `value:` is supported for secrets but should never be committed.
 - **Variables, by contrast, are readable.** An Actions *variable* value is returned by the
@@ -172,6 +174,7 @@ them locally too (most are in Homebrew): `hawkeye`, `taplo`, `osv-scanner`.
 
 [MIT][license] — and [REUSE](https://reuse.software)-compliant.
 
+[docs]: https://nivintw.github.io/repo-management/
 [PyGithub]: https://github.com/PyGithub/PyGithub
 [Renovate]: https://docs.renovatebot.com
 [repo]: https://github.com/nivintw/repo-management

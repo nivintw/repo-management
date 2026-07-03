@@ -1,0 +1,278 @@
+<!--
+
+    SPDX-FileCopyrightText: © 2026 Tyler Nivin
+    SPDX-License-Identifier: MIT
+
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Config reference — repo-management</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ctext y=%2713%27 font-size=%2713%27 fill=%27%230b6e4f%27%3E%E2%96%B8%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="index.html">repo-management</a>
+  <nav class="top-nav">
+    <a href="cli.html">CLI</a>
+    <a href="config.html">Config</a>
+    <a href="rulesets.html">Rulesets</a>
+    <a href="https://github.com/nivintw/repo-management">GitHub</a>
+    <a href="https://pypi.org/project/repo-management/">PyPI</a>
+  </nav>
+  <div class="tools">
+    <input id="search" type="search" placeholder="Search docs…" autocomplete="off">
+    <button id="theme-toggle" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+<div id="search-results" hidden></div>
+<main class="page">
+
+<h1>Config reference</h1>
+<p class="lead">A config file names the repositories to manage and a shared block of sections
+applied to every one of them. Every key is validated, so a typo becomes a load error, not a
+silent no-op — unknown fields anywhere in the schema are rejected.</p>
+
+<h2 id="file-anatomy">File anatomy</h2>
+<p>A config lists <code>repos:</code> — <code>owner/repo</code> strings, each validated to be
+in that exact form — plus the shared sections below. All sections are optional, but the
+<code>repos:</code> list must have at least one entry.</p>
+
+<pre><code>repos:
+  - octocat/hello-world
+  - octocat/spoon-knife
+
+settings:
+  description: "Example repository"
+  private: false
+  has_issues: true
+  delete_branch_on_merge: true
+
+labels:
+  - name: bug
+    color: d73a4a
+    description: Something isn't working
+  - name: needs-triage
+    color: fbca04
+
+collaborators:
+  - username: octocat
+    permission: admin
+
+webhooks:
+  - url: https://example.com/hooks/ci
+    events: [push, pull_request]
+    secret_from_env: CI_WEBHOOK_SECRET
+
+secrets:
+  - name: DEPLOY_TOKEN
+    value_from_env: DEPLOY_TOKEN
+
+variables:
+  - name: ENVIRONMENT
+    value: production
+
+rulesets:
+  - name: main-branch-protection
+    target: branch
+    rules:
+      - type: pull_request
+        required_approving_review_count: 1
+</code></pre>
+
+<h2 id="section-authority">Section authority</h2>
+<div class="callout warn">
+<p><strong>A declared section is the complete desired set.</strong> Anything present on the
+repo but absent from the section is removed on apply: labels, webhooks, secrets, and
+variables not listed are deleted; direct collaborators not listed are removed; repo
+rulesets not listed are deleted. There's no partial-update mode — declaring three labels
+when the repo has five means the other two go away.</p>
+<p>An <strong>omitted</strong> section is the opposite: leave it out entirely and that whole
+domain is left unmanaged, untouched by apply. Whether you declare a section at all matters
+just as much as what you put in it.</p>
+</div>
+
+<h2 id="rulesets">rulesets</h2>
+<p>Repository rulesets are declared under <code>rulesets:</code>, one entry per ruleset,
+matched to live rulesets by <code>name</code> and reconciled to exactly the declared spec.
+The shape is large enough — target, enforcement, bypass actors, conditions, and a dozen rule
+types — that it has its own page: see the <a href="rulesets.html">rulesets reference</a>.</p>
+
+<h2 id="settings">settings</h2>
+<p>Repository-level settings. Every field is optional; a field left unset is left unmanaged
+on the repo (not reset to a default).</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>description</code></td><td>string</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>homepage</code></td><td>string</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>private</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>topics</code></td><td>list[string]</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>has_issues</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>has_wiki</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>has_projects</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>has_discussions</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>default_branch</code></td><td>string</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>allow_squash_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>allow_merge_commit</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>allow_rebase_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>allow_auto_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>delete_branch_on_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+<tr><td><code>allow_update_branch</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="labels">labels</h2>
+<p>Issue and PR labels, matched by <code>name</code>. Exact-set semantics apply: labels on
+the repo that aren't in the list are deleted.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td><span class="badge">required</span></td><td>Match key</td></tr>
+<tr><td><code>color</code></td><td>string</td><td><code>ededed</code></td><td>A leading <code>#</code> is stripped and the value lowercased before it's sent</td></tr>
+<tr><td><code>description</code></td><td>string</td><td>unmanaged</td><td>Omitted means left as-is on GitHub, not cleared</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="collaborators">collaborators</h2>
+<p>Direct collaborators and their permission level, matched by <code>username</code>.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>username</code></td><td>string</td><td><span class="badge">required</span></td><td>Match key</td></tr>
+<tr><td><code>permission</code></td><td><code>pull</code> | <code>triage</code> | <code>push</code> | <code>maintain</code> | <code>admin</code></td><td><code>push</code></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout">
+<p>Only <strong>direct</strong> collaborators (GitHub affiliation <code>direct</code>) are
+managed. Access inherited from an organization or a team is never inspected or touched, so
+this section can't accidentally revoke org-level access.</p>
+</div>
+
+<h2 id="webhooks">webhooks</h2>
+<p>Repository webhooks, matched by <code>url</code>.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>url</code></td><td>string</td><td><span class="badge">required</span></td><td>Match key</td></tr>
+<tr><td><code>events</code></td><td>list[string]</td><td><code>[push]</code></td><td></td></tr>
+<tr><td><code>active</code></td><td>bool</td><td><code>true</code></td><td></td></tr>
+<tr><td><code>content_type</code></td><td><code>json</code> | <code>form</code></td><td><code>json</code></td><td></td></tr>
+<tr><td><code>insecure_ssl</code></td><td>bool</td><td><code>false</code></td><td></td></tr>
+<tr><td><code>secret_from_env</code></td><td>string</td><td>unset</td><td>Env var holding the webhook secret</td></tr>
+</tbody>
+</table>
+</div>
+<div class="callout">
+<p>A webhook with a secret is re-sent on <em>every</em> apply, whether or not anything else
+changed — the GitHub API never returns a webhook's existing secret, so there's no value to
+diff against. Plans show it as <code>(set)</code> rather than printing it.</p>
+</div>
+
+<h2 id="secrets">secrets</h2>
+<p>Actions secrets. Each entry needs a <code>name</code> plus exactly one of
+<code>value</code> or <code>value_from_env</code> — providing both, or neither, is a
+validation error.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td><span class="badge">required</span></td><td>Match key</td></tr>
+<tr><td><code>value</code></td><td>string</td><td>unset</td><td>Literal value; exactly one of <code>value</code>/<code>value_from_env</code></td></tr>
+<tr><td><code>value_from_env</code></td><td>string</td><td>unset</td><td>Env var to read the value from</td></tr>
+</tbody>
+</table>
+</div>
+<p>Secret values are write-only: GitHub never returns them, so apply never diffs the current
+value against the declared one. By default a secret already present on the repo is left
+alone; pass <code>--force-secrets</code> to re-push every declared secret, e.g. to rotate
+one. Values are never printed in plans.</p>
+<div class="callout warn">
+<p>Literal <code>value:</code> is supported for convenience, but a secret's value in plain
+YAML is a secret in your git history. Prefer <code>value_from_env</code> and keep the actual
+value out of the repo entirely.</p>
+</div>
+
+<h2 id="variables">variables</h2>
+<p>Actions repository variables — same shape as secrets, but not sensitive.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td><span class="badge">required</span></td><td>Match key</td></tr>
+<tr><td><code>value</code></td><td>string</td><td>unset</td><td>Literal value; exactly one of <code>value</code>/<code>value_from_env</code></td></tr>
+<tr><td><code>value_from_env</code></td><td>string</td><td>unset</td><td>Env var to read the value from</td></tr>
+</tbody>
+</table>
+</div>
+<p>Variable values are readable on GitHub and shown in plain text in plans. Unlike secrets,
+an existing variable is only pushed when its resolved value actually differs from what's on
+the repo.</p>
+
+<h2 id="composing-with-extends">Composing with extends</h2>
+<p>A config can <code>extends:</code> one or more base files:</p>
+
+<pre><code>extends: ../base/org-defaults.yaml
+# or
+extends:
+  - ../base/org-defaults.yaml
+  - ../base/security-baseline.yaml
+</code></pre>
+
+<p>Paths are relative to the file that declares them, and <code>extends:</code> is
+recursive — a base can itself extend another base. Bases merge underneath the file that
+extends them, in list order, and the extending file's own content merges on top of all of
+them last.</p>
+<p>Merge rules:</p>
+<ul>
+<li><strong>Scalars</strong> (strings, bools, individual <code>settings</code> fields):
+the override wins outright.</li>
+<li><strong>Keyed lists</strong> — <code>rulesets</code>, <code>labels</code>,
+<code>secrets</code>, and <code>variables</code> by <code>name</code>;
+<code>collaborators</code> by <code>username</code>; <code>webhooks</code> by
+<code>url</code> — merge item-by-item: an override item sharing a base item's key
+<em>replaces</em> that item in place (keeping its position), and an override item with a
+new key is appended.</li>
+</ul>
+<p>A circular <code>extends</code> chain (A extends B extends A) is detected and rejected as
+a config error rather than looping forever.</p>
+<p>By convention, <code>*.yml</code> files in the config directory are the <em>applied</em>
+configs — each with its own <code>repos:</code> list, picked up by the CLI's config-dir glob
+— while <code>*.yaml</code> files are base layers that only exist to be pulled in via
+<code>extends:</code>. Neither extension is enforced by the schema; it's a naming
+convention this repo relies on to tell the two apart at a glance.</p>
+<div class="callout warn">
+<p><code>extends:</code> reads local files by relative path with no sandboxing — treat a
+base file with exactly the same scrutiny you'd give the config that includes it. It's a full
+peer of the file that extends it, not an inert template.</p>
+</div>
+
+<h2 id="environment-sourced-values">Environment-sourced values</h2>
+<p><code>value_from_env</code> (secrets, variables) and <code>secret_from_env</code>
+(webhooks) are resolved when a plan or apply actually runs — not when the config is loaded
+and validated, so schema checks don't require any secrets to be present in the
+environment.</p>
+<div class="callout warn">
+<p>An env var that's <strong>unset or empty</strong> is a hard error at resolve time, and the
+two are treated identically on purpose: in GitHub Actions, <code>${{ secrets.X }}</code> for
+an unset secret expands to an empty string rather than failing the expression, so a
+presence-only check would silently propagate an empty value to every managed repo instead of
+failing loudly.</p>
+</div>
+
+</main>
+<footer class="site-footer">MIT · <a href="https://reuse.software">REUSE</a>-compliant · © 2026 Tyler Nivin · <a href="https://github.com/nivintw/repo-management">Source</a></footer>
+<script src="search-index.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
