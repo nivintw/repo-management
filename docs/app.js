@@ -12,16 +12,9 @@
   "use strict";
 
   // ---- Theme toggle (explicit choice wins over prefers-color-scheme) ----
+  // The stored choice is applied before first paint by an inline <head> script on every
+  // page (avoiding a wrong-theme flash); this file only handles the toggle itself.
   var root = document.documentElement;
-  var stored = null;
-  try {
-    stored = localStorage.getItem("docs-theme");
-  } catch (e) {
-    /* storage unavailable (some file:// contexts); fall back to media query */
-  }
-  if (stored === "light" || stored === "dark") {
-    root.setAttribute("data-theme", stored);
-  }
 
   var toggle = document.getElementById("theme-toggle");
   if (toggle) {
@@ -80,7 +73,7 @@
   }
 
   if (input) {
-    input.addEventListener("input", function () {
+    var runSearch = function () {
       var raw = input.value.trim();
       var q = raw.toLowerCase();
       var hits = q
@@ -92,7 +85,11 @@
           })
         : [];
       render(hits, raw);
-    });
+    };
+    input.addEventListener("input", runSearch);
+    // Re-show results when the user clicks back into a non-empty search box (the
+    // outside-click handler below hides them).
+    input.addEventListener("focus", runSearch);
     document.addEventListener("click", function (event) {
       if (results && !results.contains(event.target) && event.target !== input) {
         results.hidden = true;

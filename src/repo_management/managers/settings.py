@@ -92,17 +92,25 @@ class SettingsManager:
     def _workflow_permissions_change(self, repo: Repository, *, want: bool) -> Change | None:
         # "Allow GitHub Actions to create and approve pull requests" lives on the Actions
         # workflow-permissions endpoint, which PyGithub doesn't model — drive it through
-        # the authenticated requester like the rulesets manager does. The PUT sends only
-        # the managed field, leaving default_workflow_permissions untouched.
+        # the authenticated requester like the rulesets manager does. The PUT writes back
+        # the live default_workflow_permissions alongside the managed field: GitHub's docs
+        # don't promise an omitted param is preserved, and this pins it either way without
+        # managing it.
         url = f"{repo.url}/actions/permissions/workflow"
         _, data = repo.requester.requestJsonAndCheck("GET", url)
         current = data.get("can_approve_pull_request_reviews")
         if current == want:
             return None
+        default_permissions = data.get("default_workflow_permissions")
 
         def apply() -> None:
             repo.requester.requestJsonAndCheck(
-                "PUT", url, input={"can_approve_pull_request_reviews": want}
+                "PUT",
+                url,
+                input={
+                    "default_workflow_permissions": default_permissions,
+                    "can_approve_pull_request_reviews": want,
+                },
             )
 
         return Change(

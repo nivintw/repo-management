@@ -60,7 +60,7 @@ def test_ddns_resolves_to_standardised_credentials() -> None:
         "TWINE_PYPI_UPLOAD_TOKEN",
         "TWINE_PYPI_TEST_UPLOAD_TOKEN",
     }
-    assert _names(config.variables) == {"CI_CLIENT_ID"}
+    assert _names(config.variables) == {"CI_CLIENT_ID", "CI_APP_SLUG"}
 
 
 def test_repo_management_vault_holds_every_injected_secret() -> None:
@@ -75,7 +75,10 @@ def test_repo_management_vault_holds_every_injected_secret() -> None:
 
     assert vault.repos == ["nivintw/repo-management"]
     assert vault.settings is not None
-    assert vault.settings.private is True
+    # Public since the package went to PyPI: the project links and the Pages docs site
+    # depend on it, and an apply enforces whatever this says — `true` here would flip the
+    # live repo private and 404 every public URL.
+    assert vault.settings.private is False
 
     injected = {
         secret.name

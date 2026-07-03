@@ -12,6 +12,11 @@
   <title>repo-management — declarative GitHub repo configuration</title>
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Ctext y=%2713%27 font-size=%2713%27 fill=%27%230b6e4f%27%3E%E2%96%B8%3C/text%3E%3C/svg%3E">
+  <script>
+    // Apply the stored theme before first paint so navigation doesn't flash the
+    // wrong theme; app.js owns the toggle itself.
+    try { var t = localStorage.getItem("docs-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
 </head>
 <body>
 <header class="site-header">
