@@ -7,6 +7,14 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.2.2](https://github.com/nivintw/repo-management/compare/v1.2.1...v1.2.2) (2026-07-03)
+
+
+### Bug Fixes
+
+* Address review findings in the publish pipeline ([fdf107e](https://github.com/nivintw/repo-management/commit/fdf107e8e5f2f4471acde83a1a9a12e2e9714c8e))
+* Rehearse releases on TestPyPI before publishing to PyPI ([9d43561](https://github.com/nivintw/repo-management/commit/9d43561b587df2d80d6b7db0439ec2989ca3b37f))
+
 ## [1.2.1](https://github.com/nivintw/repo-management/compare/v1.2.0...v1.2.1) (2026-06-29)
 
 
