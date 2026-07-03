@@ -3,11 +3,11 @@
 
 # Publish releases to PyPI, dress-rehearsed through TestPyPI first. release-please
 # (main.yml) cuts the `vX.Y.Z` tag + GitHub Release; this fires on that Release (event
-# `release: published`) and drives: build once → publish to TestPyPI → smoke-install from
-# TestPyPI → publish to PyPI. The artifacts are built exactly once and passed between jobs,
-# so what lands on PyPI is byte-for-byte what the smoke test exercised. PyPI uploads are
-# immutable — a broken artifact burns the version number — which is what the rehearsal
-# stage is for.
+# `release: published`) and drives: build once → publish to TestPyPI → smoke (assert the
+# release is visible on TestPyPI, then install and exercise the built wheel) → publish to
+# PyPI. The artifact set is built exactly once and passed between jobs, so what lands on
+# PyPI is byte-for-byte the set the smoke test installed from. PyPI uploads are immutable —
+# a broken artifact burns the version number — which is what the rehearsal stage is for.
 #
 # LOAD-BEARING: this only fires because release-please in main.yml creates the Release using
 # a GitHub App token, NOT the default GITHUB_TOKEN. Releases created with GITHUB_TOKEN do not
@@ -19,19 +19,22 @@
 # AUTH — OIDC Trusted Publishing (no long-lived secret), bound to deployment environments.
 # Each publish job runs in its own environment (`testpypi` / `pypi`); both environments
 # restrict deployments to `v*` tags, so only a run on a real release tag can mint an upload
-# token — a modified copy of this workflow on a branch gets nothing. One-time setup per
-# index (done for this repo): a Trusted Publisher on test.pypi.org / pypi.org pointing at
-# owner `nivintw`, repo `repo-management`, workflow `publish.yml`, environment `testpypi` /
-# `pypi` respectively. `--trusted-publishing always` makes a missing or misconfigured
-# publisher fail loudly (never a silent no-op), and `--check-url` makes re-runs idempotent
-# (files already on the index are skipped instead of erroring).
+# token — a modified copy of this workflow on a branch gets nothing. The residual trust
+# boundary is `v*` tag creation itself (unrestricted for write access until the tag ruleset
+# in #71 lands). One-time setup per index (done for this repo): a Trusted Publisher on
+# test.pypi.org / pypi.org pointing at owner `nivintw`, repo `repo-management`, workflow
+# `publish.yml`, environment `testpypi` / `pypi` respectively. `--trusted-publishing always`
+# makes a missing or misconfigured publisher fail loudly (never a silent no-op), and
+# `--check-url` makes re-runs idempotent (files already on the index are skipped instead of
+# erroring).
 #
-# The smoke job deliberately has NO `id-token: write` and no checkout: it resolves packages
-# from TestPyPI, an index anyone can upload to, and code running during that install (a
-# dependency's sdist build hook, say) must not share a job that can mint upload tokens.
+# The smoke job deliberately has NO permissions and no checkout: it needs neither — it only
+# reads the run's artifact and public indexes — and least privilege keeps the third-party
+# code that runs during dependency install away from anything mintable.
 #
 # This flow is proven here first and back-ported to the copier-everything template
-# (nivintw/copier-everything#109); ddns's token-based publish is migrated after that (#68).
+# (nivintw/copier-everything#109); #68 then migrates ddns's token-based publish and retires
+# the fleet's TWINE secrets.
 
 name: publish
 
@@ -41,6 +44,12 @@ on:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    # An explicit `shell: bash` runs with -e -o pipefail; the implicit default omits
+    # pipefail, which would let a future `cmd | filter` step swallow cmd's failure.
+    shell: bash
 
 env:
   # The distribution name on (Test)PyPI — the single substitution point for the
@@ -60,7 +69,8 @@ jobs:
     # misconfig instead fails loudly at `uv publish` (no Trusted Publisher → non-zero exit),
     # never a silent skip. (Written as a bare expression: a job `if:` is already evaluated
     # as one, and GitHub's dollar-brace expression wrapper would collide with Jinja's
-    # delimiters at render time.)
+    # delimiters when this file is rendered as part of the copier template — see the
+    # back-port note above.)
     if: github.event.repository.fork == false
     runs-on: ubuntu-latest
     outputs:
@@ -82,18 +92,25 @@ jobs:
       - name: Build and check the distributions
         # The version output comes from the project itself (not re-derived from the
         # tag), so downstream jobs test exactly what was built even if the tag
-        # scheme changes.
+        # scheme changes. Assigned before the echo so a `uv version` failure stops
+        # the step instead of exporting an empty output; twine is version-pinned
+        # like everything else on this release path.
         id: build
         run: |
           uv build
-          uvx twine check --strict dist/*
-          echo "version=$(uv version --short)" >> "$GITHUB_OUTPUT"
+          uvx twine==6.2.0 check --strict dist/*
+          version="$(uv version --short)"
+          test -n "$version"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
           if-no-files-found: error
+          # Artifacts persist across run attempts; without this, "Re-run all jobs"
+          # fails the re-upload instead of replacing the previous attempt's artifact.
+          overwrite: true
 
   testpypi:
     needs: build
@@ -122,28 +139,39 @@ jobs:
           --check-url https://test.pypi.org/simple/
 
   smoke:
-    # Prove the TestPyPI upload actually installs and runs before touching PyPI. The exact
-    # released version can only resolve from TestPyPI here (PyPI doesn't have it yet);
-    # dependencies fall through to real PyPI, which TestPyPI does not mirror.
+    # Prove the release before it touches PyPI: assert the version is actually visible on
+    # TestPyPI, then install the built wheel (dependencies from real PyPI) and exercise the
+    # CLI. The wheel comes from the run's artifact, NOT from the TestPyPI index: uv's
+    # default first-index strategy pins any dependency whose *name* exists on TestPyPI to
+    # that index (pydantic, pyyaml, and typer all squat there at ancient versions), which
+    # makes resolution unsatisfiable, and `--index-strategy unsafe-best-match` would "fix"
+    # it only by re-opening the dependency-confusion surface. Installing the artifact
+    # sidesteps both and still exercises the exact bytes PyPI will receive.
     needs: [build, testpypi]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
       - name: Set up uv
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: false
 
-      - name: Install the released version from TestPyPI and exercise the CLI
-        # The index can lag a fresh upload by a few seconds: poll until the exact
-        # version is visible, then run the install-and-exercise step once — so a
-        # genuinely broken artifact fails immediately and unambiguously instead of
-        # being retried into "not installable yet" noise.
+      - name: Confirm TestPyPI visibility, then exercise the built wheel
+        # The index can lag a fresh upload by a few seconds, so the visibility check
+        # polls briefly; --max-time keeps a stalled connection from hanging the job
+        # past the loop's timing. The wheel run happens exactly once, so a genuinely
+        # broken artifact fails immediately and unambiguously.
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           for attempt in 1 2 3 4 5; do
-            if curl -fsS --output /dev/null "https://test.pypi.org/pypi/${DIST_NAME}/${VERSION}/json"; then
+            if curl -fsSL --max-time 10 --output /dev/null \
+                "https://test.pypi.org/pypi/${DIST_NAME}/${VERSION}/json"; then
               break
             fi
             if [ "$attempt" -eq 5 ]; then
@@ -153,9 +181,10 @@ jobs:
             echo "attempt ${attempt}: ${DIST_NAME}==${VERSION} not on TestPyPI yet; retrying in 15s"
             sleep 15
           done
-          uv run --isolated --no-project \
-            --index https://test.pypi.org/simple/ \
-            --with "${DIST_NAME}==${VERSION}" \
+          # --python matches requires-python in pyproject.toml (the runner's system
+          # Python is older; uv fetches its managed interpreter).
+          uv run --isolated --no-project --python 3.14 \
+            --with dist/*.whl \
             -- repo-management --help
 
   pypi:
