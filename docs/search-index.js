@@ -22,7 +22,7 @@ window.SEARCH_INDEX = [
   { title: "Errors", page: "CLI", href: "cli.html#errors", terms: "error message exit 1 api" },
   { title: "File anatomy", page: "Config", href: "config.html#file-anatomy", terms: "repos yaml structure owner repo shared sections" },
   { title: "Section authority", page: "Config", href: "config.html#section-authority", terms: "authoritative complete desired set removal unmanaged omit delete" },
-  { title: "settings section", page: "Config", href: "config.html#settings", terms: "description homepage private topics wiki issues discussions merge default branch" },
+  { title: "settings section", page: "Config", href: "config.html#settings", terms: "description homepage private topics wiki issues discussions merge default branch workflow permissions approve actions" },
   { title: "labels section", page: "Config", href: "config.html#labels", terms: "name color description exact set normalize" },
   { title: "collaborators section", page: "Config", href: "config.html#collaborators", terms: "username permission pull triage push maintain admin direct" },
   { title: "webhooks section", page: "Config", href: "config.html#webhooks", terms: "url events active content type ssl secret" },
