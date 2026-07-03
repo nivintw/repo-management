@@ -101,17 +101,13 @@ class SettingsManager:
         current = data.get("can_approve_pull_request_reviews")
         if current == want:
             return None
-        default_permissions = data.get("default_workflow_permissions")
+        payload: dict[str, Any] = {"can_approve_pull_request_reviews": want}
+        # Skip the write-back rather than send null if the GET ever omits the key.
+        if (default_permissions := data.get("default_workflow_permissions")) is not None:
+            payload["default_workflow_permissions"] = default_permissions
 
         def apply() -> None:
-            repo.requester.requestJsonAndCheck(
-                "PUT",
-                url,
-                input={
-                    "default_workflow_permissions": default_permissions,
-                    "can_approve_pull_request_reviews": want,
-                },
-            )
+            repo.requester.requestJsonAndCheck("PUT", url, input=payload)
 
         return Change(
             domain=self.domain,
