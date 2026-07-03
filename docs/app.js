@@ -81,18 +81,17 @@
 
   if (input) {
     input.addEventListener("input", function () {
-      var q = input.value.trim().toLowerCase();
-      if (!q) {
-        render([], "");
-        return;
-      }
-      var hits = index.filter(function (entry) {
-        return (
-          entry.title.toLowerCase().indexOf(q) !== -1 ||
-          (entry.terms || "").toLowerCase().indexOf(q) !== -1
-        );
-      });
-      render(hits, input.value.trim());
+      var raw = input.value.trim();
+      var q = raw.toLowerCase();
+      var hits = q
+        ? index.filter(function (entry) {
+            return (
+              entry.title.toLowerCase().indexOf(q) !== -1 ||
+              (entry.terms || "").toLowerCase().indexOf(q) !== -1
+            );
+          })
+        : [];
+      render(hits, raw);
     });
     document.addEventListener("click", function (event) {
       if (results && !results.contains(event.target) && event.target !== input) {
