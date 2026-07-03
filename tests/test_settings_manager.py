@@ -130,7 +130,10 @@ def test_workflow_permissions_change(repo: MagicMock) -> None:
     repo.requester.requestJsonAndCheck.assert_called_with(
         "PUT",
         "https://api.github.com/repos/o/r/actions/permissions/workflow",
-        input={"can_approve_pull_request_reviews": True},
+        input={
+            "default_workflow_permissions": "read",
+            "can_approve_pull_request_reviews": True,
+        },
     )
 
 

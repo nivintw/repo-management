@@ -29,6 +29,10 @@ Actions secrets, etc.).
 
 ## Usage
 
+Write a config file first — the `repos.yaml` below; see [Config format](#config-format)
+for the schema and the repository's annotated [`examples/`][example-base] for a working
+pair. Then:
+
 ```bash
 export GITHUB_TOKEN=ghp_...
 
@@ -52,7 +56,7 @@ applied `*.yml` file in a config directory (`--config-dir`, default `config/`; `
 files are treated as base layers, not applied configs, and are skipped). `--format names`
 emits a single comma-separated line of owner-relative names, which the
 [repo-management repository][repo] uses to scope its central Renovate runner's App token
-(see [Fleet automation](#fleet-automation)).
+(see [Fleet automation](https://nivintw.github.io/repo-management/#fleet-automation)).
 
 ## Config format
 

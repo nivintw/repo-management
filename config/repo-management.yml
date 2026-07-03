@@ -11,12 +11,15 @@
 # So it gets its own config extending package.yaml: as a Python package that also vaults the
 # publish tokens, it keeps base's two secrets PLUS TWINE_PYPI_UPLOAD_TOKEN +
 # TWINE_PYPI_TEST_UPLOAD_TOKEN. Extending the layer (rather than re-listing the secrets here)
-# keeps the vault automatically in sync with whatever package.yaml defines. private: true.
+# keeps the vault automatically in sync with whatever package.yaml defines.
 
 extends: package.yaml
 
 settings:
-  private: true
+  # Public since the package went to PyPI (v1.2.2): the PyPI project links, the README, and
+  # the GitHub Pages docs site all point at this repo, and Pages needs a public repo on the
+  # free plan. `private: false` is authoritative — an apply enforces it.
+  private: false
 
 repos:
   - nivintw/repo-management

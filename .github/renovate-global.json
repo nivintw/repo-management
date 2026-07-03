@@ -21,15 +21,28 @@
   "requireConfig": "optional",
   "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"],
   "customEnvVariables": { "BASE_REF": "origin/HEAD" },
+  "platformAutomerge": false,
   "packageRules": [
     {
       "description": [
-        "Fleet-wide automerge for non-major updates. platformAutomerge (default on) rides",
-        "GitHub native auto-merge, so a PR only lands once its required checks are green;",
-        "base.yaml sets allow_auto_merge fleet-wide and the shared ruleset requires CI.",
-        "Majors stay human-reviewed. A repo's own renovate.json packageRules can override."
+        "Fleet-wide automerge for non-major updates; majors stay human-reviewed, and a",
+        "repo's own renovate.json packageRules can override. platformAutomerge is OFF",
+        "deliberately: the runner authenticates as the CI App, which holds bypass_mode:",
+        "always on the fleet's required-checks ruleset, so GitHub-native auto-merge would",
+        "treat its PRs as immediately mergeable and the ruleset gate could not be trusted.",
+        "With platform automerge off, Renovate itself merges only after it observes the",
+        "branch checks green (its default; no ignoreTests here), independent of bypass",
+        "rights. Repos without a CI workflow yet simply never satisfy that, so their PRs",
+        "wait (fail closed) until they adopt the scaffold. Pre-1.0 minors are excluded —",
+        "0.x minor bumps are conventionally breaking — and ride only the patch rule."
       ],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchUpdateTypes": ["minor"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchUpdateTypes": ["patch", "pin", "digest"],
       "automerge": true,
       "minimumReleaseAge": "3 days"
     }

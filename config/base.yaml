@@ -97,6 +97,9 @@ variables:
   # workflow authenticates with a variable (e.g. an App client ID), declare it here or an
   # apply will remove it.
   - {name: CI_CLIENT_ID, value: Iv23lieFW7nh4fTOAbgf}
+  # The CI App's slug: the scaffold's approve-bot-prs workflow uses it to recognize PRs
+  # authored by the App (Renovate / release-please) before approving them.
+  - {name: CI_APP_SLUG, value: nivintw-ci-app}
 
 secrets:
   # Actions secrets. Values are write-only and never printed in plans. The value is read
