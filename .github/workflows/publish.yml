@@ -42,6 +42,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The distribution name on (Test)PyPI — the single substitution point for the
+  # template back-port. The smoke job's console-script invocation is a separate
+  # identity (pyproject [project.scripts]) and stays literal.
+  DIST_NAME: repo-management
+
 jobs:
   build:
     # Skip on forks only. A fork's release shouldn't try (and fail) to publish — it has no
@@ -57,6 +63,8 @@ jobs:
     # delimiters at render time.)
     if: github.event.repository.fork == false
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.build.outputs.version }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -72,9 +80,14 @@ jobs:
           enable-cache: false
 
       - name: Build and check the distributions
+        # The version output comes from the project itself (not re-derived from the
+        # tag), so downstream jobs test exactly what was built even if the tag
+        # scheme changes.
+        id: build
         run: |
           uv build
           uvx twine check --strict dist/*
+          echo "version=$(uv version --short)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -87,10 +100,9 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/repo-management/
+      url: https://test.pypi.org/p/${{ env.DIST_NAME }}/
     permissions:
-      contents: read
-      id-token: write # OIDC token for TestPyPI Trusted Publishing
+      id-token: write # OIDC token for TestPyPI Trusted Publishing; no checkout, so no contents
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -113,7 +125,7 @@ jobs:
     # Prove the TestPyPI upload actually installs and runs before touching PyPI. The exact
     # released version can only resolve from TestPyPI here (PyPI doesn't have it yet);
     # dependencies fall through to real PyPI, which TestPyPI does not mirror.
-    needs: testpypi
+    needs: [build, testpypi]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -123,33 +135,37 @@ jobs:
           enable-cache: false
 
       - name: Install the released version from TestPyPI and exercise the CLI
-        # The index can lag a fresh upload by a few seconds, so retry briefly. GITHUB_REF_NAME
-        # is the release tag (vX.Y.Z) on `release` events.
+        # The index can lag a fresh upload by a few seconds: poll until the exact
+        # version is visible, then run the install-and-exercise step once — so a
+        # genuinely broken artifact fails immediately and unambiguously instead of
+        # being retried into "not installable yet" noise.
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
           for attempt in 1 2 3 4 5; do
-            if uv run --isolated --no-project \
-                 --index https://test.pypi.org/simple/ \
-                 --with "repo-management==${version}" \
-                 -- repo-management --help; then
-              echo "smoke OK: repo-management==${version} installed from TestPyPI"
-              exit 0
+            if curl -fsS --output /dev/null "https://test.pypi.org/pypi/${DIST_NAME}/${VERSION}/json"; then
+              break
             fi
-            echo "attempt ${attempt}: repo-management==${version} not installable yet; retrying in 15s"
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::${DIST_NAME}==${VERSION} never appeared on TestPyPI"
+              exit 1
+            fi
+            echo "attempt ${attempt}: ${DIST_NAME}==${VERSION} not on TestPyPI yet; retrying in 15s"
             sleep 15
           done
-          echo "::error::repo-management==${version} failed to install from TestPyPI"
-          exit 1
+          uv run --isolated --no-project \
+            --index https://test.pypi.org/simple/ \
+            --with "${DIST_NAME}==${VERSION}" \
+            -- repo-management --help
 
   pypi:
     needs: smoke
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/repo-management/
+      url: https://pypi.org/p/${{ env.DIST_NAME }}/
     permissions:
-      contents: read
-      id-token: write # OIDC token for PyPI Trusted Publishing
+      id-token: write # OIDC token for PyPI Trusted Publishing; no checkout, so no contents
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
