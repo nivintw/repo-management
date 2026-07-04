@@ -108,14 +108,19 @@ repo-management apply    -c repos.yaml   # reconcile (prompts before writing)</c
   <div class="table-wrap">
     <table>
       <tr><th>Section</th><th>Manages</th></tr>
-      <tr><td><code>settings</code></td><td>description, homepage, topics, visibility, feature toggles, merge options, default branch</td></tr>
+      <tr><td><code>settings</code></td><td>description, homepage, topics, visibility, feature toggles, merge options, default branch, template/archived flags</td></tr>
       <tr><td><code>actions</code></td><td>Actions enablement/policy (incl. selected-actions patterns), default workflow permissions, and workflow approval permission</td></tr>
+      <tr><td><code>security</code></td><td>secret scanning + push protection, Dependabot vulnerability alerts, automated security fixes, private vulnerability reporting</td></tr>
       <tr><td><code>rulesets</code></td><td>repository rulesets (branch/tag) with the full rule set, bypass actors, and ref-name conditions</td></tr>
       <tr><td><code>labels</code></td><td>create/update/delete labels to match the listed set exactly</td></tr>
       <tr><td><code>collaborators</code></td><td>add/re-permission direct collaborators; remove those not listed</td></tr>
       <tr><td><code>webhooks</code></td><td>create/update/delete webhooks, matched by URL</td></tr>
+      <tr><td><code>deploy_keys</code></td><td>create/delete deploy keys, matched by key content; delete those not listed</td></tr>
+      <tr><td><code>autolinks</code></td><td>create/delete autolink references, matched by key prefix; delete those not listed</td></tr>
+      <tr><td><code>pages</code></td><td>GitHub Pages build type, source, custom domain, HTTPS enforcement; can also disable Pages</td></tr>
       <tr><td><code>secrets</code></td><td>Actions secrets (write-only); delete those not listed</td></tr>
       <tr><td><code>variables</code></td><td>Actions repository variables; delete those not listed</td></tr>
+      <tr><td><code>environments</code></td><td>deployment environments — wait timer, reviewers, self-review prevention, branch policy — plus environment-scoped secrets/variables</td></tr>
     </table>
   </div>
 
