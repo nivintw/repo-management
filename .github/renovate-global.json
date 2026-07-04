@@ -45,6 +45,19 @@
       "matchUpdateTypes": ["patch", "pin", "digest"],
       "automerge": true,
       "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": [
+        "Both actions are handed the fleet App's private key at runtime — create-github-",
+        "app-token mints the installation token from it, release-please-action drives the",
+        "release/tag-cutting flow with it — and the App is a ruleset bypass actor, so a",
+        "compromised release reaching this fleet inherits real privilege. A longer",
+        "minimumReleaseAge gives the community more time to flag a bad release before it's",
+        "eligible; automerge itself stays on (inherited from the rules above, not reset",
+        "here) since the wait is the actual mitigation, not a manual-review gate."
+      ],
+      "matchPackageNames": ["actions/create-github-app-token", "googleapis/release-please-action"],
+      "minimumReleaseAge": "14 days"
     }
   ]
 }
