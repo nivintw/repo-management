@@ -38,6 +38,18 @@ def make_label(name: str, color: str, description: str | None) -> MagicMock:
     return label
 
 
+def make_autolink(
+    key_prefix: str, url_template: str, *, is_alphanumeric: bool = True, autolink_id: int = 1
+) -> MagicMock:
+    """Build a mock PyGithub autolink with the given attributes."""
+    autolink = MagicMock(name=f"Autolink({key_prefix})")
+    autolink.id = autolink_id
+    autolink.key_prefix = key_prefix
+    autolink.url_template = url_template
+    autolink.is_alphanumeric = is_alphanumeric
+    return autolink
+
+
 def make_hook(
     url: str,
     events: list[str],
@@ -67,3 +79,12 @@ def make_variable(name: str, value: str) -> MagicMock:
     variable.name = name
     variable.value = value
     return variable
+
+
+def make_deploy_key(title: str, key: str, *, read_only: bool = True) -> MagicMock:
+    """Build a mock PyGithub ``RepositoryKey`` with the given attributes."""
+    deploy_key = MagicMock(name=f"RepositoryKey({title})")
+    deploy_key.title = title
+    deploy_key.key = key
+    deploy_key.read_only = read_only
+    return deploy_key

@@ -39,6 +39,8 @@ _KEYED_LISTS: dict[tuple[str, ...], str] = {
     ("webhooks",): "url",
     ("secrets",): "name",
     ("variables",): "name",
+    ("deploy_keys",): "key",
+    ("autolinks",): "key_prefix",
 }
 
 
@@ -64,6 +66,13 @@ class Settings(Strict):
     allow_auto_merge: bool | None = None
     delete_branch_on_merge: bool | None = None
     allow_update_branch: bool | None = None
+    squash_merge_commit_title: Literal["PR_TITLE", "COMMIT_OR_PR_TITLE"] | None = None
+    squash_merge_commit_message: Literal["PR_BODY", "COMMIT_MESSAGES", "BLANK"] | None = None
+    merge_commit_title: Literal["PR_TITLE", "MERGE_MESSAGE"] | None = None
+    merge_commit_message: Literal["PR_BODY", "PR_TITLE", "BLANK"] | None = None
+    web_commit_signoff_required: bool | None = None
+    is_template: bool | None = None
+    archived: bool | None = None
 
 
 class Label(Strict):
@@ -105,6 +114,30 @@ class Webhook(Strict):
         if self.secret_from_env is None:
             return None
         return _require_env(self.secret_from_env)
+
+
+class DeployKey(Strict):
+    """A repository deploy key, matched against existing keys by ``key`` content.
+
+    GitHub's deploy-key API has no update endpoint: a key whose ``title``/``read_only``
+    changed for the same ``key`` content is deleted and recreated, not updated in place.
+    """
+
+    title: str
+    key: str
+    read_only: bool = True
+
+
+class Autolink(Strict):
+    """A repository autolink reference, matched against existing ones by ``key_prefix``.
+
+    GitHub's autolinks API has no update endpoint: a changed ``url_template``/
+    ``is_alphanumeric`` for an existing ``key_prefix`` is deleted and recreated.
+    """
+
+    key_prefix: str
+    url_template: str
+    is_alphanumeric: bool = True
 
 
 class _EnvValued(Strict):
@@ -183,17 +216,101 @@ class ActionsConfig(Strict):
         return self
 
 
+class Security(Strict):
+    """Repository security posture toggles. Unset fields are left unmanaged.
+
+    ``secret_scanning``/``secret_scanning_push_protection`` are read from and written to
+    GitHub's nested ``security_and_analysis`` object; the rest are independent endpoints.
+    """
+
+    secret_scanning: bool | None = None
+    secret_scanning_push_protection: bool | None = None
+    vulnerability_alerts: bool | None = None
+    automated_security_fixes: bool | None = None
+    private_vulnerability_reporting: bool | None = None
+
+
+class Reviewer(Strict):
+    """A required reviewer on a deployment environment: a GitHub user or team.
+
+    Provide ``login`` for a ``User`` or ``slug`` for a ``Team`` — resolved to the numeric
+    GitHub ID the API requires at plan time.
+    """
+
+    type: Literal["User", "Team"]
+    login: str | None = None
+    slug: str | None = None
+
+    @model_validator(mode="after")
+    def _matching_identifier(self) -> Reviewer:
+        if self.type == "User" and (self.login is None or self.slug is not None):
+            msg = "a 'User' reviewer requires 'login' and must not set 'slug'"
+            raise ValueError(msg)
+        if self.type == "Team" and (self.slug is None or self.login is not None):
+            msg = "a 'Team' reviewer requires 'slug' and must not set 'login'"
+            raise ValueError(msg)
+        return self
+
+
+class DeploymentBranchPolicy(Strict):
+    """Which branches/tags may deploy to an environment."""
+
+    protected_branches: bool = False
+    custom_branch_policies: bool = False
+
+
+class Environment(Strict):
+    """A deployment environment: protection rules plus environment-scoped secrets/variables."""
+
+    name: str
+    wait_timer: int | None = None
+    reviewers: list[Reviewer] | None = None
+    prevent_self_review: bool | None = None
+    deployment_branch_policy: DeploymentBranchPolicy | None = None
+    secrets: list[Secret] | None = None
+    variables: list[Variable] | None = None
+
+
+class PagesSource(Strict):
+    """The branch/path GitHub Pages builds from — only meaningful for ``build_type: legacy``."""
+
+    branch: str
+    path: Literal["/", "/docs"] = "/"
+
+
+class Pages(Strict):
+    """GitHub Pages configuration. ``enabled: false`` disables Pages if currently on."""
+
+    enabled: bool = True
+    build_type: Literal["legacy", "workflow"] | None = None
+    source: PagesSource | None = None
+    cname: str | None = None
+    https_enforced: bool | None = None
+
+    @model_validator(mode="after")
+    def _build_type_required_when_enabled(self) -> Pages:
+        if self.enabled and self.build_type is None:
+            msg = "'build_type' is required when 'enabled' is true"
+            raise ValueError(msg)
+        return self
+
+
 class SharedConfig(Strict):
     """The config sections applied to every repository in a :class:`Config`."""
 
     settings: Settings | None = None
     actions: ActionsConfig | None = None
+    security: Security | None = None
     rulesets: list[Ruleset] | None = None
     labels: list[Label] | None = None
     collaborators: list[Collaborator] | None = None
     webhooks: list[Webhook] | None = None
     secrets: list[Secret] | None = None
     variables: list[Variable] | None = None
+    deploy_keys: list[DeployKey] | None = None
+    autolinks: list[Autolink] | None = None
+    environments: list[Environment] | None = None
+    pages: Pages | None = None
 
     def env_sources(self) -> set[str]:
         """Return every environment-variable name this config reads a value from.

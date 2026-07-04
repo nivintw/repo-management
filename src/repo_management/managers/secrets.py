@@ -14,18 +14,22 @@ back to diff it. Consequences:
 - A declared ``secrets`` section is authoritative: a secret absent from it is deleted.
 
 Values are never shown in plans. ``Repository.create_secret`` performs the libsodium encryption.
+
+The diff logic itself lives in :mod:`repo_management.managers._secret_variable`, shared with
+the environments manager's per-environment secrets.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from repo_management.changes import Action, Change
+from repo_management.managers._secret_variable import plan_secrets
 
 if TYPE_CHECKING:
     from github.Repository import Repository
 
-    from repo_management.config import Secret, SharedConfig
+    from repo_management.changes import Change
+    from repo_management.config import SharedConfig
 
 
 class SecretsManager:
@@ -41,43 +45,4 @@ class SecretsManager:
         """Return redacted changes to create, optionally re-push, and delete secrets."""
         if desired.secrets is None:
             return []
-
-        existing = {secret.name for secret in repo.get_secrets()}
-        changes = [
-            self._upsert(repo, secret, exists=secret.name in existing)
-            for secret in desired.secrets
-            if self._force or secret.name not in existing
-        ]
-
-        wanted = {secret.name for secret in desired.secrets}
-        changes.extend(self._delete(repo, name) for name in existing if name not in wanted)
-        return changes
-
-    def _delete(self, repo: Repository, name: str) -> Change:
-        def apply() -> None:
-            repo.delete_secret(name)
-
-        return Change(
-            domain=self.domain,
-            action=Action.DELETE,
-            target=f"secret:{name}",
-            before="(exists)",
-            after=None,
-            apply=apply,
-        )
-
-    def _upsert(self, repo: Repository, secret: Secret, *, exists: bool) -> Change:
-        value = secret.resolve()
-
-        def apply() -> None:
-            repo.create_secret(secret.name, value)
-
-        return Change(
-            domain=self.domain,
-            action=Action.UPDATE if exists else Action.CREATE,
-            target=f"secret:{secret.name}",
-            before="(exists)" if exists else None,
-            after="(set)",
-            apply=apply,
-            secret=True,
-        )
+        return plan_secrets(repo, desired.secrets, domain=self.domain, force=self._force)

@@ -5,11 +5,24 @@
 
 from __future__ import annotations
 
+import typing
 from unittest.mock import MagicMock
 
 from repo_management.changes import Action
 from repo_management.config import Settings, SharedConfig
 from repo_management.managers.settings import _SPECIAL_FIELDS, SettingsManager
+
+
+def _sample_value(annotation: object) -> object:
+    """A value distinct from any field's default, valid for its annotation."""
+    for arg in typing.get_args(annotation):
+        if typing.get_origin(arg) is typing.Literal:
+            return typing.get_args(arg)[0]
+    if annotation == (list[str] | None):
+        return ["changed"]
+    if annotation == (bool | None):
+        return True
+    return "changed"
 
 
 def test_no_settings_is_noop(repo: MagicMock) -> None:
@@ -77,14 +90,9 @@ def test_every_settings_field_produces_a_change(repo: MagicMock) -> None:
     unmanaged. Set every Settings field to a value the fake repo can't already have
     and require a change to account for each one.
     """
-    values: dict[str, object] = {}
-    for name, field in Settings.model_fields.items():
-        if field.annotation == (list[str] | None):
-            values[name] = ["changed"]
-        elif field.annotation == (bool | None):
-            values[name] = True
-        else:
-            values[name] = "changed"
+    values: dict[str, object] = {
+        name: _sample_value(field.annotation) for name, field in Settings.model_fields.items()
+    }
     repo.configure_mock(**dict.fromkeys(set(values) - _SPECIAL_FIELDS))
     repo.get_topics.return_value = []
     repo.requester.requestJsonAndCheck.return_value = ({}, {})
