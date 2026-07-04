@@ -62,7 +62,10 @@ class DeployKeysManager:
 
     def _create(self, repo: Repository, item: DeployKey) -> Change:
         def apply() -> None:
-            repo.create_key(item.title, item.key, read_only=item.read_only)
+            # Matching tolerates ambient whitespace (a YAML block scalar can introduce a
+            # trailing newline), but the API call itself must not send it -- strip before
+            # create, preserving any real comment suffix as part of the key content.
+            repo.create_key(item.title, item.key.strip(), read_only=item.read_only)
 
         return Change(
             domain=self.domain,

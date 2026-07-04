@@ -19,6 +19,7 @@ from repo_management.config import (
     Reviewer,
     Secret,
     SelectedActions,
+    Settings,
     Variable,
     Webhook,
     load_config,
@@ -233,6 +234,20 @@ def test_deployment_branch_policy_rejects_both_true() -> None:
     DeploymentBranchPolicy(protected_branches=True)
     DeploymentBranchPolicy(custom_branch_policies=True)
     DeploymentBranchPolicy()
+
+
+def test_settings_requires_title_when_message_is_set() -> None:
+    """GitHub rejects a *_message field without its *_title counterpart in the same PATCH.
+
+    A title alone is fine (it just sets a preference for later); the reverse pairing isn't
+    required.
+    """
+    with pytest.raises(ValueError, match="'squash_merge_commit_title' is required"):
+        Settings(squash_merge_commit_message="BLANK")
+    with pytest.raises(ValueError, match="'merge_commit_title' is required"):
+        Settings(merge_commit_message="BLANK")
+    Settings(squash_merge_commit_title="PR_TITLE")
+    Settings(squash_merge_commit_title="PR_TITLE", squash_merge_commit_message="BLANK")
 
 
 def test_pages_requires_build_type_when_enabled() -> None:

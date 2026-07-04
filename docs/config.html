@@ -133,9 +133,9 @@ on the repo (not reset to a default).</p>
 <tr><td><code>allow_auto_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
 <tr><td><code>delete_branch_on_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
 <tr><td><code>allow_update_branch</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
-<tr><td><code>squash_merge_commit_title</code></td><td><code>PR_TITLE</code> | <code>COMMIT_OR_PR_TITLE</code></td><td>unmanaged</td><td></td></tr>
+<tr><td><code>squash_merge_commit_title</code></td><td><code>PR_TITLE</code> | <code>COMMIT_OR_PR_TITLE</code></td><td>unmanaged</td><td>Required if <code>squash_merge_commit_message</code> is set</td></tr>
 <tr><td><code>squash_merge_commit_message</code></td><td><code>PR_BODY</code> | <code>COMMIT_MESSAGES</code> | <code>BLANK</code></td><td>unmanaged</td><td></td></tr>
-<tr><td><code>merge_commit_title</code></td><td><code>PR_TITLE</code> | <code>MERGE_MESSAGE</code></td><td>unmanaged</td><td></td></tr>
+<tr><td><code>merge_commit_title</code></td><td><code>PR_TITLE</code> | <code>MERGE_MESSAGE</code></td><td>unmanaged</td><td>Required if <code>merge_commit_message</code> is set</td></tr>
 <tr><td><code>merge_commit_message</code></td><td><code>PR_BODY</code> | <code>PR_TITLE</code> | <code>BLANK</code></td><td>unmanaged</td><td></td></tr>
 <tr><td><code>web_commit_signoff_required</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
 <tr><td><code>is_template</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
