@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.4.1](https://github.com/nivintw/repo-management/compare/v1.4.0...v1.4.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* Require a longer release age for credential-receiving actions ([4cac927](https://github.com/nivintw/repo-management/commit/4cac9278abf03ed65abbe71234f2e57a83a4e751)), closes [#77](https://github.com/nivintw/repo-management/issues/77)
+
 ## [1.4.0](https://github.com/nivintw/repo-management/compare/v1.3.0...v1.4.0) (2026-07-04)
 
 
