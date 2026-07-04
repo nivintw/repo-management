@@ -3,15 +3,16 @@
 
 """Manager for repository security posture toggles.
 
-Each of the five ``Security`` fields is an independent GitHub endpoint, so — unlike
-``SettingsManager``'s single batched ``repo.edit`` — this manager may return up to three
-changes: one combined change for the ``security_and_analysis`` sub-object (secret scanning +
-push protection, since GitHub's PATCH takes both together), one for vulnerability alerts, one
-for automated security fixes, and one for private vulnerability reporting (the last has no
-PyGithub support, so it's driven directly through the authenticated requester, the same way
-``RulesetsManager``/``ActionsManager`` handle endpoints PyGithub doesn't model). A 404 from
-that endpoint is treated as "currently disabled" rather than an error, the same convention
-``PagesManager`` uses for a feature that isn't configured yet.
+The five ``Security`` fields map to four independent GitHub endpoints, so — unlike
+``SettingsManager``'s single batched ``repo.edit`` — this manager may return up to four
+changes: one combined change for the ``security_and_analysis`` sub-object (secret scanning
+and push protection share a single PATCH payload, since GitHub's API takes both together),
+one for vulnerability alerts, one for automated security fixes, and one for private
+vulnerability reporting (the last has no PyGithub support, so it's driven directly through
+the authenticated requester, the same way ``RulesetsManager``/``ActionsManager`` handle
+endpoints PyGithub doesn't model). A 404 from that endpoint is treated as "currently
+disabled" rather than an error, the same convention ``PagesManager`` uses for a feature
+that isn't configured yet.
 """
 
 from __future__ import annotations
