@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+from github import GithubException
+
 from repo_management.changes import Action
 from repo_management.config import Security, SharedConfig
 from repo_management.managers.security import SecurityManager
@@ -218,6 +221,49 @@ def test_private_vulnerability_reporting_in_sync(repo: MagicMock) -> None:
     repo.requester.requestJsonAndCheck.return_value = ({}, {"enabled": True})
     desired = SharedConfig(security=Security(private_vulnerability_reporting=True))
     assert SecurityManager().plan(repo, desired) == []
+
+
+def test_private_vulnerability_reporting_404_is_treated_as_disabled(repo: MagicMock) -> None:
+    """A 404 from the PVR endpoint means 'not configured', mirroring PagesManager."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(404, {})
+    desired = SharedConfig(security=Security(private_vulnerability_reporting=True))
+
+    changes = SecurityManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    assert (changes[0].before, changes[0].after) == (False, True)
+
+
+def test_private_vulnerability_reporting_404_and_desired_false_is_noop(repo: MagicMock) -> None:
+    """A 404 (already off) with a desired-false value produces no change."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(404, {})
+    desired = SharedConfig(security=Security(private_vulnerability_reporting=False))
+    assert SecurityManager().plan(repo, desired) == []
+
+
+def test_private_vulnerability_reporting_non_404_propagates(repo: MagicMock) -> None:
+    """A non-404 error from the GET is not swallowed as 'disabled'."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(500, {})
+    desired = SharedConfig(security=Security(private_vulnerability_reporting=True))
+
+    with pytest.raises(GithubException):
+        SecurityManager().plan(repo, desired)
+
+
+def test_secret_scanning_feature_absent_is_treated_as_differing(repo: MagicMock) -> None:
+    """A feature GitHub omits (e.g. unsupported on this repo) doesn't crash the diff."""
+    analysis = MagicMock(name="SecurityAndAnalysis")
+    analysis.secret_scanning = None
+    repo.security_and_analysis = analysis
+    desired = SharedConfig(security=Security(secret_scanning=True))
+
+    changes = SecurityManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    assert changes[0].before == {"secret_scanning": None}
 
 
 def test_every_security_field_produces_a_change(repo: MagicMock) -> None:

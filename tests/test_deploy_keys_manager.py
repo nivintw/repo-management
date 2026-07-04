@@ -51,6 +51,22 @@ def test_existing_deploy_key_matches_exactly(repo: MagicMock) -> None:
     assert DeployKeysManager().plan(repo, desired) == []
 
 
+def test_matching_ignores_trailing_comment(repo: MagicMock) -> None:
+    """A key differing only by an ssh-keygen-style comment is not spuriously recreated.
+
+    GitHub's stored key may or may not echo back a submitted comment; matching on the
+    algorithm+body only keeps identity stable either way, since ssh-keygen's default
+    output always appends one.
+    """
+    existing = make_deploy_key(title="ci", key="ssh-ed25519 AAAA...", read_only=True)
+    desired = SharedConfig(
+        deploy_keys=[DeployKey(title="ci", key="ssh-ed25519 AAAA... deploy@ci", read_only=True)],
+    )
+    repo.get_keys.return_value = [existing]
+
+    assert DeployKeysManager().plan(repo, desired) == []
+
+
 def test_unlisted_deploy_key_is_deleted(repo: MagicMock) -> None:
     """A declared deploy_keys section is authoritative: an unlisted key is deleted."""
     existing = make_deploy_key(title="stale", key="ssh-ed25519 STALE...", read_only=True)

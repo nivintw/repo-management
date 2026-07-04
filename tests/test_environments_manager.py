@@ -203,6 +203,21 @@ def test_existing_environment_in_sync_is_noop(repo: MagicMock) -> None:
     assert EnvironmentsManager().plan(repo, desired) == []
 
 
+def test_unknown_protection_rule_type_is_ignored(repo: MagicMock) -> None:
+    """A protection-rule type this manager doesn't model (e.g. branch_policy) is ignored.
+
+    GitHub's protection_rules list always includes a branch_policy-typed entry alongside
+    wait_timer/required_reviewers, but that entry carries no data of its own -- the real
+    policy is read separately via deployment_branch_policy -- so it must not cause a crash
+    or a spurious diff.
+    """
+    current = _make_environment("prod", wait_timer=30)
+    current.protection_rules.append(_rule("branch_policy"))
+    repo.get_environments.return_value = [current]
+    desired = SharedConfig(environments=[Environment(name="prod", wait_timer=30)])
+    assert EnvironmentsManager().plan(repo, desired) == []
+
+
 def test_existing_environment_wait_timer_change(repo: MagicMock) -> None:
     """A differing wait_timer yields an UPDATE that re-sends the same create_environment call."""
     current = _make_environment("prod", wait_timer=30)

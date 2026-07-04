@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
@@ -30,6 +31,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 Permission = Literal["pull", "triage", "push", "maintain", "admin"]
+
+# GitHub login / team-slug charset: alphanumeric and hyphens, no leading/trailing hyphen.
+# Rejects '/' in particular -- a Reviewer's login/slug is interpolated directly into a raw
+# REST path (see managers/environments.py), so this is a hard boundary against a crafted
+# value redirecting that request to an unintended API path.
+_GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
 
 # Section path -> the field that identifies an item, for by-key list merges.
 _KEYED_LISTS: dict[tuple[str, ...], str] = {
@@ -242,6 +249,14 @@ class Reviewer(Strict):
     login: str | None = None
     slug: str | None = None
 
+    @field_validator("login", "slug")
+    @classmethod
+    def _safe_identifier(cls, value: str | None) -> str | None:
+        if value is not None and not _GITHUB_IDENTIFIER.fullmatch(value):
+            msg = f"{value!r} is not a valid GitHub login/team-slug"
+            raise ValueError(msg)
+        return value
+
     @model_validator(mode="after")
     def _matching_identifier(self) -> Reviewer:
         if self.type == "User" and (self.login is None or self.slug is not None):
@@ -254,10 +269,22 @@ class Reviewer(Strict):
 
 
 class DeploymentBranchPolicy(Strict):
-    """Which branches/tags may deploy to an environment."""
+    """Which branches/tags may deploy to an environment.
+
+    ``protected_branches`` and ``custom_branch_policies`` are mutually exclusive on
+    GitHub's API — setting both true is rejected at apply time with an opaque error, so
+    it's rejected here instead, at config-validation time.
+    """
 
     protected_branches: bool = False
     custom_branch_policies: bool = False
+
+    @model_validator(mode="after")
+    def _mutually_exclusive(self) -> DeploymentBranchPolicy:
+        if self.protected_branches and self.custom_branch_policies:
+            msg = "'protected_branches' and 'custom_branch_policies' cannot both be true"
+            raise ValueError(msg)
+        return self
 
 
 class Environment(Strict):

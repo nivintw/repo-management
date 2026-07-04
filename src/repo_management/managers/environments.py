@@ -256,6 +256,10 @@ def _current_rules(current: GhEnvironment) -> dict[str, Any]:
                 {"type": reviewer.type, "id": reviewer.reviewer.id}
                 for reviewer in (rule.reviewers or [])
             ]
+        # A third rule type, "branch_policy", carries no data of its own -- the actual
+        # policy is read separately below via current.deployment_branch_policy -- so it's
+        # deliberately ignored here, as would any future rule type this manager doesn't
+        # yet model.
 
     policy = current.deployment_branch_policy
     return {
