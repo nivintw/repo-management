@@ -10,10 +10,12 @@ from pathlib import Path
 import pytest
 
 from repo_management.config import (
+    ActionsConfig,
     Config,
     ConfigError,
     Label,
     Secret,
+    SelectedActions,
     Variable,
     Webhook,
     load_config,
@@ -185,6 +187,15 @@ def test_secret_resolve_empty_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMPTY", "")
     with pytest.raises(ConfigError, match="not set or is empty"):
         Secret(name="X", value_from_env="EMPTY").resolve()
+
+
+def test_selected_actions_requires_selected_policy() -> None:
+    """selected_actions is rejected unless allowed_actions is 'selected'."""
+    with pytest.raises(ValueError, match="requires 'allowed_actions: selected'"):
+        ActionsConfig(selected_actions=SelectedActions())
+    with pytest.raises(ValueError, match="requires 'allowed_actions: selected'"):
+        ActionsConfig(allowed_actions="all", selected_actions=SelectedActions())
+    ActionsConfig(allowed_actions="selected", selected_actions=SelectedActions())
 
 
 def test_variable_requires_exactly_one_source() -> None:

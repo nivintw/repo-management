@@ -100,13 +100,18 @@ to publish, anyone who can push that tag can trigger a publish from an arbitrary
       - type: update
       - type: deletion
     bypass_actors:
+      - actor_type: RepositoryRole
+        actor_id: 5   # Repository Admins
+        bypass_mode: always
       - actor_type: Integration
         actor_id: 123456
         bypass_mode: always
 </code></pre>
-<p>The <code>bypass_actors</code> entry is what lets the automated process (here, a GitHub
+<p>The <code>bypass_actors</code> entries are what let the automated process (here, a GitHub
 App) still create/move/delete the tag while everyone else is blocked by the three rules
-above.</p>
+above. Give admins a bypass too, not just the automation: without one, a broken App
+installation or key locks every repo owner out of their own tags until the ruleset itself
+is edited.</p>
 
 <h2 id="matching-and-drift">Matching and drift</h2>
 <div class="callout">

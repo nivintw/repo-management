@@ -107,6 +107,12 @@ rulesets:
       - {type: update}
       - {type: deletion}
     bypass_actors:
+      # Manual remedy if the release App's installation/key ever breaks or a tag needs a
+      # one-off hand fix — without this, a broken App would lock every repo owner out of
+      # their own v* tags fleet-wide until this ruleset itself is edited.
+      - actor_id: 5 # Repository Admins
+        actor_type: RepositoryRole
+        bypass_mode: always
       - actor_id: 998885 # nivintw-ci-app (release GitHub App) — cuts the v* release tag
         actor_type: Integration
         bypass_mode: always
