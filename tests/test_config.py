@@ -333,6 +333,26 @@ autolinks:
     assert config.autolinks[0].url_template == "https://new.example/<num>"  # replaced
 
 
+def test_extends_lists_merge_by_key_environments(tmp_path: Path) -> None:
+    """Environments merges by name, same as every other keyed-list section."""
+    write(tmp_path, "environments:\n  - {name: staging, wait_timer: 5}\n", name="base.yaml")
+    override = write(
+        tmp_path,
+        """
+extends: base.yaml
+repos: [o/r]
+environments:
+  - {name: staging, wait_timer: 30}
+  - {name: prod, wait_timer: 60}
+""",
+    )
+    config = load_config(override)
+    assert config.environments is not None
+    by_name = {e.name: e for e in config.environments}
+    assert by_name["staging"].wait_timer == 30  # replaced
+    assert "prod" in by_name  # appended
+
+
 def test_extends_list_of_bases(tmp_path: Path) -> None:
     """Extends accepts a list of bases merged in order."""
     write(tmp_path, "settings: {private: true}\n", name="a.yaml")

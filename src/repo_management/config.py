@@ -41,6 +41,7 @@ _KEYED_LISTS: dict[tuple[str, ...], str] = {
     ("variables",): "name",
     ("deploy_keys",): "key",
     ("autolinks",): "key_prefix",
+    ("environments",): "name",
 }
 
 

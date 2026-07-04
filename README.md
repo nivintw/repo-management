@@ -78,10 +78,11 @@ A file may `extends:` one or more base files (a string or a list, relative paths
 recursively). The bases are merged underneath, then this file is merged on top:
 
 - **scalars** — the override wins;
-- **list sections** (`rulesets`, `labels.items`, `collaborators`, `webhooks`, `secrets`) —
-  merge by each item's natural key (ruleset/label/secret `name`, collaborator `username`,
-  webhook `url`): a same-key item in the override **replaces** the base's item, and new
-  items are appended.
+- **list sections** (`rulesets`, `labels`, `collaborators`, `webhooks`, `secrets`,
+  `variables`, `deploy_keys`, `autolinks`, `environments`) — merge by each item's natural
+  key (ruleset/label/secret/variable/environment `name`, collaborator `username`, webhook
+  `url`, deploy key `key`, autolink `key_prefix`): a same-key item in the override
+  **replaces** the base's item, and new items are appended.
 
 ```yaml
 # repos.yaml
@@ -101,14 +102,19 @@ repository for a fully-annotated, working pair.
 
 | Section | Manages |
 | --- | --- |
-| `settings` | description, homepage, topics, visibility, features (issues/wiki/projects/discussions), merge options (squash/merge/rebase, auto-merge, delete-branch-on-merge), default branch |
+| `settings` | description, homepage, topics, visibility, features (issues/wiki/projects/discussions), merge options (squash/merge/rebase, auto-merge, delete-branch-on-merge, squash/merge commit title & message, web commit signoff), default branch, template/archived flags |
 | `actions` | Actions enablement and allowed-actions policy (`enabled`, `allowed_actions`, `selected_actions` patterns), default workflow permissions (`default_workflow_permissions`), and workflow approval permission (`can_approve_pull_request_reviews`) |
+| `security` | secret scanning + push protection, Dependabot vulnerability alerts, automated security fixes, and private vulnerability reporting |
 | `rulesets` | repository rulesets (branch/tag): the full rule set (pull_request, required_status_checks, required_linear_history, non_fast_forward, deletion, creation, update, required_deployments, merge_queue, required_signatures, the *_pattern rules, file_path/extension/size restrictions, workflows, code_scanning), plus `bypass_actors` and ref-name `conditions` |
 | `labels` | create/update/delete labels to match the listed set exactly |
 | `collaborators` | add/re-permission direct collaborators; remove those not listed |
 | `webhooks` | create/update/delete webhooks, matched by URL |
+| `deploy_keys` | create/delete deploy keys, matched by key content; delete those not listed |
+| `autolinks` | create/delete autolink references, matched by key prefix; delete those not listed |
+| `pages` | GitHub Pages build type, source branch/path, custom domain, and HTTPS enforcement; `enabled: false` disables it |
 | `secrets` | Actions secrets (write-only; libsodium-encrypted by PyGithub); delete those not listed |
 | `variables` | Actions repository variables (plain text; updated only when the value differs); delete those not listed |
+| `environments` | deployment environments — wait timer, required reviewers, self-review prevention, branch policy — plus environment-scoped secrets/variables |
 
 ### Design notes / limitations
 
@@ -139,6 +145,22 @@ repository for a fully-annotated, working pair.
   API, so a variable is updated only when its value actually differs and the value is shown
   in plain text in the plan. Variables take a literal `value:` or `value_from_env:` (same
   shape as secrets, minus the secrecy).
+- **Deploy keys and autolinks have no update endpoint.** GitHub's APIs for both only
+  support create/list/delete, so changing an existing entry (e.g. a deploy key's `title` or
+  an autolink's `url_template`) is planned as a delete of the old entry paired with a create
+  of the new one, not a single in-place update.
+- **Environments reuse the secrets/variables logic per-environment.** An environment's
+  `secrets`/`variables` follow the same authoritative-set semantics as the top-level
+  sections, scoped to that environment. A `Team` reviewer resolves its `slug` through the
+  repo's owning org (a config error on a non-org-owned repo); a `User` reviewer resolves its
+  `login` directly. Because `create_environment` is a single PUT covering wait timer,
+  reviewers, self-review prevention, and branch policy together, an unset field on an
+  *existing* environment is preserved at its live value rather than reset — the API has no
+  partial-update form.
+- **Pages has no explicit "disable" by default omission.** Leaving `pages:` out entirely
+  leaves Pages unmanaged; declaring it with `enabled: false` disables it if currently on.
+  Creating a new Pages site with `cname`/`https_enforced` set takes two API calls (GitHub's
+  create endpoint only accepts `build_type`/`source`), planned as one change.
 
 ## Fleet automation
 
