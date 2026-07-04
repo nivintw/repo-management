@@ -101,7 +101,8 @@ repository for a fully-annotated, working pair.
 
 | Section | Manages |
 | --- | --- |
-| `settings` | description, homepage, topics, visibility, features (issues/wiki/projects/discussions), merge options (squash/merge/rebase, auto-merge, delete-branch-on-merge), default branch, Actions workflow approval permission (`can_approve_pull_request_reviews`) |
+| `settings` | description, homepage, topics, visibility, features (issues/wiki/projects/discussions), merge options (squash/merge/rebase, auto-merge, delete-branch-on-merge), default branch |
+| `actions` | Actions enablement and allowed-actions policy (`enabled`, `allowed_actions`, `selected_actions` patterns), default workflow permissions (`default_workflow_permissions`), and workflow approval permission (`can_approve_pull_request_reviews`) |
 | `rulesets` | repository rulesets (branch/tag): the full rule set (pull_request, required_status_checks, required_linear_history, non_fast_forward, deletion, creation, update, required_deployments, merge_queue, required_signatures, the *_pattern rules, file_path/extension/size restrictions, workflows, code_scanning), plus `bypass_actors` and ref-name `conditions` |
 | `labels` | create/update/delete labels to match the listed set exactly |
 | `collaborators` | add/re-permission direct collaborators; remove those not listed |

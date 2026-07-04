@@ -64,10 +64,6 @@ class Settings(Strict):
     allow_auto_merge: bool | None = None
     delete_branch_on_merge: bool | None = None
     allow_update_branch: bool | None = None
-    # Actions workflow permissions ("Allow GitHub Actions to create and approve pull
-    # requests") — lives on a separate API endpoint, not Repository.edit; the settings
-    # manager special-cases it the way it does topics.
-    can_approve_pull_request_reviews: bool | None = None
 
 
 class Label(Strict):
@@ -153,10 +149,38 @@ class Variable(_EnvValued):
     """
 
 
+class SelectedActions(Strict):
+    """Which actions are allowed when ``allowed_actions`` is ``"selected"``.
+
+    Unmanaged (``None``) unless ``allowed_actions: selected`` is also set — GitHub rejects
+    this sub-config for any other policy.
+    """
+
+    github_owned_allowed: bool = True
+    verified_allowed: bool = False
+    patterns_allowed: list[str] = Field(default_factory=list)
+
+
+class ActionsConfig(Strict):
+    """Actions permissions: enablement, allowed-actions policy, and workflow permissions.
+
+    Unset fields are left unmanaged, consistent with :class:`Settings`.
+    """
+
+    enabled: bool | None = None
+    allowed_actions: Literal["all", "local_only", "selected"] | None = None
+    selected_actions: SelectedActions | None = None
+    default_workflow_permissions: Literal["read", "write"] | None = None
+    # "Allow GitHub Actions to create and approve pull requests" — the same
+    # workflow-permissions endpoint as default_workflow_permissions above.
+    can_approve_pull_request_reviews: bool | None = None
+
+
 class SharedConfig(Strict):
     """The config sections applied to every repository in a :class:`Config`."""
 
     settings: Settings | None = None
+    actions: ActionsConfig | None = None
     rulesets: list[Ruleset] | None = None
     labels: list[Label] | None = None
     collaborators: list[Collaborator] | None = None
