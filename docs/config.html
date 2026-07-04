@@ -384,7 +384,9 @@ sections above, but scoped to the environment).</p>
 </div>
 <p>Each reviewer is a <code>User</code> (by <code>login</code>) or a <code>Team</code> (by
 <code>slug</code>), resolved to the numeric ID GitHub's API requires when the plan runs — a
-<code>Team</code> reviewer requires an org-owned repository.</p>
+<code>Team</code> reviewer requires an org-owned repository. <code>login</code>/<code>slug</code>
+must be a valid GitHub identifier (letters, digits, and internal hyphens only — no
+<code>/</code>), since the value is used directly in the resolution request.</p>
 <pre><code>environments:
   - name: production
     wait_timer: 10
