@@ -89,6 +89,30 @@ def test_secret_scanning_and_push_protection_batched(repo: MagicMock) -> None:
     )
 
 
+def test_secret_scanning_only_differing_field_is_sent(repo: MagicMock) -> None:
+    """Declaring both fields but only one differing sends and shows only that one.
+
+    secret_scanning and secret_scanning_push_protection are independently settable on
+    GitHub's API -- an already-matching field must not be resent, and must not appear in
+    the user-facing diff as if it were changing.
+    """
+    repo.security_and_analysis = _analysis(secret_scanning="disabled", push_protection="enabled")
+    desired = SharedConfig(
+        security=Security(secret_scanning=True, secret_scanning_push_protection=True)
+    )
+
+    changes = SecurityManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.before == {"secret_scanning": "disabled"}
+    assert change.after == {"secret_scanning": "enabled"}
+    change.apply()
+    repo.edit.assert_called_once_with(
+        security_and_analysis={"secret_scanning": {"status": "enabled"}}
+    )
+
+
 def test_push_protection_unset_is_unmanaged(repo: MagicMock) -> None:
     """Leaving secret_scanning_push_protection unset never includes it in the payload."""
     repo.security_and_analysis = _analysis(secret_scanning="disabled", push_protection="disabled")

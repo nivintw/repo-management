@@ -6,8 +6,9 @@
 The five ``Security`` fields map to four independent GitHub endpoints, so — unlike
 ``SettingsManager``'s single batched ``repo.edit`` — this manager may return up to four
 changes: one combined change for the ``security_and_analysis`` sub-object (secret scanning
-and push protection share a single PATCH payload, since GitHub's API takes both together),
-one for vulnerability alerts, one for automated security fixes, and one for private
+and push protection are independently settable, but share the same nested API object, so a
+differing pair batches into one Change the way ``SettingsManager`` batches its own scalar
+fields), one for vulnerability alerts, one for automated security fixes, and one for private
 vulnerability reporting (the last has no PyGithub support, so it's driven directly through
 the authenticated requester, the same way ``RulesetsManager``/``ActionsManager`` handle
 endpoints PyGithub doesn't model). A 404 from that endpoint is treated as "currently
@@ -61,7 +62,7 @@ class SecurityManager:
 
         current = repo.security_and_analysis
         before: dict[str, str | None] = {}
-        payload: dict[str, dict[str, str]] = {}
+        after: dict[str, str] = {}
         for field, want in wanted.items():
             if want is None:
                 continue
@@ -70,11 +71,16 @@ class SecurityManager:
             # scanning push protection on a repo without secret scanning enabled) -- treat
             # that the same as "differs from any desired state" rather than crashing.
             current_status = getattr(getattr(current, field, None), "status", None)
-            payload[field] = {"status": want_status}
             if current_status != want_status:
                 before[field] = current_status
-        if not before:
+                after[field] = want_status
+        if not after:
             return None
+
+        # Only the fields that actually differ are sent -- secret_scanning and
+        # secret_scanning_push_protection are independently settable on GitHub's API, so an
+        # in-sync field must not be resent (and must not appear in the user-facing diff).
+        payload = {field: {"status": status} for field, status in after.items()}
 
         def apply() -> None:
             repo.edit(security_and_analysis=payload)
@@ -84,7 +90,7 @@ class SecurityManager:
             action=Action.UPDATE,
             target="security_and_analysis",
             before=before,
-            after={field: value["status"] for field, value in payload.items()},
+            after=after,
             apply=apply,
         )
 
