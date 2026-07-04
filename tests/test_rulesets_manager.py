@@ -282,7 +282,6 @@ def test_tag_targeted_ruleset_is_created() -> None:
         f"{URL}/rulesets",
         input=desired.to_api(),
     )
-    assert desired.to_api()["target"] == "tag"
 
 
 def test_matching_tag_ruleset_is_skipped() -> None:

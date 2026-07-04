@@ -169,6 +169,26 @@ def test_workflow_permissions_change(repo: MagicMock) -> None:
     )
 
 
+def test_workflow_permissions_write_back_omits_missing_key(repo: MagicMock) -> None:
+    """An unmanaged field the GET omits is dropped from the PUT, not sent as null."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"can_approve_pull_request_reviews": False},
+    )
+    desired = SharedConfig(actions=ActionsConfig(can_approve_pull_request_reviews=True))
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    changes[0].apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions/workflow",
+        input={"can_approve_pull_request_reviews": True},
+    )
+
+
 def test_workflow_permissions_in_sync(repo: MagicMock) -> None:
     """A matching workflow-permissions toggle produces no change."""
     repo.url = URL
