@@ -31,31 +31,27 @@ class ActionsManager:
         if actions is None:
             return []
 
-        changes: list[Change] = []
-        permissions = self._partial_change(
-            repo,
-            target="permissions",
-            url=f"{repo.url}/actions/permissions",
-            wanted={"enabled": actions.enabled, "allowed_actions": actions.allowed_actions},
-        )
-        if permissions is not None:
-            changes.append(permissions)
-        if actions.selected_actions is not None:
-            selected = self._selected_actions_change(repo, actions.selected_actions)
-            if selected is not None:
-                changes.append(selected)
-        workflow = self._partial_change(
-            repo,
-            target="workflow permissions",
-            url=f"{repo.url}/actions/permissions/workflow",
-            wanted={
-                "default_workflow_permissions": actions.default_workflow_permissions,
-                "can_approve_pull_request_reviews": actions.can_approve_pull_request_reviews,
-            },
-        )
-        if workflow is not None:
-            changes.append(workflow)
-        return changes
+        candidates = [
+            self._partial_change(
+                repo,
+                target="permissions",
+                url=f"{repo.url}/actions/permissions",
+                wanted={"enabled": actions.enabled, "allowed_actions": actions.allowed_actions},
+            ),
+            self._selected_actions_change(repo, actions.selected_actions)
+            if actions.selected_actions is not None
+            else None,
+            self._partial_change(
+                repo,
+                target="workflow permissions",
+                url=f"{repo.url}/actions/permissions/workflow",
+                wanted={
+                    "default_workflow_permissions": actions.default_workflow_permissions,
+                    "can_approve_pull_request_reviews": actions.can_approve_pull_request_reviews,
+                },
+            ),
+        ]
+        return [change for change in candidates if change is not None]
 
     def _partial_change(
         self, repo: Repository, *, target: str, url: str, wanted: dict[str, Any]
@@ -64,7 +60,8 @@ class ActionsManager:
 
         Shared by the permissions and workflow-permissions endpoints, which both expose a
         pair of fields the config may only partly manage; an omitted field is written back
-        with its live value so the PUT doesn't clear it.
+        with its live value so the PUT doesn't clear it — unless the GET itself omitted
+        that value, in which case it's dropped from the payload rather than sent as null.
         """
         if all(want is None for want in wanted.values()):
             return None
@@ -74,8 +71,12 @@ class ActionsManager:
         payload: dict[str, Any] = {}
         for field, want in wanted.items():
             current = data.get(field)
-            payload[field] = current if want is None else want
-            if want is not None and current != want:
+            if want is None:
+                if current is not None:
+                    payload[field] = current
+                continue
+            payload[field] = want
+            if current != want:
                 before[field] = current
                 after[field] = want
         if not after:
