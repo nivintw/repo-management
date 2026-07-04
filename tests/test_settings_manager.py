@@ -109,6 +109,30 @@ def test_every_settings_field_produces_a_change(repo: MagicMock) -> None:
     assert managed == set(Settings.model_fields)
 
 
+def test_paired_title_backfilled_when_only_message_differs(repo: MagicMock) -> None:
+    """GitHub requires *_title in the same PATCH whenever its *_message pair is present.
+
+    If the title's desired value already matches the repo (so the plain diff would drop
+    it), the PATCH must still include it whenever the paired message field is being sent.
+    """
+    repo.squash_merge_commit_title = "PR_TITLE"
+    repo.squash_merge_commit_message = "COMMIT_MESSAGES"
+    desired = SharedConfig(
+        settings=Settings(squash_merge_commit_title="PR_TITLE", squash_merge_commit_message="BLANK")
+    )
+
+    changes = SettingsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    # The user-facing summary stays a minimal, honest diff -- title isn't "changing".
+    assert change.after == {"squash_merge_commit_message": "BLANK"}
+    change.apply()
+    repo.edit.assert_called_once_with(
+        squash_merge_commit_message="BLANK", squash_merge_commit_title="PR_TITLE"
+    )
+
+
 def test_multiple_fields(repo: MagicMock) -> None:
     """Several differing scalar fields batch into one settings change; topics is separate."""
     repo.description = "old"

@@ -17,6 +17,15 @@ if TYPE_CHECKING:
 # Settings fields that are not Repository.edit kwargs and get their own API call.
 _SPECIAL_FIELDS = {"topics"}
 
+# GitHub's API requires the *_title field in the same PATCH whenever its *_message
+# counterpart is present -- even if the title's value isn't itself changing. The
+# Settings model's validator guarantees both are declared whenever the message is,
+# so `wanted` always has the paired title's value available to backfill with.
+_PAIRED_TITLE_FIELD = {
+    "squash_merge_commit_message": "squash_merge_commit_title",
+    "merge_commit_message": "merge_commit_title",
+}
+
 
 class SettingsManager:
     """Reconcile scalar repository settings and the topics list."""
@@ -54,8 +63,13 @@ class SettingsManager:
         if not after:
             return None
 
+        payload = dict(after)
+        for message_field, title_field in _PAIRED_TITLE_FIELD.items():
+            if message_field in payload and title_field not in payload:
+                payload[title_field] = wanted[title_field]
+
         def apply() -> None:
-            repo.edit(**after)
+            repo.edit(**payload)
 
         return Change(
             domain=self.domain,

@@ -40,6 +40,23 @@ def test_new_deploy_key_creates_change(repo: MagicMock) -> None:
     repo.create_key.assert_called_once_with("ci", "ssh-ed25519 AAAA...", read_only=True)
 
 
+def test_create_strips_ambient_whitespace(repo: MagicMock) -> None:
+    """A YAML block scalar's trailing newline is stripped before the API call.
+
+    Matching tolerates it (see test_matching_ignores_trailing_comment), but GitHub's
+    create-key endpoint must not receive it.
+    """
+    desired = SharedConfig(
+        deploy_keys=[DeployKey(title="ci", key="ssh-ed25519 AAAA... deploy@ci\n", read_only=True)],
+    )
+    repo.get_keys.return_value = []
+
+    changes = DeployKeysManager().plan(repo, desired)
+
+    changes[0].apply()
+    repo.create_key.assert_called_once_with("ci", "ssh-ed25519 AAAA... deploy@ci", read_only=True)
+
+
 def test_existing_deploy_key_matches_exactly(repo: MagicMock) -> None:
     """An existing deploy key that matches exactly yields no change."""
     existing = make_deploy_key(title="ci", key="ssh-ed25519 AAAA...", read_only=True)

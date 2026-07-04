@@ -82,6 +82,21 @@ class Settings(Strict):
     is_template: bool | None = None
     archived: bool | None = None
 
+    @model_validator(mode="after")
+    def _paired_merge_commit_fields(self) -> Settings:
+        # GitHub's API requires each *_title field whenever its *_message counterpart is
+        # set (the reverse isn't required): a title alone just sets a preference for when
+        # the merge type is later enabled, but a message without its title is rejected.
+        if self.squash_merge_commit_message is not None and self.squash_merge_commit_title is None:
+            msg = (
+                "'squash_merge_commit_title' is required when 'squash_merge_commit_message' is set"
+            )
+            raise ValueError(msg)
+        if self.merge_commit_message is not None and self.merge_commit_title is None:
+            msg = "'merge_commit_title' is required when 'merge_commit_message' is set"
+            raise ValueError(msg)
+        return self
+
 
 class Label(Strict):
     """A repository issue/PR label.
