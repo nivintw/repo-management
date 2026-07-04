@@ -373,6 +373,34 @@ autolinks:
     assert config.autolinks[0].url_template == "https://new.example/<num>"  # replaced
 
 
+def test_extends_merge_deploy_keys_matches_by_normalized_key(tmp_path: Path) -> None:
+    """deploy_keys merges by the same normalized identity DeployKeysManager diffs by.
+
+    A base and override entry for the same key material but a different comment (or
+    YAML-introduced trailing whitespace) must be treated as the *same* entry during the
+    merge -- not as two, which would otherwise produce two desired deploy keys for one
+    underlying live key.
+    """
+    write(
+        tmp_path,
+        'deploy_keys:\n  - {title: old, key: "ssh-ed25519 AAA old@host", read_only: true}\n',
+        name="base.yaml",
+    )
+    override = write(
+        tmp_path,
+        """
+extends: base.yaml
+repos: [o/r]
+deploy_keys:
+  - {title: new, key: "ssh-ed25519 AAA new@host", read_only: false}
+""",
+    )
+    config = load_config(override)
+    assert config.deploy_keys is not None
+    assert len(config.deploy_keys) == 1
+    assert config.deploy_keys[0].title == "new"  # override wins, not appended alongside base
+
+
 def test_extends_lists_merge_by_key_environments(tmp_path: Path) -> None:
     """Environments merges by name, same as every other keyed-list section."""
     write(tmp_path, "environments:\n  - {name: staging, wait_timer: 5}\n", name="base.yaml")

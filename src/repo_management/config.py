@@ -28,6 +28,7 @@ from repo_management.base import Strict
 from repo_management.ruleset import Ruleset
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 Permission = Literal["pull", "triage", "push", "maintain", "admin"]
@@ -37,6 +38,22 @@ Permission = Literal["pull", "triage", "push", "maintain", "admin"]
 # REST path (see managers/environments.py), so this is a hard boundary against a crafted
 # value redirecting that request to an unintended API path.
 _GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
+
+_DEPLOY_KEY_FIELDS = 2  # algorithm + base64 body; an optional trailing comment is field 3+.
+
+
+def normalize_deploy_key(key: str) -> str:
+    """The algorithm and base64 body only, dropping an optional trailing comment.
+
+    ``ssh-keygen``'s default output always appends a ``user@host``-style comment, and a
+    YAML block scalar can introduce trailing whitespace -- neither is part of a deploy
+    key's real identity. Shared by ``managers/deploy_keys.py`` (matching against live
+    GitHub state) and the ``extends:`` merge below, so two config entries differing only
+    by comment/whitespace can't survive a merge as if they were different keys.
+    """
+    parts = key.split()
+    return " ".join(parts[:_DEPLOY_KEY_FIELDS]) if len(parts) >= _DEPLOY_KEY_FIELDS else key.strip()
+
 
 # Section path -> the field that identifies an item, for by-key list merges.
 _KEYED_LISTS: dict[tuple[str, ...], str] = {
@@ -49,6 +66,13 @@ _KEYED_LISTS: dict[tuple[str, ...], str] = {
     ("deploy_keys",): "key",
     ("autolinks",): "key_prefix",
     ("environments",): "name",
+}
+
+# Section path -> a normalizer for its keyed-merge field, for sections whose live-API
+# identity differs from the literal config string. Absent from this map means the raw
+# string is the identity (the common case).
+_KEY_NORMALIZERS: dict[tuple[str, ...], Callable[[str], str]] = {
+    ("deploy_keys",): normalize_deploy_key,
 }
 
 
@@ -426,8 +450,14 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def _merge_by_key(base: list[Any], override: list[Any], key: str) -> list[Any]:
+def _merge_by_key(
+    base: list[Any], override: list[Any], key: str, normalize: Callable[[str], str] | None
+) -> list[Any]:
     """Merge lists of mappings by ``key``: override replaces same-key items, appends new.
+
+    ``normalize`` (when set) matches the identity the section's manager actually diffs
+    against, so an item that differs only in a way the manager itself ignores (e.g. a
+    deploy key's optional comment) is matched as the *same* item here too.
 
     Relies on dict insertion order: reassigning an existing key keeps its position, so a
     same-key override item replaces in place while new items land at the end.
@@ -438,7 +468,10 @@ def _merge_by_key(base: list[Any], override: list[Any], key: str) -> list[Any]:
         # (e.g. a list, which is also unhashable) is kept positionally and left for schema
         # validation to reject cleanly.
         raw_key = item.get(key) if isinstance(item, dict) else None
-        item_key = raw_key if isinstance(raw_key, str) else (index, "_unkeyed")
+        if isinstance(raw_key, str):
+            item_key = normalize(raw_key) if normalize else raw_key
+        else:
+            item_key = (index, "_unkeyed")
         merged[item_key] = item
     return list(merged.values())
 
@@ -460,7 +493,9 @@ def _deep_merge(
             and isinstance(base_value, list)
             and isinstance(over_value, list)
         ):
-            result[key] = _merge_by_key(base_value, over_value, _KEYED_LISTS[child_path])
+            result[key] = _merge_by_key(
+                base_value, over_value, _KEYED_LISTS[child_path], _KEY_NORMALIZERS.get(child_path)
+            )
         else:
             result[key] = over_value
     return result
