@@ -7,6 +7,22 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.5.0](https://github.com/nivintw/repo-management/compare/v1.4.1...v1.5.0) (2026-07-04)
+
+
+### Features
+
+* Close the settings-coverage audit and speed up Renovate cadence ([4f4a26b](https://github.com/nivintw/repo-management/commit/4f4a26b0733a616c868b6c5dd354e5bf3318eefe))
+
+
+### Bug Fixes
+
+* Address review-pr findings on the new managers ([8fa53e4](https://github.com/nivintw/repo-management/commit/8fa53e49a48c0a3745edf3a3605e4941265d953c))
+* Don't resend or display an in-sync security_and_analysis field ([821d8d4](https://github.com/nivintw/repo-management/commit/821d8d4376075aa12a984e9af1a7f46122ce602f))
+* Enforce the merge-commit title/message pairing GitHub's API requires ([46014c7](https://github.com/nivintw/repo-management/commit/46014c7da4d827c8efe47c4c178e272a85a7e5c5))
+* Merge deploy_keys by the same normalized identity the manager diffs by ([ae2ac60](https://github.com/nivintw/repo-management/commit/ae2ac60290116cc5006f30d808faedb07601a425))
+* Reject autolink url_template missing the &lt;num&gt; placeholder ([956f7e9](https://github.com/nivintw/repo-management/commit/956f7e933ac0b6835ec43b4d175e88c594ba2a7d))
+
 ## [1.4.1](https://github.com/nivintw/repo-management/compare/v1.4.0...v1.4.1) (2026-07-04)
 
 
