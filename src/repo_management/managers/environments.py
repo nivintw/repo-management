@@ -23,7 +23,7 @@ environment first and then pushes each secret/variable against the now-real envi
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from github.EnvironmentDeploymentBranchPolicy import EnvironmentDeploymentBranchPolicyParams
 from github.EnvironmentProtectionRuleReviewer import ReviewerParams
@@ -39,6 +39,13 @@ if TYPE_CHECKING:
     from repo_management.config import Environment, Reviewer, SharedConfig
 
 
+class _BranchPolicyLike(Protocol):
+    """Anything exposing GitHub's two branch-policy flags — the config model or PyGithub's."""
+
+    protected_branches: bool
+    custom_branch_policies: bool
+
+
 class EnvironmentsManager:
     """Reconcile deployment environments: a declared section is authoritative and complete."""
 
@@ -50,18 +57,28 @@ class EnvironmentsManager:
             return []
 
         existing = {env.name: env for env in repo.get_environments()}
+        # Resolved once per (type, login/slug) and shared across every environment in this
+        # call — declaring the same reviewer on multiple environments is a common pattern,
+        # and the resolved ID never varies within one plan() call (same repo, same org).
+        reviewer_cache: dict[tuple[str, str], dict[str, Any]] = {}
         changes: list[Change] = []
         for item in desired.environments:
-            changes.extend(self._plan_environment(repo, item, existing.get(item.name)))
+            changes.extend(
+                self._plan_environment(repo, item, existing.get(item.name), reviewer_cache)
+            )
 
         wanted_names = {item.name for item in desired.environments}
         changes.extend(self._delete(repo, name) for name in existing if name not in wanted_names)
         return changes
 
     def _plan_environment(
-        self, repo: Repository, item: Environment, current: GhEnvironment | None
+        self,
+        repo: Repository,
+        item: Environment,
+        current: GhEnvironment | None,
+        reviewer_cache: dict[tuple[str, str], dict[str, Any]],
     ) -> list[Change]:
-        reviewers = self._resolve_reviewers(repo, item.reviewers)
+        reviewers = self._resolve_reviewers(repo, item.reviewers, reviewer_cache)
         if current is None:
             return [self._create(repo, item, reviewers)]
 
@@ -82,28 +99,41 @@ class EnvironmentsManager:
         return changes
 
     def _resolve_reviewers(
-        self, repo: Repository, reviewers: list[Reviewer] | None
+        self,
+        repo: Repository,
+        reviewers: list[Reviewer] | None,
+        cache: dict[tuple[str, str], dict[str, Any]],
     ) -> list[dict[str, Any]] | None:
         if reviewers is None:
             return None
-        return [self._resolve_reviewer(repo, reviewer) for reviewer in reviewers]
+        return [self._resolve_reviewer(repo, reviewer, cache) for reviewer in reviewers]
 
-    def _resolve_reviewer(self, repo: Repository, reviewer: Reviewer) -> dict[str, Any]:
+    def _resolve_reviewer(
+        self, repo: Repository, reviewer: Reviewer, cache: dict[tuple[str, str], dict[str, Any]]
+    ) -> dict[str, Any]:
+        identifier = reviewer.login if reviewer.type == "User" else reviewer.slug
+        key = (reviewer.type, identifier or "")
+        if key in cache:
+            return cache[key]
+
         if reviewer.type == "User":
             _, data = repo.requester.requestJsonAndCheck("GET", f"/users/{reviewer.login}")
-            return {"type": "User", "id": data["id"]}
-
-        org = repo.organization
-        if org is None:
-            msg = (
-                f"environment reviewer of type 'Team' (slug={reviewer.slug!r}) requires an "
-                "org-owned repository"
+            resolved = {"type": "User", "id": data["id"]}
+        else:
+            org = repo.organization
+            if org is None:
+                msg = (
+                    f"environment reviewer of type 'Team' (slug={reviewer.slug!r}) requires an "
+                    "org-owned repository"
+                )
+                raise ConfigError(msg)
+            _, data = repo.requester.requestJsonAndCheck(
+                "GET", f"/orgs/{org.login}/teams/{reviewer.slug}"
             )
-            raise ConfigError(msg)
-        _, data = repo.requester.requestJsonAndCheck(
-            "GET", f"/orgs/{org.login}/teams/{reviewer.slug}"
-        )
-        return {"type": "Team", "id": data["id"]}
+            resolved = {"type": "Team", "id": data["id"]}
+
+        cache[key] = resolved
+        return resolved
 
     def _rule_change(
         self,
@@ -113,18 +143,7 @@ class EnvironmentsManager:
         reviewers: list[dict[str, Any]] | None,
     ) -> Change | None:
         before = _current_rules(current)
-        after = dict(before)
-        if item.wait_timer is not None:
-            after["wait_timer"] = item.wait_timer
-        if reviewers is not None:
-            after["reviewers"] = reviewers
-        if item.prevent_self_review is not None:
-            after["prevent_self_review"] = item.prevent_self_review
-        if item.deployment_branch_policy is not None:
-            after["deployment_branch_policy"] = {
-                "protected_branches": item.deployment_branch_policy.protected_branches,
-                "custom_branch_policies": item.deployment_branch_policy.custom_branch_policies,
-            }
+        after = _overlay_rules(before, item, reviewers)
         if _normalize(after) == _normalize(before):
             return None
 
@@ -143,19 +162,7 @@ class EnvironmentsManager:
     def _create(
         self, repo: Repository, item: Environment, reviewers: list[dict[str, Any]] | None
     ) -> Change:
-        rules = {
-            "wait_timer": item.wait_timer or 0,
-            "reviewers": reviewers or [],
-            "prevent_self_review": item.prevent_self_review or False,
-            "deployment_branch_policy": (
-                {
-                    "protected_branches": item.deployment_branch_policy.protected_branches,
-                    "custom_branch_policies": item.deployment_branch_policy.custom_branch_policies,
-                }
-                if item.deployment_branch_policy is not None
-                else None
-            ),
-        }
+        rules = _overlay_rules(_DEFAULT_RULES, item, reviewers)
 
         def apply() -> None:
             env = repo.create_environment(item.name, **_create_environment_kwargs(rules))
@@ -195,6 +202,47 @@ class EnvironmentsManager:
         )
 
 
+_DEFAULT_RULES: dict[str, Any] = {
+    "wait_timer": 0,
+    "reviewers": [],
+    "prevent_self_review": False,
+    "deployment_branch_policy": None,
+}
+
+
+def _branch_policy_dict(policy: _BranchPolicyLike) -> dict[str, bool]:
+    """A plain dict for any object exposing ``protected_branches``/``custom_branch_policies``.
+
+    Used for both the config model's ``DeploymentBranchPolicy`` and PyGithub's read-only
+    ``EnvironmentDeploymentBranchPolicy`` — both expose the same two attributes.
+    """
+    return {
+        "protected_branches": policy.protected_branches,
+        "custom_branch_policies": policy.custom_branch_policies,
+    }
+
+
+def _overlay_rules(
+    before: dict[str, Any], item: Environment, reviewers: list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    """Apply ``item``'s declared fields onto ``before``, leaving unset fields unmanaged.
+
+    Shared by both a rule *update* (``before`` is the environment's live state) and a rule
+    *create* (``before`` is :data:`_DEFAULT_RULES`, GitHub's own defaults for a new
+    environment) — an unset field falls back to whichever baseline applies.
+    """
+    after = dict(before)
+    if item.wait_timer is not None:
+        after["wait_timer"] = item.wait_timer
+    if reviewers is not None:
+        after["reviewers"] = reviewers
+    if item.prevent_self_review is not None:
+        after["prevent_self_review"] = item.prevent_self_review
+    if item.deployment_branch_policy is not None:
+        after["deployment_branch_policy"] = _branch_policy_dict(item.deployment_branch_policy)
+    return after
+
+
 def _current_rules(current: GhEnvironment) -> dict[str, Any]:
     wait_timer = 0
     reviewers: list[dict[str, Any]] = []
@@ -210,19 +258,11 @@ def _current_rules(current: GhEnvironment) -> dict[str, Any]:
             ]
 
     policy = current.deployment_branch_policy
-    branch_policy = (
-        {
-            "protected_branches": policy.protected_branches,
-            "custom_branch_policies": policy.custom_branch_policies,
-        }
-        if policy is not None
-        else None
-    )
     return {
         "wait_timer": wait_timer,
         "reviewers": reviewers,
         "prevent_self_review": prevent_self_review,
-        "deployment_branch_policy": branch_policy,
+        "deployment_branch_policy": _branch_policy_dict(policy) if policy is not None else None,
     }
 
 

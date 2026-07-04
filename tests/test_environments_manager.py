@@ -145,6 +145,23 @@ def test_team_reviewer_without_org_raises(repo: MagicMock) -> None:
         EnvironmentsManager().plan(repo, desired)
 
 
+def test_shared_reviewer_resolved_once_across_environments(repo: MagicMock) -> None:
+    """A reviewer declared on multiple environments is only resolved via one API call."""
+    repo.get_environments.return_value = []
+    repo.requester.requestJsonAndCheck.return_value = ({}, {"id": 42})
+    desired = SharedConfig(
+        environments=[
+            Environment(name="staging", reviewers=[Reviewer(type="User", login="octocat")]),
+            Environment(name="prod", reviewers=[Reviewer(type="User", login="octocat")]),
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)
+
+    assert len(changes) == 2
+    repo.requester.requestJsonAndCheck.assert_called_once_with("GET", "/users/octocat")
+
+
 def test_new_environment_pushes_secrets_and_variables(repo: MagicMock) -> None:
     """Creating an environment with secrets/variables pushes them after create_environment."""
     repo.get_environments.return_value = []
