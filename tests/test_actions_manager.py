@@ -14,6 +14,15 @@ from repo_management.managers.actions import ActionsManager
 URL = "https://api.github.com/repos/o/r"
 
 
+def _responses(by_url: dict[str, dict]) -> object:
+    """A requestJsonAndCheck side_effect returning a per-endpoint response by URL."""
+
+    def side_effect(_verb: str, url: str, **_kwargs: object) -> tuple[dict, dict]:
+        return ({}, by_url[url])
+
+    return side_effect
+
+
 def test_no_actions_is_noop(repo: MagicMock) -> None:
     """A repo config without an actions section yields no changes."""
     assert ActionsManager().plan(repo, SharedConfig()) == []
@@ -83,9 +92,15 @@ def test_selected_actions_unset_is_unmanaged(repo: MagicMock) -> None:
 def test_selected_actions_change(repo: MagicMock) -> None:
     """A differing selected-actions config yields a change that PUTs the full body."""
     repo.url = URL
-    repo.requester.requestJsonAndCheck.return_value = (
-        {},
-        {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": []},
+    repo.requester.requestJsonAndCheck.side_effect = _responses(
+        {
+            f"{URL}/actions/permissions": {"enabled": True, "allowed_actions": "selected"},
+            f"{URL}/actions/permissions/selected-actions": {
+                "github_owned_allowed": True,
+                "verified_allowed": False,
+                "patterns_allowed": [],
+            },
+        },
     )
     desired = SharedConfig(
         actions=ActionsConfig(
@@ -96,7 +111,9 @@ def test_selected_actions_change(repo: MagicMock) -> None:
 
     changes = ActionsManager().plan(repo, desired)
 
-    selected = next(c for c in changes if c.target == "selected actions")
+    assert len(changes) == 1
+    selected = changes[0]
+    assert selected.target == "selected actions"
     assert selected.action is Action.UPDATE
     selected.apply()
     repo.requester.requestJsonAndCheck.assert_called_with(
@@ -113,9 +130,15 @@ def test_selected_actions_change(repo: MagicMock) -> None:
 def test_selected_actions_in_sync(repo: MagicMock) -> None:
     """A matching selected-actions config produces no selected-actions change."""
     repo.url = URL
-    repo.requester.requestJsonAndCheck.return_value = (
-        {},
-        {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": []},
+    repo.requester.requestJsonAndCheck.side_effect = _responses(
+        {
+            f"{URL}/actions/permissions": {"enabled": True, "allowed_actions": "selected"},
+            f"{URL}/actions/permissions/selected-actions": {
+                "github_owned_allowed": True,
+                "verified_allowed": False,
+                "patterns_allowed": [],
+            },
+        },
     )
     desired = SharedConfig(
         actions=ActionsConfig(
@@ -124,9 +147,7 @@ def test_selected_actions_in_sync(repo: MagicMock) -> None:
         ),
     )
 
-    changes = ActionsManager().plan(repo, desired)
-
-    assert not any(c.target == "selected actions" for c in changes)
+    assert ActionsManager().plan(repo, desired) == []
 
 
 def test_workflow_permissions_unset_is_unmanaged(repo: MagicMock) -> None:

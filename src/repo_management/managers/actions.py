@@ -4,8 +4,7 @@
 """Manager for repository Actions permissions and workflow permissions.
 
 PyGithub doesn't model the Actions-permissions endpoints, so this manager drives them
-directly through the authenticated requester, the same way ``RulesetsManager`` and
-``SettingsManager``'s topics/workflow-permission handling do.
+directly through the authenticated requester, the same way ``RulesetsManager`` does.
 """
 
 from __future__ import annotations
