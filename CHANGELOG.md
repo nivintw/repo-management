@@ -7,6 +7,19 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.4.0](https://github.com/nivintw/repo-management/compare/v1.3.0...v1.4.0) (2026-07-04)
+
+
+### Features
+
+* Add Actions permissions manager and v* tag ruleset ([c14ae9b](https://github.com/nivintw/repo-management/commit/c14ae9b0ff04a4dac6ce5e1973db73c59458e199))
+
+
+### Bug Fixes
+
+* Address Copilot review on PR [#79](https://github.com/nivintw/repo-management/issues/79) ([6390992](https://github.com/nivintw/repo-management/commit/639099230daebed91e8c62ea3a7f982dc213eff1))
+* Enforce ActionsConfig invariant and add tag-ruleset admin bypass ([890d15f](https://github.com/nivintw/repo-management/commit/890d15f982d62a45e8bc89dd611dc3b033b355e8))
+
 ## [1.3.0](https://github.com/nivintw/repo-management/compare/v1.2.2...v1.3.0) (2026-07-03)
 
 
