@@ -6,7 +6,10 @@
 A declared ``deploy_keys`` section is the authoritative, complete set: a key present on
 the repo but absent from the section is deleted. The natural key for the diff is the
 key's content (the ``key`` field), not its ``title`` -- GitHub allows duplicate titles,
-but key content is the real identity of a deploy key.
+but key content is the real identity of a deploy key. Matching normalizes to just the
+algorithm and base64 body (see :func:`_normalize_key`): an ``ssh-keygen``-style trailing
+comment, or the ambient whitespace a YAML block scalar can introduce, must not cause a
+key that's otherwise unchanged to be planned as a spurious delete+recreate.
 
 GitHub's deploy-key API has no update endpoint, and PyGithub's ``RepositoryKey.update()``
 is only a conditional-GET refresh, not a REST PATCH. So unlike every other manager in this
@@ -38,19 +41,19 @@ class DeployKeysManager:
         if desired.deploy_keys is None:
             return []
 
-        existing = {key.key: key for key in repo.get_keys()}
+        existing = {_normalize_key(key.key): key for key in repo.get_keys()}
         wanted = desired.deploy_keys
         changes: list[Change] = []
 
         for item in wanted:
-            current = existing.get(item.key)
+            current = existing.get(_normalize_key(item.key))
             if current is None:
                 changes.append(self._create(repo, item))
             elif _deploy_key_differs(current, item):
                 changes.append(self._delete(current))
                 changes.append(self._create(repo, item))
 
-        wanted_keys = {item.key for item in wanted}
+        wanted_keys = {_normalize_key(item.key) for item in wanted}
         changes.extend(
             self._delete(key) for content, key in existing.items() if content not in wanted_keys
         )
@@ -82,6 +85,21 @@ class DeployKeysManager:
             after=None,
             apply=apply,
         )
+
+
+_KEY_FIELDS = 2  # algorithm + base64 body; an optional trailing comment is field 3+.
+
+
+def _normalize_key(key: str) -> str:
+    """The algorithm and base64 body only, dropping an optional trailing comment.
+
+    ``ssh-keygen``'s default output always appends a ``user@host``-style comment, and a
+    YAML block scalar can introduce trailing whitespace -- neither is part of the key's
+    real identity, so both sides of the match are normalized to just the first two
+    whitespace-separated fields.
+    """
+    parts = key.split()
+    return " ".join(parts[:_KEY_FIELDS]) if len(parts) >= _KEY_FIELDS else key.strip()
 
 
 def _deploy_key_differs(current: RepositoryKey, item: DeployKey) -> bool:

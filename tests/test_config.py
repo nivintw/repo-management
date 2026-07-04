@@ -13,6 +13,7 @@ from repo_management.config import (
     ActionsConfig,
     Config,
     ConfigError,
+    DeploymentBranchPolicy,
     Label,
     Pages,
     Reviewer,
@@ -208,6 +209,30 @@ def test_reviewer_requires_matching_identifier() -> None:
         Reviewer(type="Team", login="octocat")
     Reviewer(type="User", login="octocat")
     Reviewer(type="Team", slug="team")
+
+
+def test_reviewer_rejects_unsafe_identifier() -> None:
+    """A login/slug outside GitHub's identifier charset is rejected.
+
+    login/slug are interpolated directly into a raw REST path (managers/environments.py),
+    so a value containing '/' or other path-breaking characters must be rejected at the
+    config layer rather than reaching an API call.
+    """
+    with pytest.raises(ValueError, match="not a valid GitHub login"):
+        Reviewer(type="Team", slug="../../repos/other-org/private")
+    with pytest.raises(ValueError, match="not a valid GitHub login"):
+        Reviewer(type="User", login="a/b")
+    with pytest.raises(ValueError, match="not a valid GitHub login"):
+        Reviewer(type="User", login="-leading-hyphen")
+
+
+def test_deployment_branch_policy_rejects_both_true() -> None:
+    """protected_branches and custom_branch_policies are mutually exclusive on GitHub's API."""
+    with pytest.raises(ValueError, match="cannot both be true"):
+        DeploymentBranchPolicy(protected_branches=True, custom_branch_policies=True)
+    DeploymentBranchPolicy(protected_branches=True)
+    DeploymentBranchPolicy(custom_branch_policies=True)
+    DeploymentBranchPolicy()
 
 
 def test_pages_requires_build_type_when_enabled() -> None:

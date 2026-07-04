@@ -9,12 +9,17 @@ changes: one combined change for the ``security_and_analysis`` sub-object (secre
 push protection, since GitHub's PATCH takes both together), one for vulnerability alerts, one
 for automated security fixes, and one for private vulnerability reporting (the last has no
 PyGithub support, so it's driven directly through the authenticated requester, the same way
-``RulesetsManager``/``ActionsManager`` handle endpoints PyGithub doesn't model).
+``RulesetsManager``/``ActionsManager`` handle endpoints PyGithub doesn't model). A 404 from
+that endpoint is treated as "currently disabled" rather than an error, the same convention
+``PagesManager`` uses for a feature that isn't configured yet.
 """
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import TYPE_CHECKING
+
+from github import GithubException
 
 from repo_management.changes import Action, Change
 
@@ -54,13 +59,16 @@ class SecurityManager:
             return None
 
         current = repo.security_and_analysis
-        before: dict[str, str] = {}
+        before: dict[str, str | None] = {}
         payload: dict[str, dict[str, str]] = {}
         for field, want in wanted.items():
             if want is None:
                 continue
             want_status = "enabled" if want else "disabled"
-            current_status = getattr(current, field).status
+            # A feature can be absent (None) on a repo it doesn't apply to (e.g. secret
+            # scanning push protection on a repo without secret scanning enabled) -- treat
+            # that the same as "differs from any desired state" rather than crashing.
+            current_status = getattr(getattr(current, field, None), "status", None)
             payload[field] = {"status": want_status}
             if current_status != want_status:
                 before[field] = current_status
@@ -103,7 +111,7 @@ class SecurityManager:
     ) -> Change | None:
         if want is None:
             return None
-        current = repo.get_automated_security_fixes().get("enabled", False)
+        current = repo.get_automated_security_fixes()["enabled"]
         if current == want:
             return None
 
@@ -128,8 +136,14 @@ class SecurityManager:
         if want is None:
             return None
         url = f"{repo.url}/private-vulnerability-reporting"
-        _, data = repo.requester.requestJsonAndCheck("GET", url)
-        current = data.get("enabled", False)
+        try:
+            _, data = repo.requester.requestJsonAndCheck("GET", url)
+        except GithubException as exc:
+            if exc.status != HTTPStatus.NOT_FOUND:
+                raise
+            current = False
+        else:
+            current = data["enabled"]
         if current == want:
             return None
 
