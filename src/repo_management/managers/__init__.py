@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from repo_management.managers.actions import ActionsManager
 from repo_management.managers.collaborators import CollaboratorsManager
 from repo_management.managers.labels import LabelsManager
 from repo_management.managers.rulesets import RulesetsManager
@@ -46,6 +47,7 @@ def build_managers(*, force_secrets: bool = False) -> list[Manager]:
     """
     return [
         SettingsManager(),
+        ActionsManager(),
         RulesetsManager(),
         LabelsManager(),
         CollaboratorsManager(),

@@ -259,6 +259,47 @@ def test_realistic_server_response_is_in_sync() -> None:
     assert RulesetsManager().plan(repo, SharedConfig(rulesets=[desired])) == []
 
 
+def test_tag_targeted_ruleset_is_created() -> None:
+    """A tag-targeted ruleset (e.g. protecting v* release tags) is created like any other."""
+    desired = ruleset(
+        name="protect release tags",
+        target="tag",
+        conditions={"ref_name": {"include": ["v*"], "exclude": []}},
+        rules=[{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
+        bypass_actors=[{"actor_type": "Integration", "actor_id": 998885}],
+    )
+    repo = make_repo([])
+
+    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.action is Action.CREATE
+    assert change.target == "ruleset:protect release tags"
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_any_call(
+        "POST",
+        f"{URL}/rulesets",
+        input=desired.to_api(),
+    )
+    assert desired.to_api()["target"] == "tag"
+
+
+def test_matching_tag_ruleset_is_skipped() -> None:
+    """A live tag ruleset matching the desired spec yields no change."""
+    desired = ruleset(
+        name="protect release tags",
+        target="tag",
+        conditions={"ref_name": {"include": ["v*"], "exclude": []}},
+        rules=[{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
+        bypass_actors=[{"actor_type": "Integration", "actor_id": 998885}],
+    )
+    current = {"id": 1, "source": "Repository", **desired.to_api()}
+    repo = make_repo([{"id": 1, "name": "protect release tags"}], current)
+
+    assert RulesetsManager().plan(repo, SharedConfig(rulesets=[desired])) == []
+
+
 def test_github_error_propagates() -> None:
     """An API error while listing rulesets surfaces rather than being swallowed."""
     repo = MagicMock()

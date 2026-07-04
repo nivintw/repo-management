@@ -24,13 +24,15 @@ settings:
   delete_branch_on_merge: true
   default_branch: main
   allow_auto_merge: true
+  # "Always suggest updating pull request branches" — shows the Update-branch button when a
+  # PR is behind its base.
+  allow_update_branch: true
+
+actions:
   # Let workflows create and approve pull requests: the scaffold's approve-bot-prs workflow
   # (nivintw/copier-everything#108) approves trusted bot PRs (Renovate / release-please)
   # with its own GITHUB_TOKEN, which requires this Actions setting.
   can_approve_pull_request_reviews: true
-  # "Always suggest updating pull request branches" — shows the Update-branch button when a
-  # PR is behind its base.
-  allow_update_branch: true
 
 rulesets:
   - name: main protection
@@ -88,6 +90,24 @@ rulesets:
       # never ran this check — so it must bypass, or every app-signed release is rejected
       # with "Required status check 'ci / lint-and-test' is expected".
       - actor_id: 998885 # nivintw-ci-app (release GitHub App)
+        actor_type: Integration
+        bypass_mode: always
+
+  - name: protect release tags
+    target: tag
+    enforcement: active
+    conditions:
+      ref_name: {include: ["v*"], exclude: []}
+    rules:
+      # A v* tag is a publish trust boundary (repo-management#71): the OIDC Trusted
+      # Publishing environments restrict deployments to v* tags, so anyone who can create
+      # one can trigger a PyPI publish from an arbitrary tree. Block creation/update/
+      # deletion for everyone except the release App, which cuts the tag itself.
+      - {type: creation}
+      - {type: update}
+      - {type: deletion}
+    bypass_actors:
+      - actor_id: 998885 # nivintw-ci-app (release GitHub App) — cuts the v* release tag
         actor_type: Integration
         bypass_mode: always
 

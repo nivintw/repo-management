@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-"""Manager for repository settings, features, merge options, and workflow permissions."""
+"""Manager for repository settings, features, and merge options."""
 
 from __future__ import annotations
 
@@ -14,17 +14,17 @@ if TYPE_CHECKING:
 
     from repo_management.config import Settings, SharedConfig
 
-# Settings fields that are not Repository.edit kwargs and get their own API calls.
-_SPECIAL_FIELDS = {"topics", "can_approve_pull_request_reviews"}
+# Settings fields that are not Repository.edit kwargs and get their own API call.
+_SPECIAL_FIELDS = {"topics"}
 
 
 class SettingsManager:
-    """Reconcile scalar repository settings, the topics list, and workflow permissions."""
+    """Reconcile scalar repository settings and the topics list."""
 
     domain = "settings"
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
-        """Return at most one batched settings change plus topics/workflow-permission changes."""
+        """Return at most one batched settings change plus a topics change."""
         settings = desired.settings
         if settings is None:
             return []
@@ -37,12 +37,6 @@ class SettingsManager:
             topics = self._topics_change(repo, settings.topics)
             if topics is not None:
                 changes.append(topics)
-        if settings.can_approve_pull_request_reviews is not None:
-            permissions = self._workflow_permissions_change(
-                repo, want=settings.can_approve_pull_request_reviews
-            )
-            if permissions is not None:
-                changes.append(permissions)
         return changes
 
     def _edit_change(self, repo: Repository, settings: Settings) -> Change | None:
@@ -86,34 +80,5 @@ class SettingsManager:
             target="topics",
             before=sorted(current),
             after=sorted(want),
-            apply=apply,
-        )
-
-    def _workflow_permissions_change(self, repo: Repository, *, want: bool) -> Change | None:
-        # "Allow GitHub Actions to create and approve pull requests" lives on the Actions
-        # workflow-permissions endpoint, which PyGithub doesn't model — drive it through
-        # the authenticated requester like the rulesets manager does. The PUT writes back
-        # the live default_workflow_permissions alongside the managed field: GitHub's docs
-        # don't promise an omitted param is preserved, and this pins it either way without
-        # managing it.
-        url = f"{repo.url}/actions/permissions/workflow"
-        _, data = repo.requester.requestJsonAndCheck("GET", url)
-        current = data.get("can_approve_pull_request_reviews")
-        if current == want:
-            return None
-        payload: dict[str, Any] = {"can_approve_pull_request_reviews": want}
-        # Skip the write-back rather than send null if the GET ever omits the key.
-        if (default_permissions := data.get("default_workflow_permissions")) is not None:
-            payload["default_workflow_permissions"] = default_permissions
-
-        def apply() -> None:
-            repo.requester.requestJsonAndCheck("PUT", url, input=payload)
-
-        return Change(
-            domain=self.domain,
-            action=Action.UPDATE,
-            target="workflow permissions",
-            before={"can_approve_pull_request_reviews": current},
-            after={"can_approve_pull_request_reviews": want},
             apply=apply,
         )
