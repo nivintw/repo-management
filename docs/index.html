@@ -108,7 +108,8 @@ repo-management apply    -c repos.yaml   # reconcile (prompts before writing)</c
   <div class="table-wrap">
     <table>
       <tr><th>Section</th><th>Manages</th></tr>
-      <tr><td><code>settings</code></td><td>description, homepage, topics, visibility, feature toggles, merge options, default branch, Actions workflow approval permission</td></tr>
+      <tr><td><code>settings</code></td><td>description, homepage, topics, visibility, feature toggles, merge options, default branch</td></tr>
+      <tr><td><code>actions</code></td><td>Actions enablement/policy (incl. selected-actions patterns), default workflow permissions, and workflow approval permission</td></tr>
       <tr><td><code>rulesets</code></td><td>repository rulesets (branch/tag) with the full rule set, bypass actors, and ref-name conditions</td></tr>
       <tr><td><code>labels</code></td><td>create/update/delete labels to match the listed set exactly</td></tr>
       <tr><td><code>collaborators</code></td><td>add/re-permission direct collaborators; remove those not listed</td></tr>

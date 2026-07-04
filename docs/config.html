@@ -56,6 +56,11 @@ settings:
   has_issues: true
   delete_branch_on_merge: true
 
+actions:
+  enabled: true
+  allowed_actions: all
+  can_approve_pull_request_reviews: true
+
 labels:
   - name: bug
     color: d73a4a
@@ -128,10 +133,40 @@ on the repo (not reset to a default).</p>
 <tr><td><code>allow_auto_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
 <tr><td><code>delete_branch_on_merge</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
 <tr><td><code>allow_update_branch</code></td><td>bool</td><td>unmanaged</td><td></td></tr>
-<tr><td><code>can_approve_pull_request_reviews</code></td><td>bool</td><td>unmanaged</td><td>"Allow GitHub Actions to create and approve pull requests" — an Actions workflow-permissions setting on its own API endpoint, managed with the same declare-or-unmanaged semantics</td></tr>
 </tbody>
 </table>
 </div>
+
+<h2 id="actions">actions</h2>
+<p>Actions enablement/policy and workflow permissions — three separate GitHub API endpoints
+that PyGithub doesn't model, driven directly. Every field is optional; a field left unset is
+left unmanaged, and an unmanaged field of a pair (e.g. <code>enabled</code> vs.
+<code>allowed_actions</code>) is written back with its live value so the PUT doesn't clear
+it.</p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>enabled</code></td><td>bool</td><td>unmanaged</td><td>Whether Actions is enabled on the repo</td></tr>
+<tr><td><code>allowed_actions</code></td><td><code>all</code> | <code>local_only</code> | <code>selected</code></td><td>unmanaged</td><td></td></tr>
+<tr><td><code>selected_actions.github_owned_allowed</code></td><td>bool</td><td><code>true</code></td><td>Only meaningful when <code>allowed_actions: selected</code></td></tr>
+<tr><td><code>selected_actions.verified_allowed</code></td><td>bool</td><td><code>false</code></td><td></td></tr>
+<tr><td><code>selected_actions.patterns_allowed</code></td><td>list[string]</td><td><code>[]</code></td><td><code>owner/repo</code> patterns</td></tr>
+<tr><td><code>default_workflow_permissions</code></td><td><code>read</code> | <code>write</code></td><td>unmanaged</td><td></td></tr>
+<tr><td><code>can_approve_pull_request_reviews</code></td><td>bool</td><td>unmanaged</td><td>"Allow GitHub Actions to create and approve pull requests"</td></tr>
+</tbody>
+</table>
+</div>
+<pre><code>actions:
+  enabled: true
+  allowed_actions: selected
+  selected_actions:
+    github_owned_allowed: true
+    verified_allowed: true
+    patterns_allowed: ["astral-sh/*"]
+  default_workflow_permissions: read
+  can_approve_pull_request_reviews: true
+</code></pre>
 
 <h2 id="labels">labels</h2>
 <p>Issue and PR labels, matched by <code>name</code>. Exact-set semantics apply: labels on
@@ -241,8 +276,8 @@ extends them, in list order, and the extending file's own content merges on top 
 them last.</p>
 <p>Merge rules:</p>
 <ul>
-<li><strong>Scalars</strong> (strings, bools, individual <code>settings</code> fields):
-the override wins outright.</li>
+<li><strong>Scalars</strong> (strings, bools, individual <code>settings</code>/<code>actions</code>
+fields): the override wins outright.</li>
 <li><strong>Keyed lists</strong> — <code>rulesets</code>, <code>labels</code>,
 <code>secrets</code>, and <code>variables</code> by <code>name</code>;
 <code>collaborators</code> by <code>username</code>; <code>webhooks</code> by

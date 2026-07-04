@@ -81,6 +81,33 @@ keyed lists — by <code>name</code>, same-key item replaces in place, new items
 <a href="config.html#composing-with-extends">composing with extends</a> in the config
 reference.</p>
 
+<h2 id="tag-rulesets">Tag rulesets</h2>
+<p>Setting <code>target: tag</code> protects tags instead of branches — the same rule types,
+conditions, and bypass actors apply, just matched against tag names. A common case is
+locking down release tags so only an automated release process can create them, closing a
+publish trust boundary: if a CI workflow trusts "pushing a <code>v*</code> tag" as the signal
+to publish, anyone who can push that tag can trigger a publish from an arbitrary tree.</p>
+<pre><code>rulesets:
+  - name: protect release tags
+    target: tag
+    enforcement: active
+    conditions:
+      ref_name:
+        include: ["v*"]
+        exclude: []
+    rules:
+      - type: creation
+      - type: update
+      - type: deletion
+    bypass_actors:
+      - actor_type: Integration
+        actor_id: 123456
+        bypass_mode: always
+</code></pre>
+<p>The <code>bypass_actors</code> entry is what lets the automated process (here, a GitHub
+App) still create/move/delete the tag while everyone else is blocked by the three rules
+above.</p>
+
 <h2 id="matching-and-drift">Matching and drift</h2>
 <div class="callout">
 <p>A ruleset is matched to a live one by <code>name</code>. Once matched, every declared
