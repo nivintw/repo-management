@@ -175,6 +175,13 @@ class ActionsConfig(Strict):
     # workflow-permissions endpoint as default_workflow_permissions above.
     can_approve_pull_request_reviews: bool | None = None
 
+    @model_validator(mode="after")
+    def _selected_actions_requires_selected_policy(self) -> ActionsConfig:
+        if self.selected_actions is not None and self.allowed_actions != "selected":
+            msg = "'selected_actions' requires 'allowed_actions: selected'"
+            raise ValueError(msg)
+        return self
+
 
 class SharedConfig(Strict):
     """The config sections applied to every repository in a :class:`Config`."""
