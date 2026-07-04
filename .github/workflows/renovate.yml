@@ -40,8 +40,10 @@ name: renovate
 
 on:
   schedule:
-    # Daily at 06:00 UTC. Renovate's own scheduling/limits govern PR cadence beyond this.
-    - cron: "0 6 * * *"
+    # Every 3 hours. The concurrency guard below serializes runs, so this only shortens the
+    # rebase->merge gap for automerge-eligible PRs (see #78) — it never overlaps runs.
+    # Renovate's own scheduling/limits govern PR cadence beyond this.
+    - cron: "0 */3 * * *"
   workflow_dispatch:
     inputs:
       dryRun:

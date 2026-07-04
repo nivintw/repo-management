@@ -11,7 +11,32 @@ from conftest import make_secret
 
 from repo_management.changes import Action, Change
 from repo_management.config import Config, Secret, Settings, SharedConfig
+from repo_management.managers import build_managers
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config, plan_repo
+
+
+def test_build_managers_registers_every_domain() -> None:
+    """Guard the registry: every manager domain must be present exactly once.
+
+    A manager built but never appended to build_managers() would silently never run.
+    """
+    domains = [manager.domain for manager in build_managers()]
+    assert len(domains) == len(set(domains))
+    assert set(domains) == {
+        "settings",
+        "actions",
+        "security",
+        "rulesets",
+        "labels",
+        "collaborators",
+        "webhooks",
+        "deploy_keys",
+        "autolinks",
+        "pages",
+        "secrets",
+        "variables",
+        "environments",
+    }
 
 
 def test_plan_repo_aggregates_managers(repo: MagicMock) -> None:

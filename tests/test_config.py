@@ -14,6 +14,8 @@ from repo_management.config import (
     Config,
     ConfigError,
     Label,
+    Pages,
+    Reviewer,
     Secret,
     SelectedActions,
     Variable,
@@ -198,6 +200,24 @@ def test_selected_actions_requires_selected_policy() -> None:
     ActionsConfig(allowed_actions="selected", selected_actions=SelectedActions())
 
 
+def test_reviewer_requires_matching_identifier() -> None:
+    """A User reviewer needs login (not slug); a Team reviewer needs slug (not login)."""
+    with pytest.raises(ValueError, match="'User' reviewer requires 'login'"):
+        Reviewer(type="User", slug="team")
+    with pytest.raises(ValueError, match="'Team' reviewer requires 'slug'"):
+        Reviewer(type="Team", login="octocat")
+    Reviewer(type="User", login="octocat")
+    Reviewer(type="Team", slug="team")
+
+
+def test_pages_requires_build_type_when_enabled() -> None:
+    """Pages requires build_type unless explicitly disabled."""
+    with pytest.raises(ValueError, match="'build_type' is required"):
+        Pages()
+    Pages(build_type="workflow")
+    Pages(enabled=False)
+
+
 def test_variable_requires_exactly_one_source() -> None:
     """A variable with neither or both value sources is rejected."""
     with pytest.raises(ValueError, match="exactly one"):
@@ -278,6 +298,39 @@ rulesets:
     assert by_name["tags"].enforcement == "active"  # preserved
     assert "release" in by_name  # appended
     assert [r.name for r in config.rulesets] == ["main", "tags", "release"]
+
+
+def test_extends_lists_merge_by_key_deploy_keys_and_autolinks(tmp_path: Path) -> None:
+    """deploy_keys/autolinks merge by their own natural key, same as rulesets/labels."""
+    write(
+        tmp_path,
+        """
+deploy_keys:
+  - {title: ci, key: "ssh-ed25519 AAA", read_only: true}
+autolinks:
+  - {key_prefix: "TICKET-", url_template: "https://old.example/<num>"}
+""",
+        name="base.yaml",
+    )
+    override = write(
+        tmp_path,
+        """
+extends: base.yaml
+repos: [o/r]
+deploy_keys:
+  - {title: ci, key: "ssh-ed25519 AAA", read_only: false}
+  - {title: deploy, key: "ssh-ed25519 BBB"}
+autolinks:
+  - {key_prefix: "TICKET-", url_template: "https://new.example/<num>"}
+""",
+    )
+    config = load_config(override)
+    assert config.deploy_keys is not None
+    by_key = {k.key: k for k in config.deploy_keys}
+    assert by_key["ssh-ed25519 AAA"].read_only is False  # replaced
+    assert "ssh-ed25519 BBB" in by_key  # appended
+    assert config.autolinks is not None
+    assert config.autolinks[0].url_template == "https://new.example/<num>"  # replaced
 
 
 def test_extends_list_of_bases(tmp_path: Path) -> None:
