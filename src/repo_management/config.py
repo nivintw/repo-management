@@ -186,6 +186,14 @@ class Autolink(Strict):
     url_template: str
     is_alphanumeric: bool = True
 
+    @field_validator("url_template")
+    @classmethod
+    def _requires_num_placeholder(cls, value: str) -> str:
+        if "<num>" not in value:
+            msg = f"{value!r} must contain the '<num>' placeholder for GitHub's reference number"
+            raise ValueError(msg)
+        return value
+
 
 class _EnvValued(Strict):
     """A named value sourced either literally or from the environment.

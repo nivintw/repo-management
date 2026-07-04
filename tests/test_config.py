@@ -11,6 +11,7 @@ import pytest
 
 from repo_management.config import (
     ActionsConfig,
+    Autolink,
     Config,
     ConfigError,
     DeploymentBranchPolicy,
@@ -234,6 +235,18 @@ def test_deployment_branch_policy_rejects_both_true() -> None:
     DeploymentBranchPolicy(protected_branches=True)
     DeploymentBranchPolicy(custom_branch_policies=True)
     DeploymentBranchPolicy()
+
+
+def test_autolink_requires_num_placeholder() -> None:
+    """A url_template missing '<num>' would validate but never actually link anything.
+
+    GitHub substitutes the reference number into '<num>' -- a template without it is
+    accepted by the API but produces a non-functional autolink, so it's rejected here
+    instead, at config-validation time.
+    """
+    with pytest.raises(ValueError, match="must contain the '<num>' placeholder"):
+        Autolink(key_prefix="TICKET-", url_template="https://example.com/ticket")
+    Autolink(key_prefix="TICKET-", url_template="https://example.com/TICKET-<num>")
 
 
 def test_settings_requires_title_when_message_is_set() -> None:
