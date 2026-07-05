@@ -10,7 +10,6 @@ path = ".gitignore"
 SPDX-FileCopyrightText = "© 2026 Tyler Nivin"
 SPDX-License-Identifier = "MIT"
 
-
 # Files that can't carry an SPDX header (no comment syntax / generated). Everything
 # else gets a real header from hawkeye (see .config/licenserc.toml).
 [[annotations]]
