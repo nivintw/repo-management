@@ -186,8 +186,10 @@ reference for running the tool this way:
   thin caller instead of duplicating build/deploy logic. `mkdocs` and `mkdocs-material` are
   pinned inside the workflow (one Renovate-tracked pin covers the whole fleet); callers
   supply `docs-dir` and, if their `mkdocs.yml` needs plugins beyond Material,
-  `extra-packages`. Callers must grant `permissions: {pages: write, id-token: write}` on the
-  calling job.
+  `extra-packages`. Callers must grant `permissions: {contents: read, pages: write,
+  id-token: write}` on the calling job — declaring any `permissions:` block there forces
+  every omitted scope to `none`, so `contents: read` has to be listed explicitly too, not
+  just assumed.
 
 ## Development
 

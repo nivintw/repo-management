@@ -9,10 +9,12 @@
 # non-Python fleet repos (dotfiles, the Ansible repos) from needing a fake Python dependency
 # just to build docs. One Renovate-tracked pin here covers the whole fleet.
 #
-# CALLERS MUST grant `permissions: {pages: write, id-token: write}` on the job that has
-# `uses:` this workflow (in addition to whatever this workflow itself declares below —
-# GitHub Actions takes the intersection of both). Forgetting it fails the deploy step, not
-# silently, but easy to miss if you don't know to look.
+# CALLERS MUST grant `permissions: {contents: read, pages: write, id-token: write}` on the
+# job that has `uses:` this workflow. Declaring ANY `permissions:` block on that job forces
+# every scope it omits to `none` for the token this workflow receives — this workflow's own
+# `contents: read` below cannot restore it. Omit `contents: read` and checkout fails on any
+# private fleet repo; omit `pages`/`id-token` and Configure Pages or the deploy step fails.
+# None of these fail silently, but the error doesn't point back at the missing grant.
 
 name: docs
 
@@ -35,6 +37,10 @@ permissions:
   contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -72,7 +78,7 @@ jobs:
             extra_with+=(--with "$pkg")
           done
           uvx --from "mkdocs==${MKDOCS_VERSION}" --with "mkdocs-material==${MKDOCS_MATERIAL_VERSION}" \
-            "${extra_with[@]}" mkdocs build
+            "${extra_with[@]}" mkdocs build --strict --site-dir site
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
