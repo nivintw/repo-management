@@ -5,25 +5,40 @@
 # Refresh the pinned SHA256 of each CI-installed release binary to match its current
 # *_VERSION. Renovate bumps the version env vars (see .github/renovate.json), but the
 # github-releases datasource has no asset-digest concept, so the adjacent *_SHA256 must be
-# recomputed from the published asset. The refresh-binary-checksums workflow runs this on
-# Renovate PRs; run it by hand after a manual version bump.
+# recomputed from the published asset. Renovate runs this as a postUpgradeTask on its bump
+# PRs (so the refreshed hash lands in Renovate's own commit); run it by hand after a manual
+# version bump.
 #
 # Usage: scripts/refresh-binary-checksums.sh [file ...]
-#   With no args it updates every .github/workflows/*.yml that carries these pins.
+#   With no args it updates every .github/workflows/*.yml and .github/workflows/*.yaml that
+#   carry these pins.
 #
-# Tamper gate (CI): set BASE_REF=<git ref> to enforce supply-chain safety. A SHA is then
-# only re-pinned when the *_VERSION actually changed vs BASE_REF. A SHA that differs from
-# upstream while the version is UNCHANGED is treated as a tampered/swapped release asset and
-# fails the run — never silently re-pinned. Without BASE_REF (a human running it locally
-# after a deliberate bump) it just recomputes every pin.
+# Tamper gate (automation): the caller sets BASE_REF=<git ref> to enforce supply-chain
+# safety. A SHA is then only re-pinned when the *_VERSION actually changed vs BASE_REF; a SHA
+# that differs from upstream while the version is UNCHANGED is treated as a tampered/swapped
+# release asset and fails the run — never silently re-pinned. The central self-hosted Renovate
+# runner must export BASE_REF (e.g. origin/<base-branch>) when it runs this as a postUpgradeTask,
+# or the gate is off. Without BASE_REF (a human running it locally after a deliberate bump) it
+# just recomputes every pin.
 #
-# Requirements: bash 4.4+, curl, sha256sum (or shasum), sed, grep, awk; git when BASE_REF set.
+# Requirements: bash 4.4+, curl, sha256sum (or shasum), sed, grep, awk, mktemp, head; git when BASE_REF set.
 set -euo pipefail
 # Make `set -e` apply INSIDE $(...) too — without this a curl/awk failure inside fetch_sha is
 # swallowed and a partial download could be hashed and pinned.
 shopt -s inherit_errexit
 
 BASE_REF="${BASE_REF:-}"
+if [ -n "$BASE_REF" ] && ! git rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
+  # Distinguish "ref didn't resolve" (shallow clone, typo, stale ref) from the legitimate
+  # "file is new at HEAD" case pinned_value_at_base() treats as empty — a fetch-depth: 1
+  # runner would otherwise silently disable the tamper gate below instead of failing loudly.
+  # ^{commit} requires a commit-ish (not just any resolvable object, e.g. a blob or tree SHA
+  # passed by mistake), matching what pinned_value_at_base()'s `git show "$BASE_REF:$file"`
+  # actually needs.
+  echo "ERROR: BASE_REF '${BASE_REF}' does not resolve to a valid commit — refusing to run with a" >&2
+  echo "  broken tamper gate (fix the ref, or fetch enough history for it to resolve)." >&2
+  exit 1
+fi
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -92,17 +107,24 @@ cached_sha() { # <TOOL> <version> <outvar>
 
 # Extract the quoted value of an env-var assignment (first occurrence). Empty (exit 0) when absent.
 pinned_value() { # <VAR> <file> -> value or empty
-  grep -oE "$1: \"[^\"]+\"" "$2" 2>/dev/null | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+  # Anchored to (whitespace-then-)line-start so a search for TRIVY_VERSION can't match inside
+  # a hypothetical OLD_TRIVY_VERSION — a bare \b wouldn't help here since `_` is a word char.
+  grep -oE "^[[:space:]]*$1: \"[^\"]+\"" "$2" 2>/dev/null | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
 }
 pinned_value_at_base() { # <VAR> <file> <baseref> -> value at base or empty
-  git show "$3:$2" 2>/dev/null | grep -oE "$1: \"[^\"]+\"" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+  # grep here reads from git show's pipe, not a file arg, so there's no "file not found"
+  # stderr to suppress (unlike pinned_value()'s grep, which does need it).
+  git show "$3:$2" 2>/dev/null | grep -oE "^[[:space:]]*$1: \"[^\"]+\"" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
 }
 
 if [ "$#" -gt 0 ]; then
   targets=("$@")
 else
   targets=()
-  for f in .github/workflows/*.yml; do
+  # Both extensions: renovate's customManager matches `\.ya?ml$` and the refresh trigger uses
+  # `**`, so a binary pinned in a *.yaml workflow must be refreshed too. A non-matching glob
+  # stays literal (no nullglob), so the `[ -f ]` guard drops it.
+  for f in .github/workflows/*.yml .github/workflows/*.yaml; do
     [ -f "$f" ] && targets+=("$f")
   done
 fi

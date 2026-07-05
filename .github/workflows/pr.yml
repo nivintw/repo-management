@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+# Newest push to a PR wins — a superseded run of the full render-matrix gate is wasted cost.
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml

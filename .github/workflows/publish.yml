@@ -17,24 +17,24 @@
 # version.
 #
 # AUTH — OIDC Trusted Publishing (no long-lived secret), bound to deployment environments.
-# Each publish job runs in its own environment (`testpypi` / `pypi`); both environments
-# restrict deployments to `v*` tags, so only a run on a real release tag can mint an upload
-# token — a modified copy of this workflow on a branch gets nothing. The residual trust
-# boundary is `v*` tag creation itself (unrestricted for write access until the tag ruleset
-# in #71 lands). One-time setup per index (done for this repo): a Trusted Publisher on
-# test.pypi.org / pypi.org pointing at owner `nivintw`, repo `repo-management`, workflow
-# `publish.yml`, environment `testpypi` / `pypi` respectively. `--trusted-publishing always`
-# makes a missing or misconfigured publisher fail loudly (never a silent no-op), and
+# Each publish job runs in its own environment (`testpypi` / `pypi`); restrict both
+# environments' deployments to `v*` tags, so only a run on a real release tag can mint an
+# upload token. GitHub auto-creates an environment referenced by a workflow with NO
+# protection rules if that restriction is never configured, so the one-time repo setup
+# below is load-bearing, not optional: create the `testpypi`/`pypi` GitHub environments
+# (Settings → Environments) with that tag policy, then add a pending Trusted Publisher on
+# test.pypi.org / pypi.org pointing at owner `nivintw`, repo `repo-management`,
+# workflow `publish.yml`, environment `testpypi` / `pypi` respectively. `--trusted-publishing
+# always` makes a missing or misconfigured publisher fail loudly (never a silent no-op), and
 # `--check-url` makes re-runs idempotent (files already on the index are skipped instead of
-# erroring).
+# erroring). The residual trust boundary is `v*` tag creation itself: anyone with write
+# access can still push a `v*` tag and cut a release outside release-please, bypassing this
+# workflow's normal path — the environment restriction narrows *which runs* can mint a
+# token, it doesn't restrict *who* can create the tag that triggers one.
 #
 # The smoke job deliberately has NO permissions and no checkout: it needs neither — it only
 # reads the run's artifact and public indexes — and least privilege keeps the third-party
 # code that runs during dependency install away from anything mintable.
-#
-# This flow is proven here first and back-ported to the copier-everything template
-# (nivintw/copier-everything#109); #68 then migrates ddns's token-based publish and retires
-# the fleet's TWINE secrets.
 
 name: publish
 
@@ -51,12 +51,6 @@ defaults:
     # pipefail, which would let a future `cmd | filter` step swallow cmd's failure.
     shell: bash
 
-env:
-  # The distribution name on (Test)PyPI — the single substitution point for the
-  # template back-port. The smoke job's console-script invocation is a separate
-  # identity (pyproject [project.scripts]) and stays literal.
-  DIST_NAME: repo-management
-
 jobs:
   build:
     # Skip on forks only. A fork's release shouldn't try (and fail) to publish — it has no
@@ -69,8 +63,7 @@ jobs:
     # misconfig instead fails loudly at `uv publish` (no Trusted Publisher → non-zero exit),
     # never a silent skip. (Written as a bare expression: a job `if:` is already evaluated
     # as one, and GitHub's dollar-brace expression wrapper would collide with Jinja's
-    # delimiters when this file is rendered as part of the copier template — see the
-    # back-port note above.)
+    # delimiters when this file is rendered as part of the copier template.)
     if: github.event.repository.fork == false
     runs-on: ubuntu-latest
     outputs:
@@ -90,11 +83,10 @@ jobs:
           enable-cache: false
 
       - name: Build and check the distributions
-        # The version output comes from the project itself (not re-derived from the
-        # tag), so downstream jobs test exactly what was built even if the tag
-        # scheme changes. Assigned before the echo so a `uv version` failure stops
-        # the step instead of exporting an empty output; twine is version-pinned
-        # like everything else on this release path.
+        # The version output comes from the project itself (not re-derived from the tag),
+        # so downstream jobs test exactly what was built even if the tag scheme changes.
+        # Assigned before the echo so a `uv version` failure stops the step instead of
+        # exporting an empty output.
         id: build
         run: |
           uv build
@@ -117,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/${{ env.DIST_NAME }}/
+      url: https://test.pypi.org/p/repo-management/
     permissions:
       id-token: write # OIDC token for TestPyPI Trusted Publishing; no checkout, so no contents
     steps:
@@ -162,27 +154,21 @@ jobs:
           enable-cache: false
 
       - name: Confirm TestPyPI visibility, then exercise the built wheel
-        # The index can lag a fresh upload by a few seconds, so the visibility check
-        # polls briefly; --max-time keeps a stalled connection from hanging the job
-        # past the loop's timing. The wheel run happens exactly once, so a genuinely
+        # The index can lag a fresh upload by a few seconds; `-f` turns TestPyPI's
+        # pre-visibility 404 into a curl error, so --retry-all-errors polls until it's
+        # live — the same retry idiom ci.yml.jinja uses for flaky/eventually-consistent
+        # fetches. --max-time bounds each attempt so a stalled connection can't hang the
+        # job past the retry budget. The wheel run happens exactly once, so a genuinely
         # broken artifact fails immediately and unambiguously.
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          for attempt in 1 2 3 4 5; do
-            if curl -fsSL --max-time 10 --output /dev/null \
-                "https://test.pypi.org/pypi/${DIST_NAME}/${VERSION}/json"; then
-              break
-            fi
-            if [ "$attempt" -eq 5 ]; then
-              echo "::error::${DIST_NAME}==${VERSION} never appeared on TestPyPI"
-              exit 1
-            fi
-            echo "attempt ${attempt}: ${DIST_NAME}==${VERSION} not on TestPyPI yet; retrying in 15s"
-            sleep 15
-          done
-          # --python matches requires-python in pyproject.toml (the runner's system
-          # Python is older; uv fetches its managed interpreter).
+          curl -fsSL --max-time 10 --retry 5 --retry-all-errors --retry-delay 15 \
+              --output /dev/null \
+              "https://test.pypi.org/pypi/repo-management/${VERSION}/json" \
+            || { echo "::error::repo-management==${VERSION} never appeared on TestPyPI"; exit 1; }
+          # --python matches requires-python in pyproject.toml (the runner's system Python
+          # may be older; uv fetches its managed interpreter).
           uv run --isolated --no-project --python 3.14 \
             --with dist/*.whl \
             -- repo-management --help
@@ -192,7 +178,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/${{ env.DIST_NAME }}/
+      url: https://pypi.org/p/repo-management/
     permissions:
       id-token: write # OIDC token for PyPI Trusted Publishing; no checkout, so no contents
     steps:

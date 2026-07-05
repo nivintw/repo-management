@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# approve-bot-prs — auto-approve PRs authored by this repo's own CI GitHub App (Renovate
+# dependency PRs from the central runner, release-please Release PRs), so those flows keep
+# landing unattended if the branch ruleset ever starts requiring approving reviews.
+#
+# APPROVAL, NOT MERGE: merging stays with GitHub's native auto-merge (Renovate automerge —
+# configured in the central Renovate runner's global config, not this repo's renovate
+# config — and main.yml's `gh pr merge --auto`), which fires only when EVERY ruleset
+# requirement is satisfied and never exercises bypass privileges. With zero required
+# approvals this stamp changes nothing; the moment required_approving_review_count is
+# bumped, bot PRs keep flowing while human PRs start needing a reviewer. Required status
+# checks still gate every merge either way. Enable the Actions setting below BEFORE
+# requiring approvals, and expect already-open bot PRs to be stamped on their next push —
+# there is no backfill event. (The one review rule this can't satisfy is
+# require_code_owner_review — neither an App nor github-actions can be a CODEOWNER.)
+#
+# WHY GITHUB_TOKEN APPROVES: GitHub forbids approving your own PR and the App authors
+# these, so the approval must come from a different actor — the workflow token
+# (github-actions[bot]). That requires the repo Actions setting "Allow GitHub Actions to
+# create and approve pull requests"; the approve step tolerates exactly that setting being
+# off (clean warning, green run) and stays loud on every other failure.
+#
+# TRUST ANCHOR: the CI_APP_SLUG repository VARIABLE names the App's slug — the name in its
+# https://github.com/apps/<slug> URL; the App's bot login is <slug>[bot]. It must be a
+# variable, not a secret: a secret is invisible to the job-level `if:` and would silently
+# disable this workflow. Both the PR's AUTHOR and the event's SENDER must be that login —
+# the author check pins the PR to the App, and the sender check stops a write-access actor
+# from piggybacking (pushing their own commits onto an open bot branch and collecting a
+# fresh approval from the synchronize event). Only same-repo heads qualify, so a fork is
+# never approved. A wrong or stale slug fails CLOSED: the job simply never runs — if
+# approvals stop appearing, check the variable against the App slug first.
+#
+# DELIBERATELY INERT: this workflow holds no secrets and runs no third-party actions.
+# pull_request events execute the PR's own merge-ref workflow definition, so keeping
+# credentials and bump-able `uses:` pins out of this file means a bot PR (e.g. a Renovate
+# action-digest bump) can never make it run new, unreviewed code holding anything
+# sensitive.
+#
+# Re-approves on synchronize: paired with required approvals, rulesets usually dismiss
+# stale reviews on push, so every Renovate rebase discards the previous approval and it
+# must be re-issued; where dismissal is off, the extra approval is a harmless duplicate.
+
+name: approve-bot-prs
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+# Approving needs pull-requests:write; every other scope stays none. There is no checkout.
+permissions:
+  pull-requests: write
+
+# One pass per PR at a time, newest event wins — a Renovate rebase burst doesn't need N
+# overlapping approvals of already-superseded heads.
+concurrency:
+  group: approve-bot-prs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    # The whole trust gate (see TRUST ANCHOR above), evaluated from the event payload and
+    # repo variables before a runner ever boots. Unconfigured repos self-disable on the
+    # first clause.
+    if: >-
+      vars.CI_APP_SLUG != '' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == format('{0}[bot]', vars.CI_APP_SLUG) &&
+      github.event.sender.login == format('{0}[bot]', vars.CI_APP_SLUG)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approve the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Tolerate ONLY the documented setup gap; everything else stays loud under
+          # set -e. GitHub gates create and approve behind one joint setting and words the
+          # error "GitHub Actions is not permitted to create or approve pull requests" —
+          # `(create or )?` also tolerates an approve-only variant. The captured output is
+          # printed on every path so the real API message is never lost.
+          if out="$(gh pr review "$PR" --approve --body "Auto-approved: authored by this repo's CI App. Required status checks still gate the merge." 2>&1)"; then
+            printf '%s\n' "$out"
+          elif printf '%s' "$out" | grep -qiE "GitHub Actions is not permitted to (create or )?approve"; then
+            printf '%s\n' "$out"
+            echo "::warning::approve-bot-prs skipped — enable 'Allow GitHub Actions to create and approve pull requests' (Settings → Actions → General; it may be enforced at the org level)."
+          else
+            printf '%s\n' "$out" >&2
+            exit 1
+          fi

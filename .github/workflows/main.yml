@@ -22,8 +22,9 @@
 #   - A repository variable CI_CLIENT_ID (the App's Client ID — non-secret) and a
 #     repository secret CI_APP_PRIVATE_KEY (the App's private key).
 #   - "Allow auto-merge" + "Allow rebase merging" enabled, and the ruleset gating main on
-#     REQUIRED STATUS CHECKS (not a human review — the App can't approve its own Release PR;
-#     `--auto` also needs >=1 required check). The auto-merge step uses `--rebase`.
+#     REQUIRED STATUS CHECKS (`--auto` needs >=1 required check; a required approving review
+#     works only with approve-bot-prs.yml configured — the App can't approve its own Release
+#     PR). The auto-merge step uses `--rebase`.
 #   - If you don't want app releases, pass a PAT as `token` instead, or delete this job.
 
 name: main
@@ -84,7 +85,7 @@ jobs:
     steps:
       - name: Mint a token for the release App (the ruleset bypass actor)
         id: app-token
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           # `app-id` accepts the App's Client ID as well as the numeric App ID
           # (create-github-app-token supports both); the Client ID is non-secret, hence a var.

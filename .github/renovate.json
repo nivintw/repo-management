@@ -15,12 +15,21 @@
       "matchManagers": ["pre-commit"],
       "matchPackageNames": ["astral-sh/ruff-pre-commit"],
       "groupName": "ruff"
+    },
+    {
+      "description": "Only re-run the checksum refresh when one of the 5 tools the customManager below discovers via its # renovate: annotations actually changed — so an unrelated update (a ruff-pre-commit bump, an actions/checkout digest bump, etc.) doesn't also shell out to 5 external release hosts.",
+      "matchPackageNames": ["aquasecurity/trivy", "google/osv-scanner", "korandoru/hawkeye", "tamasfe/taplo", "yannh/kubeconform"],
+      "postUpgradeTasks": {
+        "commands": ["scripts/refresh-binary-checksums.sh"],
+        "fileFilters": [".github/workflows/**"],
+        "executionMode": "branch"
+      }
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Pinned release binaries by a `# renovate:`-annotated *_VERSION env var (trivy, osv-scanner, hawkeye, taplo, kubeconform). Renovate bumps the version; the adjacent *_SHA256 is refreshed by scripts/refresh-binary-checksums.sh (run on Renovate PRs by the refresh-binary-checksums workflow), since github-releases exposes no asset-digest datasource.",
+      "description": "Pinned release binaries by a `# renovate:`-annotated *_VERSION env var (trivy, osv-scanner, hawkeye, taplo, kubeconform). Renovate bumps the version; the adjacent *_SHA256 is refreshed by scripts/refresh-binary-checksums.sh, run as a postUpgradeTask (in packageRules above, scoped to these 5 tools) so the fix lands in Renovate's own commit, since github-releases exposes no asset-digest datasource.",
       "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: \"(?<currentValue>[^\"]+)\""

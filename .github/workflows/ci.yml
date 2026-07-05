@@ -28,22 +28,28 @@ on:
 permissions:
   contents: read
 
+# Distinct group prefix from the real callers' own (pr-/release-) so an identical github.ref
+# never collides with a caller's group — colliding names would cancel the caller mid-flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Read-only gate — don't leave the checkout token in .git/config (zizmor artipacked).
           persist-credentials: false
 
       - name: Set up uv (+ managed Python)
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
 
       - name: Cache prek hook environments
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/prek
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -77,7 +83,7 @@ jobs:
           # runs --offline in the hook (token-free local gate) and is SKIP'd here so CI
           # runs the FULL online audit as the dedicated step below instead.
           SKIP: taplo,hawkeye-format,no-commit-to-branch,zizmor
-        run: uvx prek run --all-files
+        run: uvx prek@0.4.8 run --all-files
 
       - name: Audit workflows for security issues (zizmor, online)
         if: inputs.skip-quality-gate != true

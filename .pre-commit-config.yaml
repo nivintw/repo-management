@@ -115,6 +115,9 @@ repos:
     hooks:
       - id: uv-audit
         name: "🔒 deps · Audit dependencies for CVEs (uv audit)"
+        # `uv audit` is still a preview command (Renovate auto-bumps uv, and an experimental
+        # CLI surface is the most likely thing to rename/remove this flag) — watch uv release
+        # notes for `audit`'s stabilization and drop --preview-features once it graduates.
         entry: uv audit --preview-features audit-command
         language: system
         files: '^(pyproject\.toml|uv\.lock)$'
@@ -163,7 +166,7 @@ repos:
 
   # -------------------------------- 🐍 Python --------------------------------------- #
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.17
+    rev: v0.15.20
     hooks:
       - id: ruff-check
         name: "🐍 python · Lint with Ruff"
@@ -198,7 +201,7 @@ repos:
 
   # ----------------------------- ⚙️ Environment ------------------------------------- #
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.21
+    rev: 0.11.25
     hooks:
       - id: uv-lock
         name: "⚙️ uv · Keep uv.lock in sync with pyproject.toml"

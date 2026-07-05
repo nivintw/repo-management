@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: MIT
 
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
-_commit: v1.4.0
+_commit: v1.9.0
 _src_path: gh:nivintw/copier-everything
 author_email: tyler@nivin.tech
 author_name: Tyler Nivin
+contains_ansible: false
 contains_python: true
 include_devcontainer: false
 include_docker: false
+include_docs_site: false
 include_helm: false
 include_sql: false
 include_terraform: false
