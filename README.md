@@ -181,6 +181,13 @@ reference for running the tool this way:
   [`.github/renovate-global.json`][renovate-global], separate from the repository's own
   dependency policy in [`.github/renovate.json`][renovate-json]. Dispatch it manually with
   **`dryRun`** to preview the scope and proposed changes without opening any PRs.
+- **`docs.yml`** — a reusable (`workflow_call`) workflow other fleet repos call to build an
+  MkDocs Material site and deploy it to GitHub Pages, so each repo's own docs workflow is a
+  thin caller instead of duplicating build/deploy logic. `mkdocs` and `mkdocs-material` are
+  pinned inside the workflow (one Renovate-tracked pin covers the whole fleet); callers
+  supply `docs-dir` and, if their `mkdocs.yml` needs plugins beyond Material,
+  `extra-packages`. Callers must grant `permissions: {pages: write, id-token: write}` on the
+  calling job.
 
 ## Development
 
