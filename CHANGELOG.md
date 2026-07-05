@@ -7,6 +7,18 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.6.0](https://github.com/nivintw/repo-management/compare/v1.5.0...v1.6.0) (2026-07-05)
+
+
+### Features
+
+* Add reusable MkDocs Material docs-build-and-deploy workflow ([fef7f1f](https://github.com/nivintw/repo-management/commit/fef7f1f035ad5a18fb01cbfce7e06a4109f146c6)), closes [#86](https://github.com/nivintw/repo-management/issues/86)
+
+
+### Bug Fixes
+
+* Address review findings on the reusable docs workflow ([5994058](https://github.com/nivintw/repo-management/commit/599405831fddc2f956d64169ba662787733c3f30))
+
 ## [1.5.0](https://github.com/nivintw/repo-management/compare/v1.4.1...v1.5.0) (2026-07-04)
 
 
