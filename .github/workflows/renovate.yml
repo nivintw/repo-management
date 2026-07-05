@@ -72,7 +72,7 @@ jobs:
     steps:
       # A secret can't be read in a job-level `if:`, so require the private key here too: if
       # CI_CLIENT_ID is set but CI_APP_PRIVATE_KEY isn't, skip cleanly (green run) instead of
-      # failing at token mint. Matches apply-config.yml / refresh-binary-checksums.yml.
+      # failing at token mint. Matches apply-config.yml.
       - name: Preflight — App fully configured?
         id: preflight
         env:

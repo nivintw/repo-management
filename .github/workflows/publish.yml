@@ -17,20 +17,20 @@
 # version.
 #
 # AUTH — OIDC Trusted Publishing (no long-lived secret), bound to deployment environments.
-# Each publish job runs in its own environment (`testpypi` / `pypi`); restrict both
-# environments' deployments to `v*` tags, so only a run on a real release tag can mint an
-# upload token. GitHub auto-creates an environment referenced by a workflow with NO
-# protection rules if that restriction is never configured, so the one-time repo setup
-# below is load-bearing, not optional: create the `testpypi`/`pypi` GitHub environments
-# (Settings → Environments) with that tag policy, then add a pending Trusted Publisher on
-# test.pypi.org / pypi.org pointing at owner `nivintw`, repo `repo-management`,
-# workflow `publish.yml`, environment `testpypi` / `pypi` respectively. `--trusted-publishing
-# always` makes a missing or misconfigured publisher fail loudly (never a silent no-op), and
-# `--check-url` makes re-runs idempotent (files already on the index are skipped instead of
-# erroring). The residual trust boundary is `v*` tag creation itself: anyone with write
-# access can still push a `v*` tag and cut a release outside release-please, bypassing this
-# workflow's normal path — the environment restriction narrows *which runs* can mint a
-# token, it doesn't restrict *who* can create the tag that triggers one.
+# Each publish job runs in its own environment (`testpypi` / `pypi`); both already restrict
+# deployments to `v*` tags (done for this repo: Settings → Environments, tag policy `v*`),
+# so only a run on a real release tag can mint an upload token. This is load-bearing, not
+# cosmetic: GitHub auto-creates an environment referenced by a workflow with NO protection
+# rules if that restriction is never configured. One-time setup per index (done for this
+# repo): a Trusted Publisher on test.pypi.org / pypi.org pointing at owner `nivintw`, repo
+# `repo-management`, workflow `publish.yml`, environment `testpypi` / `pypi` respectively.
+# `--trusted-publishing always` makes a missing or misconfigured publisher fail loudly
+# (never a silent no-op), and `--check-url` makes re-runs idempotent (files already on the
+# index are skipped instead of erroring). The residual trust boundary is `v*` tag creation
+# itself: anyone with write access can still push a `v*` tag and cut a release outside
+# release-please, bypassing this workflow's normal path — the environment restriction
+# narrows *which runs* can mint a token, it doesn't restrict *who* can create the tag that
+# triggers one.
 #
 # The smoke job deliberately has NO permissions and no checkout: it needs neither — it only
 # reads the run's artifact and public indexes — and least privilege keeps the third-party
@@ -156,7 +156,7 @@ jobs:
       - name: Confirm TestPyPI visibility, then exercise the built wheel
         # The index can lag a fresh upload by a few seconds; `-f` turns TestPyPI's
         # pre-visibility 404 into a curl error, so --retry-all-errors polls until it's
-        # live — the same retry idiom ci.yml.jinja uses for flaky/eventually-consistent
+        # live — the same retry idiom ci.yml uses for flaky/eventually-consistent
         # fetches. --max-time bounds each attempt so a stalled connection can't hang the
         # job past the retry budget. The wheel run happens exactly once, so a genuinely
         # broken artifact fails immediately and unambiguously.
