@@ -25,7 +25,7 @@ on:
 
 # Serialize per issue so a rapid close → reopen → close doesn't run overlapping cleanups
 # that race on the same labels; the newest close wins. Mirrors the concurrency guards on
-# the other generated workflows (main.yml, refresh-binary-checksums.yml).
+# the other generated workflows (main.yml).
 concurrency:
   group: label-hygiene-${{ github.event.issue.number }}
   cancel-in-progress: true

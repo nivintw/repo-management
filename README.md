@@ -206,6 +206,26 @@ typos, rumdl, SPDX/REUSE headers, and ruff. Conventional Commits (gitmoji) are e
 commit-msg time. A few hooks shell out to **system tools** prek can't bootstrap — install
 them locally too (most are in Homebrew): `hawkeye`, `taplo`, `osv-scanner`.
 
+## Publishing to PyPI
+
+Published to **[PyPI](https://pypi.org/project/repo-management/)** on each GitHub Release
+(`.github/workflows/publish.yml`), dress-rehearsed through **TestPyPI** first — build once,
+publish to TestPyPI, install and exercise the built wheel's CLI, then (gated on that) publish to
+PyPI. Auth is OIDC **Trusted Publishing** (no long-lived secret), bound to two GitHub
+**deployment environments** — `testpypi` and `pypi` — each restricted to `v*` tag
+deployments.
+
+One-time setup before the first release:
+
+1. Create the `testpypi` and `pypi` environments (repo Settings → Environments), each with
+   a deployment branch/tag policy restricted to `v*` tags.
+2. Add a pending Trusted Publisher on [test.pypi.org](https://test.pypi.org/manage/account/publishing/)
+   and [pypi.org](https://pypi.org/manage/account/publishing/), each pointing at owner
+   `nivintw`, repo `repo-management`, workflow `publish.yml`, and the matching
+   environment (`testpypi` / `pypi`).
+
+Until both publishers exist, `uv publish` fails loudly rather than silently skipping.
+
 ## License
 
 [MIT][license] — and [REUSE](https://reuse.software)-compliant.

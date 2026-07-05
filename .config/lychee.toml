@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# lychee link-checker config. Excludes live here (not inline in link-check.yml) so a consuming
+# repo can add its own host exclusions without editing the generated workflow — which would
+# otherwise drift on the next `copier update`. The workflow passes only
+# `--config .config/lychee.toml` (no inline `--exclude`); keeping ALL excludes in one source
+# avoids lychee's CLI-vs-config merge ambiguity. See https://lychee.cli.rs.
+exclude = [
+  # release-please's generated CHANGELOG links to compare/<prev>...<next>, but the <next> tag
+  # isn't cut until the Release PR merges, so it 404s on every Release PR until then (self-heals).
+  "github\\.com/nivintw/repo-management/compare/",
+  # The REUSE badge's /info/ endpoint 404s until this repo is registered/crawled by
+  # reuse.software (the /badge/ SVG still renders); self-heals once registered.
+  "api\\.reuse\\.software/info/",
+]
