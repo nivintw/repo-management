@@ -15,13 +15,7 @@ it's the complete desired set, so anything on the repo not listed in it is remov
 
 ## Install
 
-```bash
-uv tool install repo-management    # or: pip install repo-management
-```
-
-Requires Python 3.14+. Authentication uses a GitHub token, read from `$GITHUB_TOKEN` (or
-`--token`); the token needs the scopes for whatever you manage (repo administration,
-Actions secrets, and so on).
+--8<-- "install.md"
 
 ## Quick start
 
