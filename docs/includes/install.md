@@ -5,7 +5,12 @@ SPDX-License-Identifier: MIT
 
 <!-- Shared content fragment, included via pymdownx.snippets (`--8<-- "install.md"`) from
      any docs page that needs install instructions, so they can't drift between copies
-     (nivintw/repo-management#96). This starter file is a mechanism placeholder — real
-     content is authored per repo by the generate-docs skill, not here. -->
+     (nivintw/repo-management#96). -->
 
-Install instructions go here — replace with this project's real install steps.
+```bash
+uv tool install repo-management    # or: pip install repo-management
+```
+
+Requires Python 3.14+. Authentication uses a GitHub token, read from `$GITHUB_TOKEN` (or
+`--token`); the token needs the scopes for whatever you manage (repo administration,
+Actions secrets, and so on).
