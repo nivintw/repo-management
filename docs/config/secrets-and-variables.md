@@ -6,9 +6,9 @@ SPDX-License-Identifier: MIT
 # Secrets and variables
 
 Actions secrets and repository variables share the same config shape — a `name` plus
-exactly one of `value` or `value_from_env` — and the same diff/reconciliation code
-(`repo_management.managers._secret_variable`), reused again by [environments](environments.md)
-for environment-scoped secrets/variables. They differ only in how GitHub exposes their
+exactly one of `value` or `value_from_env` — and the same diff/reconciliation logic, reused
+again by [environments](environments.md) for environment-scoped secrets/variables. They
+differ only in how GitHub exposes their
 values, which changes how each is diffed.
 
 | Field | Type | Default | Notes |

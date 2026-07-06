@@ -5,9 +5,8 @@ SPDX-License-Identifier: MIT
 
 # Actions
 
-Actions enablement/policy and workflow permissions — three separate GitHub API endpoints
-that PyGithub doesn't model, driven directly through the authenticated requester. Every
-field is optional; a field left unset is left unmanaged, and an unmanaged field of a pair
+Actions enablement/policy and workflow permissions — three separate GitHub API endpoints.
+Every field is optional; a field left unset is left unmanaged, and an unmanaged field of a pair
 (e.g. `enabled` vs. `allowed_actions`, which share one endpoint) is written back with its
 live value on apply so the PUT doesn't clear it.
 

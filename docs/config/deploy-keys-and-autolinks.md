@@ -37,8 +37,7 @@ differing only by comment/whitespace can't survive a merge as if they were diffe
 !!! warning
     Changing `title` or `read_only` for the same key content is planned as a **delete of the
     old key paired with a create of the new one**, not a single in-place update — GitHub's
-    deploy-key API has no update endpoint, and PyGithub's `RepositoryKey.update()` is only a
-    conditional-GET refresh, not a REST PATCH.
+    deploy-key API has no update endpoint.
 
 ## autolinks
 
