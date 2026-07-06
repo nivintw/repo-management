@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.5](https://github.com/nivintw/repo-management/compare/v1.7.4...v1.7.5) (2026-07-06)
+
+
+### Bug Fixes
+
+* Address review-pr findings on the copier update ([5381479](https://github.com/nivintw/repo-management/commit/53814792ac9f28bf400470f82a506d4ee34e138b))
+
 ## [1.7.4](https://github.com/nivintw/repo-management/compare/v1.7.3...v1.7.4) (2026-07-06)
 
 
