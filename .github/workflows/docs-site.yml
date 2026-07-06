@@ -20,7 +20,11 @@ name: docs-site
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'mkdocs.yml']
+    # overrides/ is the theme customization dir (e.g. overrides/404.html) — also part of
+    # what mkdocs build reads, so a change there needs a redeploy same as docs/ or
+    # mkdocs.yml itself (caught by Copilot review; the copier-everything template's own
+    # caller has the same gap, filed upstream too).
+    paths: ['docs/**', 'mkdocs.yml', 'overrides/**']
   workflow_dispatch:
 
 concurrency:
