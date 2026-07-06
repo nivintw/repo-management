@@ -33,13 +33,36 @@ theme:
         icon: material/brightness-7
         name: Switch to dark mode
 
+# Deliberately minimal — each extension earns its place with content that actually uses it:
+#   - admonition   — the `!!! note` / `!!! warning` callouts already in cli.md and index.md
+#   - attr_list    — attaches the `.grid.cards` class the homepage's "What it manages" grid needs
+#   - md_in_html   — lets Markdown (links, code spans) work inside that `<div markdown>` block
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+
 # docs/superpowers/** holds dev-only brainstorming specs and plans (the
 # superpowers:brainstorming/writing-plans convention) — shares the docs/ tree with the
 # published site but is never meant to be site content, and generate-docs never touches it.
 # `mkdocs build --strict` fails on any *.md under docs_dir that isn't in nav: below, so
 # exclude it explicitly rather than every repo re-discovering this the hard way.
-exclude_docs:
-  - superpowers/
+exclude_docs: |
+  superpowers/
 
 nav:
   - Home: index.md
+  - CLI: cli.md
+  - Config reference:
+      - Overview: config.md
+      - Settings: config/settings.md
+      - Actions: config/actions.md
+      - Security: config/security.md
+      - Labels: config/labels.md
+      - Collaborators: config/collaborators.md
+      - Webhooks: config/webhooks.md
+      - Deploy keys and autolinks: config/deploy-keys-and-autolinks.md
+      - GitHub Pages: config/pages.md
+      - Secrets and variables: config/secrets-and-variables.md
+      - Environments: config/environments.md
+  - Rulesets: rulesets.md
