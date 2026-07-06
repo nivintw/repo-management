@@ -21,12 +21,16 @@ settings:
   # free plan. `private: false` is authoritative — an apply enforces it.
   private: false
 
-# Flips Pages from its current legacy branch-source deploy (serving docs/ directly off
-# main) to workflow-based, so the docs-site.yml + docs.yml build actually gets served. No
-# `source:` — only meaningful for build_type: legacy, per PagesManager's schema.
-pages:
-  enabled: true
-  build_type: workflow
+# `pages: {enabled: true, build_type: workflow}` deliberately isn't declared yet. Flipping
+# it here would race two independently-triggered workflows on this same merge: apply-config
+# (which applies this file) vs. docs-site.yml (which the same push also triggers, since it
+# touches docs/**/mkdocs.yml) — nothing orders "Pages source flipped to Actions" before "the
+# first Actions deploy actually succeeds", and a blind PUT to the Pages API doesn't check
+# readiness either. If apply-config wins that race and the first docs-site.yml run then
+# fails for any transient reason, the live site 404s until someone notices (this path is
+# gated on docs/**/mkdocs.yml changes, so an unrelated later push won't retry it). Landing
+# this alone, in its own commit/PR once a manual `workflow_dispatch` of docs-site.yml has
+# confirmed the build succeeds, removes the race entirely. See #87.
 
 repos:
   - nivintw/repo-management
