@@ -5,7 +5,10 @@
 
 [global]
 # Don't enforce a hard line length on prose.
-disable = ["MD013"]
+# MD033 (no inline HTML) is off too: the MkDocs docs-site design deliberately relies on raw
+# HTML passing through Markdown unmodified — castify's <figure class="cast"> embeds and a
+# per-plugin <span data-version="..."> version-badge convention both need it.
+disable = ["MD013", "MD033"]
 # release-please owns CHANGELOG.md and regenerates it with multiple consecutive blank
 # lines (MD012) on every release PR; exclude generated changelogs from the prose linter.
 exclude = ["LICENSE", "LICENSES/**", "**/CHANGELOG.md"]

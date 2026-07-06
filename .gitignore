@@ -17,6 +17,9 @@
 .idea/
 *~
 
+### superpowers:brainstorming local artifacts (mockups/companions, never committed) ###
+.superpowers/
+
 ### Python / uv ###
 __pycache__/
 *.py[cod]
