@@ -61,7 +61,7 @@ Clone [the repository][repo], then:
 ```bash
 uv sync                      # create the venv + install everything
 uv run pytest                # tests + coverage (gate: 90%; currently 100%)
-uvx prek run --all-files     # the full quality gate (ruff, format, REUSE, typos, …)
+uvx prek@0.4.8 run --all-files     # the full quality gate (ruff, format, REUSE, typos, …)
 ```
 
 Quality checks run identically locally and in CI via prek hooks: git hygiene, gitleaks,

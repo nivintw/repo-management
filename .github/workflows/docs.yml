@@ -88,6 +88,10 @@ jobs:
           MKDOCS_VERSION: "1.6.1"
           # renovate: datasource=pypi depName=mkdocs-material
           MKDOCS_MATERIAL_VERSION: "9.7.6"
+          # renovate: datasource=pypi depName=mkdocs-git-revision-date-localized-plugin
+          GIT_REVISION_DATE_VERSION: "1.5.3"
+          # renovate: datasource=pypi depName=mkdocs-llmstxt
+          LLMSTXT_VERSION: "0.5.0"
           EXTRA_PACKAGES: ${{ inputs.extra-packages }}
         run: |
           extra_with=()
@@ -98,9 +102,11 @@ jobs:
           # plugin — the apt step above only installs the native libs they dlopen via ctypes.
           # mkdocs-git-revision-date-localized-plugin and mkdocs-llmstxt are also fleet-wide
           # defaults (nivintw/repo-management#94, #97) — every fleet repo's mkdocs.yml enables
-          # both plugins unconditionally, same reasoning as imaging above.
+          # both plugins unconditionally, same reasoning as imaging above — pinned and
+          # Renovate-tracked the same way, so neither can float to an unreviewed version.
           uvx --from "mkdocs==${MKDOCS_VERSION}" --with "mkdocs-material[imaging]==${MKDOCS_MATERIAL_VERSION}" \
-            --with "mkdocs-git-revision-date-localized-plugin" --with "mkdocs-llmstxt" \
+            --with "mkdocs-git-revision-date-localized-plugin==${GIT_REVISION_DATE_VERSION}" \
+            --with "mkdocs-llmstxt==${LLMSTXT_VERSION}" \
             "${extra_with[@]}" mkdocs build --strict --site-dir site
 
       - name: Upload artifact

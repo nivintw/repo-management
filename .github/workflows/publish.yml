@@ -190,8 +190,10 @@ jobs:
               None,
           )
           if entry_point:
+              print(f"::notice::Exercising console script '{entry_point.name}'")
               subprocess.run([entry_point.name, "--help"], check=True)
           else:
+              print("::warning::No console_scripts entry point found; smoke-testing via import only")
               import repo_management
           PY
 
