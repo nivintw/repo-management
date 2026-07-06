@@ -21,5 +21,12 @@ settings:
   # free plan. `private: false` is authoritative — an apply enforces it.
   private: false
 
+# Flips Pages from its current legacy branch-source deploy (serving docs/ directly off
+# main) to workflow-based, so the docs-site.yml + docs.yml build actually gets served. No
+# `source:` — only meaningful for build_type: legacy, per PagesManager's schema.
+pages:
+  enabled: true
+  build_type: workflow
+
 repos:
   - nivintw/repo-management
