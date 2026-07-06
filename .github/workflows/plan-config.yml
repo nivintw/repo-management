@@ -73,8 +73,8 @@ jobs:
         id: app-token
         # Shared composite action (see .github/actions/mint-app-token), the same one apply uses.
         # The job only READS (runs `plan`), so mode: read — note `mode` governs only
-        # issues/secrets/actions_variables; the action always requests `administration: write`
-        # even here (see its `mode` input doc for why a read-only plan still needs it).
+        # issues/secrets/actions_variables/pages; the action always requests `administration:
+        # write` even here (see its `mode` input doc for why a read-only plan still needs it).
         uses: ./.github/actions/mint-app-token
         with:
           client-id: ${{ vars.CI_CLIENT_ID }}

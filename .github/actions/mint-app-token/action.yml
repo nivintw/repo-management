@@ -33,7 +33,7 @@ inputs:
     required: true
   mode:
     description: >-
-      'write' (apply) or 'read' (plan): the level requested for issues/secrets/actions_variables.
+      'write' (apply) or 'read' (plan): the level requested for issues/secrets/actions_variables/pages.
       `administration` is ALWAYS write — GitHub returns the allow_* merge settings and ruleset
       bypass actors only to write-level admin tokens, so even a read-only plan needs write here
       or it reports false settings/ruleset drift on every repo.
@@ -89,6 +89,7 @@ runs:
             "issues": mode,
             "secrets": mode,
             "actions_variables": mode,
+            "pages": mode,
         }
 
         app_auth = Auth.AppAuth(os.environ["CI_CLIENT_ID"], os.environ["CI_APP_PRIVATE_KEY"])
