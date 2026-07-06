@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.4](https://github.com/nivintw/repo-management/compare/v1.7.3...v1.7.4) (2026-07-06)
+
+
+### Bug Fixes
+
+* Flip public repos to workflow-based Pages, fold ddns into package.yml ([3ffc57a](https://github.com/nivintw/repo-management/commit/3ffc57acbfd6af938fd87f42dccc3a2ceff6682a)), closes [#88](https://github.com/nivintw/repo-management/issues/88)
+
 ## [1.7.3](https://github.com/nivintw/repo-management/compare/v1.7.2...v1.7.3) (2026-07-06)
 
 
