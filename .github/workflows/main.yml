@@ -152,7 +152,10 @@ jobs:
       # (no-op) if the variable isn't set, same as that workflow. The label check is literal
       # equality against DIRTY (not "!= CLEAN"): mergeStateStatus is transiently UNKNOWN right
       # after a push, so a just-orphaned PR simply isn't caught this run and converges on a
-      # later one instead of being misclassified.
+      # later one instead of being misclassified. This filter only narrows the CANDIDATE set
+      # to close, though — a maintainer's manual fixup commit pushed onto the bot's branch
+      # doesn't change the PR's (immutable) author field, so the step itself re-checks each
+      # candidate's actual commits before closing (see below) rather than trusting this alone.
       - name: Close any stranded (DIRTY) Release PRs so release-please regenerates them
         if: vars.CI_APP_SLUG != ''
         env:
@@ -168,15 +171,28 @@ jobs:
           # (auth, API 5xx) abort the step loudly instead of silently reading as "none found".
           # --limit raised well past gh's 30-item default so a busier repo's stranded PR can't
           # fall off the first page.
+          # commits is fetched here (not a separate gh pr view per candidate below) so the
+          # non-bot-commit check has no extra API round trip per stranded PR. gh caps this
+          # at the first 100 commits per PR — irrelevant in practice, since a release-please
+          # Release PR carries one generated bump commit (plus, rarely, a handful of manual
+          # fixups), nowhere near that limit.
           prs_json="$(gh pr list --state open --limit 100 \
-            --json number,author,labels,mergeStateStatus)"
+            --json number,author,labels,mergeStateStatus,commits)"
           # Same reasoning as above: a plain assignment (not `mapfile < <(...)`) so a jq
           # failure trips `set -e` too, instead of silently reading as "none found". An empty
           # filter result is a legitimate zero-matches outcome, not a failure — `mapfile` from
           # an empty string yields a one-element array holding "", so that case is normalized
-          # back to a true zero-length array below.
-          stranded_str="$(printf '%s' "$prs_json" | jq --arg app "${CI_APP_SLUG}[bot]" \
-            '.[] | select(.author.login == $app and (.labels[]?.name == "autorelease: pending") and .mergeStateStatus == "DIRTY") | .number')"
+          # back to a true zero-length array below. Each stranded candidate's non-bot commit
+          # logins (if any) are computed here too and carried alongside the number as a TSV
+          # pair, rather than re-fetched per PR in the loop below.
+          # A commit author with no linked GitHub account (an unlinked git email) comes
+          # back with a null OR empty-string `.login` — falling straight to `.login` and
+          # joining would silently collapse a real human commit to an empty string (jq's
+          # `//` treats "" as truthy, so a bare `.login // .email` wouldn't fall through
+          # for that case either), defeating this whole check. Explicitly treat both null
+          # and "" as "no login" before falling back to `.email`/`.name`.
+          stranded_str="$(printf '%s' "$prs_json" | jq -r --arg app "${CI_APP_SLUG}[bot]" \
+            '.[] | select(.author.login == $app and (.labels[]?.name == "autorelease: pending") and .mergeStateStatus == "DIRTY") | [.number, ([.commits[].authors[]? | select(.login != $app) | ((.login | select(. != null and . != "")) // .email // .name // "unknown-author")] | unique | join(", "))] | @tsv')"
           stranded=()
           if [ -n "$stranded_str" ]; then
             mapfile -t stranded <<<"$stranded_str"
@@ -185,7 +201,19 @@ jobs:
             echo "No stranded Release PRs found."
             exit 0
           fi
-          for num in "${stranded[@]}"; do
+          for entry in "${stranded[@]}"; do
+            # Never auto-close a stranded PR carrying a human's manual commit: the PR's
+            # author field is immutable (release-please's bot login), so a maintainer's
+            # fixup pushed directly onto the bot's branch still matches the filter above —
+            # closing it under the "release-please will regenerate this PR" message would
+            # silently discard those commits, not just an auto-generated bump. Checked above
+            # from the branch's actual commits (a persistent record, unlike the mutable
+            # `author` field) rather than trusting the PR-level author.
+            IFS=$'\t' read -r num non_bot_logins <<<"$entry"
+            if [ -n "$non_bot_logins" ]; then
+              echo "::warning::Release PR #${num} is DIRTY but carries a commit from ${non_bot_logins} (not just ${CI_APP_SLUG}[bot]) — leaving it open rather than auto-closing, since that would discard those commits. Resolve the conflict manually."
+              continue
+            fi
             echo "Closing stranded Release PR #${num} (DIRTY against current main)."
             # Tolerate ONLY the expected race (someone/something else already closed or
             # merged it between the list above and this close) so one benign race doesn't

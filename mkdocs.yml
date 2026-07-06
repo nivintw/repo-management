@@ -69,8 +69,19 @@ theme:
 # Overrides Material's default `code { word-break: break-word }`, which otherwise breaks
 # long identifiers (e.g. `project_name`) mid-word inside narrow table columns — see
 # stylesheets/extra.css (scaffolded alongside this file) for the fix itself.
+#
+# Wired for the vendored asciinema-player assets (see castify's embedding.md reference doc)
+# so a repo only needs to drop the vendored files at these conventional paths under
+# docs/assets/ to embed a `<figure class="cast">` terminal recording. Harmless to wire
+# unconditionally for a repo with no casts yet — mkdocs doesn't fail to build over a missing
+# extra_css/extra_javascript path — though a browser visiting the live site will 404 the two
+# asset requests until a repo actually adds the files.
 extra_css:
   - stylesheets/extra.css
+  - assets/asciinema-player.css
+
+extra_javascript:
+  - assets/asciinema-player.min.js
 
 # Adding this key at all switches MkDocs off its implicit default plugin set (just
 # `search`), so `search` is listed explicitly below or built-in search silently

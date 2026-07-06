@@ -106,35 +106,69 @@ cached_sha() { # <TOOL> <version> <outvar>
   printf -v "$3" '%s' "${SHA_CACHE[$key]}"
 }
 
-# Extract the quoted value of an env-var assignment (first occurrence). Empty (exit 0) when absent.
-pinned_value() { # <VAR> <file> -> value or empty
-  # Fail loudly on a bad path instead of masking it as "no pin found": grep's own exit code
-  # conflates "no match" (1 — the intended empty-return case) with "read error" (>=2, e.g. a
-  # missing or unreadable file). The guard below catches a missing file up front; capturing
-  # grep's own exit code (not the head/sed pipeline's, which would swallow it) catches any
-  # other read failure the guard doesn't, e.g. a file that exists but isn't readable.
-  [ -f "$2" ] || {
-    echo "ERROR: pinned_value: no such file: $2" >&2
-    exit 1
-  }
-  # Anchored to (whitespace-then-)line-start so a search for TRIVY_VERSION can't match inside
-  # a hypothetical OLD_TRIVY_VERSION — a bare \b wouldn't help here since `_` is a word char.
+# Shared tail for pinned_value()/pinned_value_at_base(): extract the quoted value of an
+# env-var assignment (first occurrence) from content on stdin. <caller>/<location> are
+# only for the error message, so the two callers keep their own distinct wording.
+# Anchored to (whitespace-then-)line-start so a search for TRIVY_VERSION can't match inside
+# a hypothetical OLD_TRIVY_VERSION — a bare \b wouldn't help here since `_` is a word char.
+_extract_pinned_value() { # <VAR> <caller> <location> -> value or empty (reads stdin)
   local matched grep_rc
-  matched="$(grep -oE "^[[:space:]]*$1: \"[^\"]+\"" "$2")" && grep_rc=0 || grep_rc=$?
+  matched="$(grep -oE "^[[:space:]]*$1: \"[^\"]+\"")" && grep_rc=0 || grep_rc=$?
   if [ "$grep_rc" -gt 1 ]; then
-    echo "ERROR: pinned_value: grep failed reading $2 (exit $grep_rc)" >&2
+    echo "ERROR: $2: grep failed reading $3 (exit $grep_rc)" >&2
     exit 1
   fi
   printf '%s\n' "$matched" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/'
 }
+
+pinned_value() { # <VAR> <file> -> value or empty
+  # Fail loudly on a bad path instead of masking it as "no pin found": the guard below
+  # catches a missing file up front; reading it via `cat` under `set -e` catches any other
+  # read failure (e.g. a file that exists but isn't readable) by aborting the assignment.
+  # _extract_pinned_value() separately guards grep's own exit code against the piped
+  # content (conflating "no match" — the intended empty-return case — with a real read
+  # error would be the same class of bug this whole file exists to avoid).
+  [ -f "$2" ] || {
+    echo "ERROR: pinned_value: no such file: $2" >&2
+    exit 1
+  }
+  # Read into a variable rather than redirecting "$2" as stdin on the same line it's also
+  # passed as an argument — shellcheck's SC2094 (read-and-write-same-file) fires on that
+  # syntactic shape even though nothing here is written, only read.
+  local content
+  content="$(cat "$2")"
+  printf '%s' "$content" | _extract_pinned_value "$1" pinned_value "$2"
+}
 pinned_value_at_base() { # <VAR> <file> <baseref> -> value at base or empty
-  # A path absent at BASE_REF (introduced since) is the one legitimate empty case here —
-  # check for it explicitly with git cat-file -e, rather than folding it into a blanket
-  # "swallow any git show failure," which would also mask a genuine read error (corrupted
-  # object, partial-clone missing blob) as an empty base_version — feeding the same tamper
-  # gate pinned_value()'s guard above protects for the plain-file case.
-  git cat-file -e "$3:$2" 2>/dev/null || return 0
-  git show "$3:$2" | grep -oE "^[[:space:]]*$1: \"[^\"]+\"" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+  # A path absent at BASE_REF (introduced since) is the one legitimate empty case here.
+  # `git cat-file -e`'s exit code alone can't distinguish it from a genuine read error
+  # (corrupted object, partial-clone missing blob): a missing path exits 128 with a "does
+  # not exist"/"exists on disk, but not in" message (git picks the wording based on whether
+  # the path is also absent from the *working tree* — every real caller here passes a file
+  # that IS on disk, per the `[ -f "$f" ]` guard above, so the "exists on disk" wording is
+  # actually the common case, not the exotic one), but a missing blob exits 1 with no
+  # message at all — so match cat-file's own message instead of trusting the exit code, and
+  # fail loudly on anything else, the same tamper gate pinned_value()'s guard above protects
+  # for the plain-file case. LC_ALL=C pins the message to English regardless of the runner's
+  # locale — git's fatal messages are translated, and matching translated text would silently
+  # break this exact legitimate case on a non-English runner.
+  local cat_err
+  if ! cat_err="$(LC_ALL=C git cat-file -e "$3:$2" 2>&1 1>/dev/null)"; then
+    case "$cat_err" in
+    *"does not exist in"* | *"exists on disk, but not in"*) return 0 ;;
+    esac
+    echo "ERROR: pinned_value_at_base: git cat-file -e $3:$2 failed: ${cat_err:-(no output)}" >&2
+    exit 1
+  fi
+  # Real exit-status check on git show — mirroring pinned_value()'s grep-exit-code guard
+  # above — so a genuine failure here isn't swallowed as "no pin found" the way a trailing
+  # `|| true` on the whole pipeline would.
+  local blob
+  if ! blob="$(git show "$3:$2")"; then
+    echo "ERROR: pinned_value_at_base: git show $3:$2 failed" >&2
+    exit 1
+  fi
+  printf '%s\n' "$blob" | _extract_pinned_value "$1" pinned_value_at_base "$3:$2"
 }
 
 if [ "$#" -gt 0 ]; then
