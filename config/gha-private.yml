@@ -14,7 +14,7 @@ repos:
   # repo-management is NOT here: it is public (published on PyPI) and, as the fleet's secret
   # source, must retain the package-layer TWINE tokens that base.yaml's authoritative
   # secrets would prune — so it has its own config (repo-management.yml) extending
-  # package.yaml.
+  # package.yml.
   - nivintw/ansible-rpi-k3s-node
   - nivintw/assignment-report-generator
   - nivintw/ansible-rpi-nivintw-baseline

@@ -10,9 +10,17 @@ extends: base.yaml
 settings:
   private: false
 
+# Part of the fleet-wide migration to workflow-based mkdocs Pages sites (batched repo by
+# repo). Declaring `workflow` here stops GitHub's classic Pages builder from racing the
+# Actions deploy — same fix as repo-management's own #87 — ahead of each repo's docs.yml
+# landing.
+pages:
+  enabled: true
+  build_type: workflow
+
 repos:
   - nivintw/nivintw-claude-skills
   - nivintw/copier-everything
   - nivintw/dotfiles
-  # ddns is public too, but as a PyPI package repo it needs the package.yaml layer (TWINE
-  # tokens), which this config doesn't extend — so it lives in its own config (ddns.yml).
+  # ddns is public too, but as a PyPI package repo it needs the TWINE tokens package.yml
+  # adds on top of this file — it's managed directly from there instead of listed here.

@@ -37,13 +37,13 @@ def _names(items: list[Secret] | list[Variable] | None) -> set[str]:
 
 
 def test_ddns_resolves_to_standardised_credentials() -> None:
-    """The ddns config extends package.yaml: exactly the standard creds, pruning legacy ones.
+    """package.yml manages ddns directly: exactly the standard creds, pruning legacy ones.
 
     The exact-set assertions are authoritative — anything ddns carries that is NOT listed is
     pruned by an apply. That is precisely how this migration retires the pre-scaffold names:
     GIST_SECRET and CI_APP_SECRET (secrets) and CI_APP_APPID (variable).
     """
-    config = load_config(CONFIG_DIR / "ddns.yml")
+    config = load_config(CONFIG_DIR / "package.yml")
 
     assert config.repos == ["nivintw/ddns"]
     assert config.settings is not None

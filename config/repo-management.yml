@@ -8,28 +8,16 @@
 # `secrets:` (CI_APP_PRIVATE_KEY, GIST_PAT) would prune the package-layer TWINE tokens it
 # holds purely as that source — which is exactly what silently happened once.
 #
-# So it gets its own config extending package.yaml: as a Python package that also vaults the
+# So it gets its own config extending package.yml: as a Python package that also vaults the
 # publish tokens, it keeps base's two secrets PLUS TWINE_PYPI_UPLOAD_TOKEN +
 # TWINE_PYPI_TEST_UPLOAD_TOKEN. Extending the layer (rather than re-listing the secrets here)
-# keeps the vault automatically in sync with whatever package.yaml defines.
+# keeps the vault automatically in sync with whatever package.yml defines. `private: false`
+# and the workflow-based Pages setup come along the same way — package.yml now extends
+# gha-public.yml, so both are inherited rather than re-declared here. (package.yml also
+# manages ddns directly via its own `repos:` — this file's repos: below overrides that for
+# repo-management, same as any extends chain.)
 
-extends: package.yaml
-
-settings:
-  # Public since the package went to PyPI (v1.2.2): the PyPI project links, the README, and
-  # the GitHub Pages docs site all point at this repo, and Pages needs a public repo on the
-  # free plan. `private: false` is authoritative — an apply enforces it.
-  private: false
-
-# A manual `workflow_dispatch` of docs-site.yml against main confirmed the Actions-based
-# build+deploy succeeds. Declaring build_type: workflow here (in its own isolated commit,
-# touching no docs/** or mkdocs.yml) stops GitHub's classic Pages builder from
-# auto-triggering "pages build and deployment" on every push to main — which, left on
-# `legacy`, was actively racing docs-site.yml's Actions deploy for the same github-pages
-# environment slot on every commit, not just docs-related ones. See #87.
-pages:
-  enabled: true
-  build_type: workflow
+extends: package.yml
 
 repos:
   - nivintw/repo-management

@@ -263,31 +263,33 @@ error rather than looping forever.
 
 By convention, in this repo's own `config/` directory, `*.yml` files are the *applied*
 configs — each with its own `repos:` list, picked up by the CLI's config-dir glob — while
-`*.yaml` files are base layers that only exist to be pulled in via `extends:`. Neither
-extension is enforced by the schema; it's a naming convention this repo relies on to tell
-the two apart at a glance. For example, `config/base.yaml` is the shared baseline that
-`config/gha-public.yml`, `config/gha-private.yml`, and `config/ddns.yml` all extend (some by
-way of `config/package.yaml`, an intermediate layer that adds PyPI publish secrets on top of
-`base.yaml` for repos that publish a package):
+`*.yaml` files are pure base layers that only exist to be pulled in via `extends:` and list
+no repos of their own. Neither extension is enforced by the schema; it's a naming convention
+this repo relies on to tell the two apart at a glance. `config/base.yaml` is the shared
+baseline that `config/gha-public.yml` and `config/gha-private.yml` extend. `config/package.yml`
+builds on `gha-public.yml` (rather than `base.yaml` directly, since publishing to PyPI means
+the code is inherently public) to add PyPI publish secrets — and, like `gha-public.yml`
+itself, plays a dual role: it's a layer `config/repo-management.yml` extends AND an applied
+config in its own right, managing `ddns` directly via its own `repos:`:
 
 ```yaml
-# config/package.yaml — a layer, not an applied config: no repos: of its own.
-extends: base.yaml
+# config/package.yml — extends gha-public.yml; both a layer and an applied config.
+extends: gha-public.yml
 
 secrets:
   - {name: TWINE_PYPI_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_UPLOAD_TOKEN}
   - {name: TWINE_PYPI_TEST_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_TEST_UPLOAD_TOKEN}
-```
-
-```yaml
-# config/ddns.yml — an applied config: extends package.yaml, adds its own repos:.
-extends: package.yaml
-
-settings:
-  private: false
 
 repos:
   - nivintw/ddns
+```
+
+```yaml
+# config/repo-management.yml — extends package.yml, overrides repos: to just itself.
+extends: package.yml
+
+repos:
+  - nivintw/repo-management
 ```
 
 !!! warning
