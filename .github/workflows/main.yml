@@ -191,8 +191,17 @@ jobs:
           # `//` treats "" as truthy, so a bare `.login // .email` wouldn't fall through
           # for that case either), defeating this whole check. Explicitly treat both null
           # and "" as "no login" before falling back to `.email`/`.name`.
+          # A null/absent `commits` field on a candidate PR (a degraded API response — gh
+          # has always returned a populated array in practice, but nothing guarantees it)
+          # gets an explicit `if .commits == null` branch so it resolves to a non-empty
+          # "unknown-authors" marker, taking the warn-and-leave-open path below rather than
+          # either of the two wrong alternatives: an unguarded `.commits[]` would raise
+          # "Cannot iterate over null" and abort this whole step under `set -e` before any
+          # other stranded PR is evaluated, while a bare `.commits[]?` would silently
+          # collapse to an empty non-bot-author list — read as "verified bot-only" — and
+          # auto-close a PR this check couldn't actually verify, the opposite of fail-safe.
           stranded_str="$(printf '%s' "$prs_json" | jq -r --arg app "${CI_APP_SLUG}[bot]" \
-            '.[] | select(.author.login == $app and (.labels[]?.name == "autorelease: pending") and .mergeStateStatus == "DIRTY") | [.number, ([.commits[].authors[]? | select(.login != $app) | ((.login | select(. != null and . != "")) // .email // .name // "unknown-author")] | unique | join(", "))] | @tsv')"
+            '.[] | select(.author.login == $app and (.labels[]?.name == "autorelease: pending") and .mergeStateStatus == "DIRTY") | [.number, (if .commits == null then "unknown-authors (commits field missing from API response)" else ([.commits[].authors[]? | select(.login != $app) | ((.login | select(. != null and . != "")) // .email // .name // "unknown-author")] | unique | join(", ")) end)] | @tsv')"
           stranded=()
           if [ -n "$stranded_str" ]; then
             mapfile -t stranded <<<"$stranded_str"
@@ -207,8 +216,9 @@ jobs:
             # fixup pushed directly onto the bot's branch still matches the filter above —
             # closing it under the "release-please will regenerate this PR" message would
             # silently discard those commits, not just an auto-generated bump. Checked above
-            # from the branch's actual commits (a persistent record, unlike the mutable
-            # `author` field) rather than trusting the PR-level author.
+            # from the branch's actual commits (which can gain new commits over time)
+            # rather than trusting the PR-level `author` field (fixed once the PR opens, so
+            # it can't reflect who pushed a later fixup commit).
             IFS=$'\t' read -r num non_bot_logins <<<"$entry"
             if [ -n "$non_bot_logins" ]; then
               echo "::warning::Release PR #${num} is DIRTY but carries a commit from ${non_bot_logins} (not just ${CI_APP_SLUG}[bot]) — leaving it open rather than auto-closing, since that would discard those commits. Resolve the conflict manually."
