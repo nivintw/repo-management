@@ -15,11 +15,13 @@ grows.
 One command runs every lint, format, license, and security check (the same set CI runs):
 
 ```console
-uvx prek run --all-files
+uvx prek@0.4.8 run --all-files
 ```
 
 Run it before you consider a change done; fix what it flags rather than suppressing it. Hooks
-also run automatically on commit once `uvx prek install` has been run.
+also run automatically on commit once `uvx prek@0.4.8 install` has been run. The version is
+pinned to match CI exactly (`ci.yml`'s "Run prek hooks (same as local)" step) — Renovate bumps
+it here and in CI together.
 
 ## Commits
 

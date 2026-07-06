@@ -10,7 +10,7 @@ Thanks for contributing!
 ## Workflow
 
 1. Branch off `main` and land changes via a PR (enable branch protection to enforce it).
-2. Run `uv sync` to set up the dev environment, then install the hooks: `uvx prek install`.
+2. Run `uv sync` to set up the dev environment, then install the hooks: `uvx prek@0.4.8 install`.
 3. Make your change. The pre-commit hooks run the full quality gate — the same checks run in CI.
 4. Commit with [Conventional Commits](https://www.conventionalcommits.org), enforced by
    commitizen at commit-msg time. release-please cuts releases from these commits (a
@@ -20,5 +20,5 @@ Thanks for contributing!
 ## Running the quality gate
 
 ```bash
-uvx prek run --all-files
+uvx prek@0.4.8 run --all-files
 ```

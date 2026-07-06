@@ -1,0 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: © 2026 Tyler Nivin
+ * SPDX-License-Identifier: MIT
+ */
+
+/* Material's default `.md-typeset code { word-break: break-word }` breaks long
+   identifiers (e.g. `project_name`) mid-word inside a narrow table column. Tables already
+   handle overflow themselves (`.md-typeset table:not([class]) { overflow: auto }`), so
+   scoping code spans back to their normal no-break behavior lets a too-wide table scroll
+   horizontally instead of mangling the identifier. */
+
+.md-typeset table code {
+  word-break: normal;
+  white-space: nowrap;
+}

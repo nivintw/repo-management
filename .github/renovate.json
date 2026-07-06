@@ -34,6 +34,21 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: \"(?<currentValue>[^\"]+)\""
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "prek is pinned identically in CI and every doc that tells a contributor what to run locally, so local runs always match CI. No `# renovate:` annotation needed — the visible `uvx prek@X.Y.Z` command text itself is the tracked value, matched directly wherever it appears; matching depName/datasource across files means Renovate bumps every occurrence together in one PR.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/",
+        "/^AGENTS\\.md$/",
+        "/^README\\.md$/",
+        "/^CONTRIBUTING\\.md$/",
+        "/^\\.github/PULL_REQUEST_TEMPLATE\\.md$/",
+        "/^\\.pre-commit-config\\.yaml$/"
+      ],
+      "matchStrings": ["uvx prek@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "datasourceTemplate": "pypi",
+      "depNameTemplate": "prek"
     }
   ]
 }
