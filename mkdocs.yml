@@ -90,12 +90,20 @@ plugins:
   - social
   # Publishes an llms.txt (per https://llmstxt.org/) so LLM tooling can fetch the docs
   # directly instead of scraping themed HTML (nivintw/repo-management#97). `sections`
-  # mirrors the nav placeholder below (just `Home: index.md`) — like nav, the real
-  # per-page listing is authored per repo by the generate-docs skill, not here.
+  # is kept in sync with the nav tree below by hand — generate-docs updates both together
+  # whenever it adds or removes a page.
   - llmstxt:
       sections:
         Documentation:
           - index.md
+          - cli.md
+          - config.md
+          - config/settings.md
+          - config/actions.md
+          - config/deploy-keys-and-autolinks.md
+          - config/secrets-and-variables.md
+          - config/environments.md
+          - rulesets.md
 
 # Fleet-general baseline only — each entry earns its place with real content it enables,
 # not just because Material supports it (no mermaid custom_fences here; pymdownx.emoji is
@@ -128,8 +136,9 @@ markdown_extensions:
   - footnotes
   # Shared content fragments (`--8<-- "install.md"`) so e.g. install instructions can't
   # drift between the homepage and per-plugin pages (nivintw/repo-management#96,
-  # config-only). base_path is relative to docs/includes/ — a snippet reference is just
-  # the filename within that dir, not the full docs/includes/... path.
+  # config-only). Snippet references (the string after `--8<--`) resolve relative to
+  # base_path (docs/includes) — so a reference is just the filename within that dir, not
+  # the full docs/includes/... path.
   - pymdownx.snippets:
       base_path: docs/includes
       check_paths: true
