@@ -52,6 +52,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+          # Full history: mkdocs-git-revision-date-localized-plugin derives each page's
+          # "last updated" date from git log — a shallow clone yields wrong/identical
+          # dates on every page.
+          fetch-depth: 0
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
@@ -63,6 +67,19 @@ jobs:
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: false
+
+      - name: Install native deps for Material's social-cards plugin
+        # cairosvg (which the plugin uses to rasterize the generated card) loads these via
+        # ctypes at runtime, not import time, so a build only fails once the plugin actually
+        # renders a card. Installed unconditionally, same as mkdocs/mkdocs-material below and
+        # for the same reason (see the top-of-file rationale): every fleet repo's mkdocs.yml
+        # renders from one shared copier-everything template, so this and the dates plugin's
+        # fetch-depth above are fleet-wide defaults, not a per-caller opt-in like
+        # extra-packages — there's no real caller variation to gate behind an input.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev zlib1g-dev
 
       - name: Build site (uvx, pinned mkdocs + mkdocs-material)
         working-directory: ${{ inputs.docs-dir }}
@@ -77,7 +94,9 @@ jobs:
           for pkg in $EXTRA_PACKAGES; do
             extra_with+=(--with "$pkg")
           done
-          uvx --from "mkdocs==${MKDOCS_VERSION}" --with "mkdocs-material==${MKDOCS_MATERIAL_VERSION}" \
+          # [imaging] extra pulls in cairosvg + Pillow, the Python side of the social-cards
+          # plugin — the apt step above only installs the native libs they dlopen via ctypes.
+          uvx --from "mkdocs==${MKDOCS_VERSION}" --with "mkdocs-material[imaging]==${MKDOCS_MATERIAL_VERSION}" \
             "${extra_with[@]}" mkdocs build --strict --site-dir site
 
       - name: Upload artifact
