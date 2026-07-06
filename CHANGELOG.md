@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.6](https://github.com/nivintw/repo-management/compare/v1.7.5...v1.7.6) (2026-07-06)
+
+
+### Bug Fixes
+
+* Bump the stale docs.yml pin and cover it in the trigger paths ([fbad55a](https://github.com/nivintw/repo-management/commit/fbad55acddabd3387c717d66fc78d46c7be5d841)), closes [#118](https://github.com/nivintw/repo-management/issues/118)
+
 ## [1.7.5](https://github.com/nivintw/repo-management/compare/v1.7.4...v1.7.5) (2026-07-06)
 
 
