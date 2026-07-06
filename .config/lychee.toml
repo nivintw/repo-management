@@ -13,4 +13,8 @@ exclude = [
   # The REUSE badge's /info/ endpoint 404s until this repo is registered/crawled by
   # reuse.software (the /badge/ SVG still renders); self-heals once registered.
   "api\\.reuse\\.software/info/",
+  # README's new MkDocs-site links (#87): these sub-pages don't exist on the live site until
+  # this PR merges and its docs-site.yml workflow deploys — 404s until then, self-heals once
+  # deployed. Remove once the fleet-wide docs epic (#85) has fully landed for this repo.
+  "nivintw\\.github\\.io/repo-management/(cli|config|rulesets)/",
 ]
