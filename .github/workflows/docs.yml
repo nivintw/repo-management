@@ -15,6 +15,14 @@
 # `contents: read` below cannot restore it. Omit `contents: read` and checkout fails on any
 # private fleet repo; omit `pages`/`id-token` and Configure Pages or the deploy step fails.
 # None of these fail silently, but the error doesn't point back at the missing grant.
+#
+# PERMANENT TEMPLATE DIVERGENCE — `copier update` WILL conflict on this file's `on:` block
+# every time copier-everything's own docs.yml changes, because that upstream file is a
+# per-repo `push`-triggered caller stub, while this file is the hub's `workflow_call`
+# reusable workflow — a structurally different trigger this repo intentionally never
+# adopts. Resolved the same way at v1.11.0 and v1.11.1: keep the `workflow_call` trigger
+# above as-is and discard the incoming `push`/`paths` block entirely (a caller-side fix,
+# e.g. an `overrides/**` path, belongs in docs-site.yml instead — check it's already there).
 
 name: docs
 
