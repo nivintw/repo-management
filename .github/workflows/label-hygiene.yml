@@ -15,7 +15,10 @@
 # repo that never adopted the taxonomy (this template does not provision these labels) is a
 # clean no-op — nothing gates the file, and there's nothing to error on. type:* / priority:*
 # are left intact as a historical record. Reopen is deliberately left to manual triage: we
-# act on `closed` only, so a reopened issue isn't silently shoved back to a status.
+# act on `closed` only, so a reopened issue isn't silently shoved back to a status — the
+# step itself also re-checks the issue is STILL closed before stripping (see below), so a
+# reopen racing between the `closed` event and this run executing doesn't strip a live
+# issue's progression label.
 
 name: label-hygiene
 
@@ -60,16 +63,26 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Fetch + filter to the progression set in ONE command substitution, so a failed
-          # API call (network, secondary-rate-limit, read-only token) aborts the job under
-          # `set -e`. Do NOT read this via `mapfile < <(gh ...)`: a command's exit status
-          # inside `< <(...)` process substitution is invisible to set -e/pipefail, so a gh
-          # failure would be masked as "no labels" and silently skip the cleanup — the exact
-          # opposite of this workflow's purpose. Exact-match (== / or) needs no regex engine.
-          matched="$(
-            gh issue view "$ISSUE" --repo "$REPO" --json labels \
-              --jq '.labels[].name | select(. == "status:triage" or . == "status:ready" or . == "status:in-progress" or . == "status:in-review" or . == "status:blocked")'
-          )"
+          # Fetch state + labels in ONE command substitution, so a failed API call (network,
+          # secondary-rate-limit, read-only token) aborts the job under `set -e`. Do NOT read
+          # this via `mapfile < <(gh ...)`: a command's exit status inside `< <(...)` process
+          # substitution is invisible to set -e/pipefail, so a gh failure would be masked as
+          # "no labels" and silently skip the cleanup — the exact opposite of this workflow's
+          # purpose. The `jq` calls below run against this already-fetched string, not a new
+          # `gh` call, so they carry no equivalent risk.
+          issue_json="$(gh issue view "$ISSUE" --repo "$REPO" --json state,labels)"
+          # Re-check the issue is STILL closed: the `closed` event scheduled this run, but a
+          # reopen between then and now doesn't re-trigger or cancel it (reopening emits no
+          # `closed` event, so the concurrency group above never sees a second run to race
+          # against). Stripping an active issue's progression label on stale trigger data
+          # would be exactly the fiction this workflow exists to prevent.
+          state="$(jq -r '.state' <<<"$issue_json")"
+          if [ "$state" != "CLOSED" ]; then
+            echo "Issue #$ISSUE is no longer closed (state: $state) — a reopen raced this run; skipping."
+            exit 0
+          fi
+          # Exact-match (== / or) needs no regex engine.
+          matched="$(jq -r '.labels[].name | select(. == "status:triage" or . == "status:ready" or . == "status:in-progress" or . == "status:in-review" or . == "status:blocked")' <<<"$issue_json")"
           if [ -z "$matched" ]; then
             echo "No status:* progression labels on issue #$ISSUE — nothing to do."
             exit 0

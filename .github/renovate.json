@@ -17,10 +17,10 @@
       "groupName": "ruff"
     },
     {
-      "description": "Only re-run the checksum refresh when one of the 5 tools the customManager below discovers via its # renovate: annotations actually changed — so an unrelated update (a ruff-pre-commit bump, an actions/checkout digest bump, etc.) doesn't also shell out to 5 external release hosts.",
+      "description": "Only re-run the checksum refresh when one of the 5 tools the customManager below discovers via its # renovate: annotations actually changed — so an unrelated update (a ruff-pre-commit bump, an actions/checkout digest bump, etc.) doesn't also shell out to 5 external release hosts. BASE_REF is computed inline (merge-base against the default branch) rather than relying on the runner to export it, so the script's supply-chain tamper gate (refuse a same-version/different-hash re-pin) is always active on this automated path — and the command fails loudly if that computation itself fails, rather than letting a silently-empty BASE_REF degrade back to the gate being off.",
       "matchPackageNames": ["aquasecurity/trivy", "google/osv-scanner", "korandoru/hawkeye", "tamasfe/taplo", "yannh/kubeconform"],
       "postUpgradeTasks": {
-        "commands": ["scripts/refresh-binary-checksums.sh"],
+        "commands": ["BASE_REF=\"$(git merge-base HEAD origin/HEAD)\" || { echo 'ERROR: could not compute BASE_REF via git merge-base — refusing to run with the tamper gate silently disabled' >&2; exit 1; }; export BASE_REF; scripts/refresh-binary-checksums.sh"],
         "fileFilters": [".github/workflows/**"],
         "executionMode": "branch"
       }

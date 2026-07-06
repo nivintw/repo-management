@@ -16,10 +16,11 @@
 # Tamper gate (automation): the caller sets BASE_REF=<git ref> to enforce supply-chain
 # safety. A SHA is then only re-pinned when the *_VERSION actually changed vs BASE_REF; a SHA
 # that differs from upstream while the version is UNCHANGED is treated as a tampered/swapped
-# release asset and fails the run — never silently re-pinned. The central self-hosted Renovate
-# runner must export BASE_REF (e.g. origin/<base-branch>) when it runs this as a postUpgradeTask,
-# or the gate is off. Without BASE_REF (a human running it locally after a deliberate bump) it
-# just recomputes every pin.
+# release asset and fails the run — never silently re-pinned. The postUpgradeTask command
+# computes BASE_REF inline via `git merge-base` against the default branch (and fails loudly
+# if that computation itself fails), so the gate is always active on the automated path.
+# Without BASE_REF (a human running it locally after a deliberate bump) it just recomputes
+# every pin.
 #
 # Requirements: bash 4.4+, curl, sha256sum (or shasum), sed, grep, awk, mktemp, head; git when BASE_REF set.
 set -euo pipefail
@@ -107,14 +108,33 @@ cached_sha() { # <TOOL> <version> <outvar>
 
 # Extract the quoted value of an env-var assignment (first occurrence). Empty (exit 0) when absent.
 pinned_value() { # <VAR> <file> -> value or empty
+  # Fail loudly on a bad path instead of masking it as "no pin found": grep's own exit code
+  # conflates "no match" (1 — the intended empty-return case) with "read error" (>=2, e.g. a
+  # missing or unreadable file). The guard below catches a missing file up front; capturing
+  # grep's own exit code (not the head/sed pipeline's, which would swallow it) catches any
+  # other read failure the guard doesn't, e.g. a file that exists but isn't readable.
+  [ -f "$2" ] || {
+    echo "ERROR: pinned_value: no such file: $2" >&2
+    exit 1
+  }
   # Anchored to (whitespace-then-)line-start so a search for TRIVY_VERSION can't match inside
   # a hypothetical OLD_TRIVY_VERSION — a bare \b wouldn't help here since `_` is a word char.
-  grep -oE "^[[:space:]]*$1: \"[^\"]+\"" "$2" 2>/dev/null | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+  local matched grep_rc
+  matched="$(grep -oE "^[[:space:]]*$1: \"[^\"]+\"" "$2")" && grep_rc=0 || grep_rc=$?
+  if [ "$grep_rc" -gt 1 ]; then
+    echo "ERROR: pinned_value: grep failed reading $2 (exit $grep_rc)" >&2
+    exit 1
+  fi
+  printf '%s\n' "$matched" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/'
 }
 pinned_value_at_base() { # <VAR> <file> <baseref> -> value at base or empty
-  # grep here reads from git show's pipe, not a file arg, so there's no "file not found"
-  # stderr to suppress (unlike pinned_value()'s grep, which does need it).
-  git show "$3:$2" 2>/dev/null | grep -oE "^[[:space:]]*$1: \"[^\"]+\"" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+  # A path absent at BASE_REF (introduced since) is the one legitimate empty case here —
+  # check for it explicitly with git cat-file -e, rather than folding it into a blanket
+  # "swallow any git show failure," which would also mask a genuine read error (corrupted
+  # object, partial-clone missing blob) as an empty base_version — feeding the same tamper
+  # gate pinned_value()'s guard above protects for the plain-file case.
+  git cat-file -e "$3:$2" 2>/dev/null || return 0
+  git show "$3:$2" | grep -oE "^[[:space:]]*$1: \"[^\"]+\"" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
 }
 
 if [ "$#" -gt 0 ]; then

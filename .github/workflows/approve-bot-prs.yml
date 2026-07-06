@@ -33,10 +33,15 @@
 # approvals stop appearing, check the variable against the App slug first.
 #
 # DELIBERATELY INERT: this workflow holds no secrets and runs no third-party actions.
-# pull_request events execute the PR's own merge-ref workflow definition, so keeping
-# credentials and bump-able `uses:` pins out of this file means a bot PR (e.g. a Renovate
-# action-digest bump) can never make it run new, unreviewed code holding anything
-# sensitive.
+# Triggered via pull_request_target (not pull_request): the latter executes the PR's OWN
+# branch's copy of this workflow file, so a same-repo PR editing the TRUST ANCHOR condition
+# above would have its own weakened version run for its own approval — auto-approving
+# itself via the github-actions[bot] identity, which sidesteps GitHub's "can't approve your
+# own PR" rule. pull_request_target anchors the workflow DEFINITION to the base branch
+# regardless of what the PR's branch contains, closing that gap. This is the one case where
+# pull_request_target is safe despite the usual warning about it (checkout + secrets on
+# untrusted code): there is no checkout and no secret here, only a same-repo/same-actor
+# trust check and an approval call — see zizmor's dangerous-triggers suppression below.
 #
 # Re-approves on synchronize: paired with required approvals, rulesets usually dismiss
 # stale reviews on push, so every Renovate rebase discards the previous approval and it
@@ -44,8 +49,12 @@
 
 name: approve-bot-prs
 
-on:
-  pull_request:
+# zizmor's ignore comment must be a trailing comment on `on:` itself (a preceding standalone
+# comment block, however close, is not honored) — pull_request_target is safe here: no
+# checkout, no secrets, just the same-repo/same-actor trust check and an approval call (see
+# DELIBERATELY INERT above).
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
     types: [opened, reopened, synchronize]
 
 # Approving needs pull-requests:write; every other scope stays none. There is no checkout.

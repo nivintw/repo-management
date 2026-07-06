@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# MkDocs Material config — the one shared "Terminal Slate" theme reused identically across
+# every copier-everything-descended repo (fleet-wide docs design; see
+# nivintw/repo-management#85 for the full rationale). This file only scaffolds the
+# mechanism — real navigation and content are authored per repo by the generate-docs
+# skill, not here.
+site_name: "Repo Management"
+site_description: "YAML-config-driven GitHub repository manager"
+site_url: "https://nivintw.github.io/repo-management/"
+repo_url: "https://github.com/nivintw/repo-management"
+repo_name: "nivintw/repo-management"
+
+theme:
+  name: material
+  favicon: assets/favicon.svg
+  logo: assets/favicon.svg
+  palette:
+    # No `media:` binding on either entry: the FIRST scheme below is what every new visitor
+    # sees regardless of OS preference (dark by design, not just by default-detection) — the
+    # toggle is what lets a visitor opt into the other one, remembered via local storage.
+    - scheme: slate
+      primary: black
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: white
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+# docs/superpowers/** holds dev-only brainstorming specs and plans (the
+# superpowers:brainstorming/writing-plans convention) — shares the docs/ tree with the
+# published site but is never meant to be site content, and generate-docs never touches it.
+# `mkdocs build --strict` fails on any *.md under docs_dir that isn't in nav: below, so
+# exclude it explicitly rather than every repo re-discovering this the hard way.
+exclude_docs:
+  - superpowers/
+
+nav:
+  - Home: index.md
