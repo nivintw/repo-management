@@ -7,6 +7,21 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.0](https://github.com/nivintw/repo-management/compare/v1.6.1...v1.7.0) (2026-07-06)
+
+
+### Features
+
+* Declare workflow-based Pages config, pin docs-site's caller SHA ([8c671ba](https://github.com/nivintw/repo-management/commit/8c671ba045e1bc68f89742234f605f54ef0bb902)), closes [#87](https://github.com/nivintw/repo-management/issues/87)
+
+
+### Bug Fixes
+
+* Defer the pages: config flip out of this PR to avoid a deploy race ([7f7f1af](https://github.com/nivintw/repo-management/commit/7f7f1afe37838c9a83785880f9a6674641de8e3b)), closes [#87](https://github.com/nivintw/repo-management/issues/87)
+* Exclude not-yet-live doc-site links from lychee ([b8bed15](https://github.com/nivintw/repo-management/commit/b8bed15c3b8cd0865de267b327809cf69a99a6fb)), closes [#87](https://github.com/nivintw/repo-management/issues/87)
+* Rename docs/index.html -&gt; legacy-index.html, keep legacy site self-consistent ([4635e48](https://github.com/nivintw/repo-management/commit/4635e488ee23ae1a040fd2842af87ff175e1e3f1)), closes [#87](https://github.com/nivintw/repo-management/issues/87)
+* Watch overrides/** in docs-site.yml's push trigger ([0642f4b](https://github.com/nivintw/repo-management/commit/0642f4bc5162f796664a1bb96d70ce4b7af5f4ac)), closes [#87](https://github.com/nivintw/repo-management/issues/87)
+
 ## [1.6.1](https://github.com/nivintw/repo-management/compare/v1.6.0...v1.6.1) (2026-07-06)
 
 
