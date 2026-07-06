@@ -16,9 +16,9 @@
 # clean no-op — nothing gates the file, and there's nothing to error on. type:* / priority:*
 # are left intact as a historical record. Reopen is deliberately left to manual triage: we
 # act on `closed` only, so a reopened issue isn't silently shoved back to a status — the
-# step itself also re-checks the issue is STILL closed before stripping (see below), so a
-# reopen racing between the `closed` event and this run executing doesn't strip a live
-# issue's progression label.
+# step itself also re-checks the issue is STILL closed twice (see below): once after the
+# initial fetch, and again immediately before the label-removal edit, so a reopen racing
+# either window doesn't strip a live issue's progression label.
 
 name: label-hygiene
 
@@ -94,4 +94,13 @@ jobs:
             echo "Removing '$label' from issue #$ISSUE"
             args+=(--remove-label "$label")
           done <<<"$matched"
+          # Re-check once more, immediately before the mutating call: the check above closes
+          # the window between the `closed` event firing and the initial `gh issue view`, but
+          # a reopen landing in the (small, but nonzero) window between that view and this
+          # edit would otherwise still strip a label from what is now a live, open issue.
+          current_state="$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq '.state')"
+          if [ "$current_state" != "CLOSED" ]; then
+            echo "Issue #$ISSUE is no longer closed (state: $current_state) — a reopen raced this run; skipping."
+            exit 0
+          fi
           gh issue edit "$ISSUE" --repo "$REPO" "${args[@]}"
