@@ -123,8 +123,10 @@ _extract_pinned_value() { # <VAR> <caller> <location> -> value or empty (reads s
 
 pinned_value() { # <VAR> <file> -> value or empty
   # Fail loudly on a bad path instead of masking it as "no pin found": the guard below
-  # catches a missing file up front; reading it via `cat` under `set -e` catches any other
-  # read failure (e.g. a file that exists but isn't readable) by aborting the assignment.
+  # catches a missing file up front; the `cat` exit-status check below catches any other
+  # read failure (e.g. a file that exists but isn't readable) with this function's own
+  # labeled message, rather than relying on `set -e` to abort via `cat`'s bare OS-level
+  # error text with no "pinned_value:" context to attribute it during CI triage.
   # _extract_pinned_value() separately guards grep's own exit code against the piped
   # content (conflating "no match" — the intended empty-return case — with a real read
   # error would be the same class of bug this whole file exists to avoid).
@@ -136,7 +138,10 @@ pinned_value() { # <VAR> <file> -> value or empty
   # passed as an argument — shellcheck's SC2094 (read-and-write-same-file) fires on that
   # syntactic shape even though nothing here is written, only read.
   local content
-  content="$(cat "$2")"
+  if ! content="$(cat "$2")"; then
+    echo "ERROR: pinned_value: read failed: $2" >&2
+    exit 1
+  fi
   printf '%s' "$content" | _extract_pinned_value "$1" pinned_value "$2"
 }
 pinned_value_at_base() { # <VAR> <file> <baseref> -> value at base or empty
@@ -151,7 +156,10 @@ pinned_value_at_base() { # <VAR> <file> <baseref> -> value at base or empty
   # fail loudly on anything else, the same tamper gate pinned_value()'s guard above protects
   # for the plain-file case. LC_ALL=C pins the message to English regardless of the runner's
   # locale — git's fatal messages are translated, and matching translated text would silently
-  # break this exact legitimate case on a non-English runner.
+  # break this exact legitimate case on a non-English runner. Verified against git 2.55; if a
+  # future git release ever rewords this message, the case falls through to the loud ERROR
+  # below rather than silently mistreating a real error as "no pin found" — a wrong CI
+  # failure on an ordinary new-file case, never a silently-broken tamper gate.
   local cat_err
   if ! cat_err="$(LC_ALL=C git cat-file -e "$3:$2" 2>&1 1>/dev/null)"; then
     case "$cat_err" in
