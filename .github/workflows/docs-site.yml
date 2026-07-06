@@ -23,8 +23,13 @@ on:
     # overrides/ is the theme customization dir (e.g. overrides/404.html) — also part of
     # what mkdocs build reads, so a change there needs a redeploy same as docs/ or
     # mkdocs.yml itself (caught by Copilot review; the copier-everything template's own
-    # caller has the same gap, filed upstream too).
-    paths: ['docs/**', 'mkdocs.yml', 'overrides/**']
+    # caller has the same gap, filed upstream too). This file's own `uses:` pin is
+    # included too — bumping the pinned commit (by hand or via Renovate) changes which
+    # reusable-workflow code actually runs, so it needs the same redeploy as any other
+    # docs input (nivintw/repo-management#116 shipped a docs.yml change whose pin bump in
+    # this file landed in a separate, non-triggering commit, so the new plugins silently
+    # never ran until this path was added and a manual workflow_dispatch caught up).
+    paths: ['docs/**', 'mkdocs.yml', 'overrides/**', '.github/workflows/docs-site.yml']
   workflow_dispatch:
 
 concurrency:
@@ -37,4 +42,4 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    uses: nivintw/repo-management/.github/workflows/docs.yml@911dd96f8b3adc8192566c3a7fbeb566a6f0e9d8 # main
+    uses: nivintw/repo-management/.github/workflows/docs.yml@53814792ac9f28bf400470f82a506d4ee34e138b # main
