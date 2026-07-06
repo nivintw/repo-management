@@ -87,8 +87,8 @@ jobs:
         id: app-token
         # Shared composite action (see .github/actions/mint-app-token): scopes the token on
         # BOTH axes — the exact fleet from config/*.yml AND least-privilege permissions. apply
-        # writes, so mode: write (issues/secrets/actions_variables: write; administration is
-        # always write — see the action). plan-config.yml uses the same action with mode: read.
+        # writes, so mode: write (issues/secrets/actions_variables/pages: write; administration
+        # is always write — see the action). plan-config.yml uses the same action with mode: read.
         uses: ./.github/actions/mint-app-token
         with:
           client-id: ${{ vars.CI_CLIENT_ID }}
