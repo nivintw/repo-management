@@ -97,7 +97,7 @@ rulesets:
     target: tag
     enforcement: active
     conditions:
-      ref_name: {include: ["v*"], exclude: []}
+      ref_name: {include: ["refs/tags/v*"], exclude: []}
     rules:
       # A v* tag is a publish trust boundary (repo-management#71): the OIDC Trusted
       # Publishing environments restrict deployments to v* tags, so anyone who can create
