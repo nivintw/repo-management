@@ -7,6 +7,14 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.7](https://github.com/nivintw/repo-management/compare/v1.7.6...v1.7.7) (2026-07-06)
+
+
+### Bug Fixes
+
+* Harden and correct the stranded-Release-PR non-bot-commit guard ([5517914](https://github.com/nivintw/repo-management/commit/5517914d486de0266beca427c7c126f3fe9c638f))
+* Restore labeled error message for an unreadable pin file ([ac83a75](https://github.com/nivintw/repo-management/commit/ac83a75be7943f67b26c04555dcc356d20252e6b))
+
 ## [1.7.6](https://github.com/nivintw/repo-management/compare/v1.7.5...v1.7.6) (2026-07-06)
 
 
