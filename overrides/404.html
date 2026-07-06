@@ -1,0 +1,24 @@
+<!--
+
+    SPDX-FileCopyrightText: © 2026 Tyler Nivin
+    SPDX-License-Identifier: MIT
+
+-->
+
+{% extends "main.html" %}
+
+{# Material registers 404.html as a "static template" rendered straight from the theme,
+   not from a docs/404.md source — a docs/404.md builds but its content is silently
+   discarded (the static-template render overwrites the same output path afterward). This
+   override is the actual, documented mechanism for customizing the page. The copy below
+   is a generic placeholder: the template only scaffolds the mechanism, not per-repo
+   wording — replace it with real copy once the site has real pages to link to. #}
+{% block content %}
+<h1>Page not found</h1>
+
+<p>That page doesn't exist — it may have moved, or the link is out of date.</p>
+
+<p>
+  <a href="{{ base_url }}" class="md-button md-button--primary">Back to the homepage</a>
+</p>
+{% endblock %}

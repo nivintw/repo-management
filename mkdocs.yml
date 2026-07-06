@@ -5,17 +5,50 @@
 # every copier-everything-descended repo (fleet-wide docs design; see
 # nivintw/repo-management#85 for the full rationale). This file only scaffolds the
 # mechanism — real navigation and content are authored per repo by the generate-docs
-# skill, not here.
+# skill, not here. theme.features/markdown_extensions/edit_uri/the 404 override below are
+# the fleet-general subset nivintw-claude-skills proved out first and folded back upstream
+# (nivintw/copier-everything#178) — repo-specific extras (e.g. content.tabs.link, which
+# only earns its place once a repo actually has tabbed content) stay out of the baseline.
 site_name: "Repo Management"
 site_description: "YAML-config-driven GitHub repository manager"
 site_url: "https://nivintw.github.io/repo-management/"
 repo_url: "https://github.com/nivintw/repo-management"
 repo_name: "nivintw/repo-management"
+edit_uri: "edit/main/docs/"
 
 theme:
   name: material
+  # overrides/404.html (scaffolded alongside this file) — Material treats 404.html as a
+  # "static template" rendered straight from the theme, not from a docs/404.md source, so
+  # a docs/404.md would build but its content is silently discarded; custom_dir + a theme
+  # override is the only documented way to customize the page.
+  custom_dir: overrides
   favicon: assets/favicon.svg
   logo: assets/favicon.svg
+  features:
+    # Copy-to-clipboard on every code block.
+    - content.code.copy
+    # Instant navigation (SPA-style: fetches and swaps content instead of a full page
+    # reload) + a slim top progress bar for the fetch. This is what actually cashes in a
+    # document$-based JS hydration pattern (see castify's embedding.md reference) on every
+    # transition, not just the initial load.
+    - navigation.instant
+    - navigation.instant.progress
+    # Keeps the URL hash in sync with the heading scrolled into view, and a "back to top"
+    # button once you've scrolled past the first screen — free wins on any page that runs
+    # long, and cost nothing on the ones that don't.
+    - navigation.tracking
+    - navigation.top
+    - toc.follow
+    # Search-as-you-type suggestions, query-term highlighting on the result page, and a
+    # shareable #search-url — table stakes for a docs site's built-in search.
+    - search.suggest
+    - search.highlight
+    - search.share
+    # A small affordance for a reader who spots something to fix: jump straight to this
+    # page's source on GitHub (wired via edit_uri above) instead of hunting for the file.
+    - content.action.edit
+    - content.tooltips
   palette:
     # No `media:` binding on either entry: the FIRST scheme below is what every new visitor
     # sees regardless of OS preference (dark by design, not just by default-detection) — the
@@ -33,20 +66,48 @@ theme:
         icon: material/brightness-7
         name: Switch to dark mode
 
-# Deliberately minimal — each extension earns its place with content that actually uses it:
-#   - admonition   — the `!!! note` / `!!! warning` callouts already in cli.md and index.md
-#   - attr_list    — attaches the `.grid.cards` class the homepage's "What it manages" grid needs
-#   - md_in_html   — lets Markdown (links, code spans) work inside that `<div markdown>` block
+# Fleet-general baseline only — each entry earns its place with real content it enables,
+# not just because Material supports it (no mermaid custom_fences here; pymdownx.emoji is
+# scoped to Material's own icon set, never a general emoji picker — see below).
 markdown_extensions:
+  # Material's own icon set (nav icons, admonition icons, card-grid layouts) — the
+  # emoji_index/generator pair is Material's documented way to wire :material-*:/
+  # :octicons-*: glyphs, not a general emoji picker.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  # Callouts (!!! note / !!! tip / ??? details, collapsible) instead of plain blockquotes.
   - admonition
+  - pymdownx.details
+  # Fenced code blocks that nest cleanly inside an admonition or tab, proper syntax
+  # highlighting (line-anchored so a code line is linkable), and inline code that gets the
+  # same highlighting treatment as a fenced block.
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+  - pymdownx.inlinehilite
+  # Content tabs (e.g. an "Install" section with marketplace vs. local-clone instructions)
+  # and grid-card layouts both need attr_list to attach a class/id to a Markdown block.
+  - pymdownx.tabbed:
+      alternate_style: true
   - attr_list
+  # Lets Markdown syntax (bold, code spans, links) work *inside* a raw HTML block.
   - md_in_html
+  - footnotes
 
 # docs/superpowers/** holds dev-only brainstorming specs and plans (the
 # superpowers:brainstorming/writing-plans convention) — shares the docs/ tree with the
 # published site but is never meant to be site content, and generate-docs never touches it.
 # `mkdocs build --strict` fails on any *.md under docs_dir that isn't in nav: below, so
 # exclude it explicitly rather than every repo re-discovering this the hard way.
+#
+# `exclude_docs` is mkdocs' PathSpec option (gitignore-style patterns) — a multiline
+# STRING, not a YAML list. A list renders here as a config error mkdocs never accepted
+# ("Expected a multiline string, but a <class 'list'> was given"), confirmed against the
+# same mkdocs==1.6.1/mkdocs-material==9.7.6 pins the fleet's reusable docs workflow uses;
+# render-matrix.sh's gate never runs `mkdocs build` itself so nothing caught this until a
+# real build was tried (nivintw/copier-everything#157).
 exclude_docs: |
   superpowers/
 
