@@ -34,7 +34,7 @@
   }
 
   // ---- Current-page nav highlight ----
-  var here = location.pathname.split("/").pop() || "index.html";
+  var here = location.pathname.split("/").pop() || "legacy-index.html";
   document.querySelectorAll(".top-nav a").forEach(function (a) {
     if (a.getAttribute("href") === here) {
       a.setAttribute("aria-current", "page");
