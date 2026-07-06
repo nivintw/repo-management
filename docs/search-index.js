@@ -6,11 +6,11 @@
 // Search index for the docs site, loaded as a classic script so it works from
 // file:// as well as GitHub Pages. Regenerated alongside the pages it indexes.
 window.SEARCH_INDEX = [
-  { title: "Install", page: "Home", href: "index.html#install", terms: "pip uv tool install python github token" },
-  { title: "Quick start", page: "Home", href: "index.html#quick-start", terms: "validate plan apply example yaml diff" },
-  { title: "What it manages", page: "Home", href: "index.html#what-it-manages", terms: "settings actions security rulesets labels collaborators webhooks deploy_keys autolinks pages secrets variables environments sections" },
-  { title: "Fleet automation", page: "Home", href: "index.html#fleet-automation", terms: "control plane renovate schedule actions app token list-repos" },
-  { title: "Development", page: "Home", href: "index.html#development", terms: "clone uv sync pytest prek gate contribute" },
+  { title: "Install", page: "Home", href: "legacy-index.html#install", terms: "pip uv tool install python github token" },
+  { title: "Quick start", page: "Home", href: "legacy-index.html#quick-start", terms: "validate plan apply example yaml diff" },
+  { title: "What it manages", page: "Home", href: "legacy-index.html#what-it-manages", terms: "settings actions security rulesets labels collaborators webhooks deploy_keys autolinks pages secrets variables environments sections" },
+  { title: "Fleet automation", page: "Home", href: "legacy-index.html#fleet-automation", terms: "control plane renovate schedule actions app token list-repos" },
+  { title: "Development", page: "Home", href: "legacy-index.html#development", terms: "clone uv sync pytest prek gate contribute" },
   { title: "validate", page: "CLI", href: "cli.html#validate", terms: "command check config no network schema" },
   { title: "plan", page: "CLI", href: "cli.html#plan", terms: "command diff read-only dry run changes preview" },
   { title: "Plan output", page: "CLI", href: "cli.html#plan-output", terms: "create update delete redacted in sync symbols" },
