@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 
 # Shared baseline config for nivintw repos. Pulled in via `extends:` from every applied
-# config (gha-public.yml, gha-private.yml, and per-repo files like ddns.yml/dotfiles.yml)
-# and merged underneath each. A base file lists no repos of its own. A child can override
+# config (gha-public.yml, gha-private.yml, and further layers like package.yml built on top
+# of them) and merged underneath each. A base file lists no repos of its own. A child can override
 # a section — e.g. set `secrets: null` — to opt that repo out of an authoritative section.
 #
 # EDIT ME. These are safe defaults — tighten/loosen to taste. Reminder on semantics:

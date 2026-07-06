@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: MIT
 
 # Apply pipeline: on every push to main that touches the config, reconcile the live repos
-# to match every applied config (config/*.yml — gha-public, gha-private, and the per-repo
-# special configs like ddns/dotfiles; base.yaml is the shared base they extend) via the
-# GitHub API. This is the deploy half of the tool — `plan` runs read-only in PRs; `apply`
-# runs here, on main only.
+# to match every applied config (config/*.yml — gha-public, gha-private, package (the PyPI
+# layer, which also directly manages ddns), and repo-management's own vault config;
+# base.yaml is the shared base they extend) via the GitHub API. This is the deploy half of
+# the tool — `plan` runs read-only in PRs; `apply` runs here, on main only.
 #
 # AUTH: this administers OTHER repos, which the default GITHUB_TOKEN cannot do. It mints
 # an installation token from the same CI GitHub App used by the release job (the App's
@@ -103,7 +103,7 @@ jobs:
           # fails fast on an unset-or-empty value, so a missing repo secret can't silently
           # blank one out across the fleet.
           #   - CI_APP_PRIVATE_KEY / GIST_PAT: base.yaml, fleet-wide.
-          #   - TWINE_*: package.yaml layer (repos that extend it; first is ddns, see #22).
+          #   - TWINE_*: package.yml (ddns directly, plus repo-management.yml which extends it).
           # This set MUST equal the configs' env-source names (every `value_from_env` plus any
           # webhook `secret_from_env` — i.e. fleet_env_sources). GitHub Actions requires a
           # literal `${{ secrets.X }}` per secret (so the block can't be derived at runtime),

@@ -108,8 +108,8 @@ jobs:
             echo ""
             echo "_What an apply on \`main\` would change on the live repos. No writes happen here._"
           } >>"$GITHUB_STEP_SUMMARY"
-          # base.yaml / package.yaml are layers (.yaml), pulled in via extends — the glob skips
-          # them; every applied config is a config/*.yml file.
+          # base.yaml is a pure layer (.yaml), pulled in via extends — the glob skips it; every
+          # applied config is a config/*.yml file.
           for cfg in config/*.yml; do
             echo "::group::plan $cfg"
             {

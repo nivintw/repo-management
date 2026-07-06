@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Shared config for repos that publish a Python package to PyPI. Publishing to PyPI means the
+# code is inherently public, so this extends gha-public.yml (not base.yaml directly) — every
+# package repo inherits `private: false` and the workflow-based Pages setup from there, on
+# top of the TWINE upload tokens added here. Doubles as both a layer (repo-management.yml
+# extends it — see that file's own vault comment) AND an applied config in its own right,
+# managing ddns directly via the `repos:` below — same dual role gha-public.yml already
+# plays for the rest of the fleet. A repo that needs the TWINE layer but its own repos:
+# opts in with:
+#
+#     extends: package.yml
+#     repos:
+#       - nivintw/some-package
+#
+# AUTH: the TWINE secrets below are `value_from_env`, so apply-config.yml's apply step must
+# export TWINE_PYPI_UPLOAD_TOKEN and TWINE_PYPI_TEST_UPLOAD_TOKEN (it does) with non-empty
+# values — otherwise the first config that extends this layer fails fast (apply rejects an
+# unset-or-empty env var rather than propagating a blank secret).
+#
+# ddns already ships a full workflow-based docs pipeline (mkdocs.yml + docs.yml calling this
+# repo's reusable docs.yml) but Pages was never turned on for the repo — the GET /pages
+# endpoint 404s. Inheriting `pages: {enabled: true, build_type: workflow}` from gha-public.yml
+# creates it straight onto build_type: workflow, so there's no legacy-vs-Actions race to fix
+# later (unlike nivintw-claude-skills, which had one — #87).
+#
+# Now that ddns runs the scaffold (main.yml authenticates the CI App the standard way —
+# CI_CLIENT_ID variable + CI_APP_PRIVATE_KEY secret), the authoritative secrets/variables
+# provisioned on an apply are CI_CLIENT_ID + CI_APP_PRIVATE_KEY + GIST_PAT +
+# TWINE_PYPI_UPLOAD_TOKEN + TWINE_PYPI_TEST_UPLOAD_TOKEN, pruning the legacy CI_APP_APPID
+# variable and CI_APP_SECRET / GIST_SECRET secrets the old (pre-scaffold) workflow used.
+
+extends: gha-public.yml
+
+secrets:
+  # Merged by name on top of base.yaml's secrets (CI_APP_PRIVATE_KEY, GIST_PAT). PyPI upload
+  # tokens for the publish workflow; the test token targets TestPyPI.
+  - {name: TWINE_PYPI_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_UPLOAD_TOKEN}
+  - {name: TWINE_PYPI_TEST_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_TEST_UPLOAD_TOKEN}
+
+repos:
+  - nivintw/ddns
