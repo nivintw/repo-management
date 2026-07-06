@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.3](https://github.com/nivintw/repo-management/compare/v1.7.2...v1.7.3) (2026-07-06)
+
+
+### Bug Fixes
+
+* Request pages permission when minting the CI App token ([93dc546](https://github.com/nivintw/repo-management/commit/93dc5469da47f745ba44b9ea48bdd6014feb29f9)), closes [#106](https://github.com/nivintw/repo-management/issues/106)
+
 ## [1.7.2](https://github.com/nivintw/repo-management/compare/v1.7.1...v1.7.2) (2026-07-06)
 
 
