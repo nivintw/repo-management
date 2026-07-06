@@ -181,13 +181,16 @@ jobs:
           import importlib.metadata as metadata
           import subprocess
 
-          entry_points = [
-              ep
-              for ep in metadata.entry_points(group="console_scripts")
-              if ep.dist and ep.dist.name == "repo-management"
-          ]
-          if entry_points:
-              subprocess.run([entry_points[0].name, "--help"], check=True)
+          entry_point = next(
+              (
+                  ep
+                  for ep in metadata.entry_points(group="console_scripts")
+                  if ep.dist and ep.dist.name == "repo-management"
+              ),
+              None,
+          )
+          if entry_point:
+              subprocess.run([entry_point.name, "--help"], check=True)
           else:
               import repo_management
           PY
