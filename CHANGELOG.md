@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.6.1](https://github.com/nivintw/repo-management/compare/v1.6.0...v1.6.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* Reconcile stale references and comments from review ([3b10fcd](https://github.com/nivintw/repo-management/commit/3b10fcdc04353e3f1d3a914872606eadf5e623ed)), closes [#91](https://github.com/nivintw/repo-management/issues/91)
+
 ## [1.6.0](https://github.com/nivintw/repo-management/compare/v1.5.0...v1.6.0) (2026-07-05)
 
 
