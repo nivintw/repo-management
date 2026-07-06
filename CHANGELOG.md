@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.7.2](https://github.com/nivintw/repo-management/compare/v1.7.1...v1.7.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* Use full ref path for the release-tag ruleset's pattern ([e269830](https://github.com/nivintw/repo-management/commit/e2698304c4ef4f42e177826c274b070798854bf0)), closes [#103](https://github.com/nivintw/repo-management/issues/103)
+
 ## [1.7.1](https://github.com/nivintw/repo-management/compare/v1.7.0...v1.7.1) (2026-07-06)
 
 
