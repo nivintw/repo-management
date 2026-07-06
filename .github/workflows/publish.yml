@@ -4,7 +4,8 @@
 # Publish releases to PyPI, dress-rehearsed through TestPyPI first. release-please
 # (main.yml) cuts the `vX.Y.Z` tag + GitHub Release; this fires on that Release (event
 # `release: published`) and drives: build once → publish to TestPyPI → smoke (assert the
-# release is visible on TestPyPI, then install and exercise the built wheel) → publish to
+# release is visible on TestPyPI, then install the built wheel and run its console script
+# if it has one, else import the package) → publish to
 # PyPI. The artifact set is built exactly once and passed between jobs, so what lands on
 # PyPI is byte-for-byte the set the smoke test installed from. PyPI uploads are immutable —
 # a broken artifact burns the version number — which is what the rehearsal stage is for.
@@ -153,7 +154,7 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Confirm TestPyPI visibility, then exercise the built wheel
+      - name: Confirm TestPyPI visibility, then smoke-test the built wheel
         # The index can lag a fresh upload by a few seconds; `-f` turns TestPyPI's
         # pre-visibility 404 into a curl error, so --retry-all-errors polls until it's
         # live — the same retry idiom ci.yml uses for flaky/eventually-consistent
@@ -168,10 +169,28 @@ jobs:
               "https://test.pypi.org/pypi/repo-management/${VERSION}/json" \
             || { echo "::error::repo-management==${VERSION} never appeared on TestPyPI"; exit 1; }
           # --python matches requires-python in pyproject.toml (the runner's system Python
-          # may be older; uv fetches its managed interpreter).
+          # may be older; uv fetches its managed interpreter). Whether this package ships a
+          # console script varies per project and isn't worth its own copier question — the
+          # installed wheel's own entry-point metadata already says so. Run it if present
+          # (exercises the real registered command, not just an importable function — a
+          # broken `[project.scripts]` entry or build-backend misconfiguration would still
+          # pass a bare import); fall back to a plain import otherwise.
           uv run --isolated --no-project --python 3.14 \
             --with dist/*.whl \
-            -- repo-management --help
+            -- python - <<'PY'
+          import importlib.metadata as metadata
+          import subprocess
+
+          entry_points = [
+              ep
+              for ep in metadata.entry_points(group="console_scripts")
+              if ep.dist and ep.dist.name == "repo-management"
+          ]
+          if entry_points:
+              subprocess.run([entry_points[0].name, "--help"], check=True)
+          else:
+              import repo_management
+          PY
 
   pypi:
     needs: smoke

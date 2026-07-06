@@ -3,8 +3,8 @@
 
 # Pre-commit hooks, run by prek (https://github.com/j178/prek). Designed to run
 # identically in CI — most hooks self-bootstrap a pinned env.
-#   Run on demand:  uvx prek run --all-files
-#   Install hooks:  uvx prek install
+#   Run on demand:  uvx prek@0.4.8 run --all-files
+#   Install hooks:  uvx prek@0.4.8 install
 
 default_install_hook_types: [pre-commit, commit-msg]
 default_stages: [pre-commit, manual]

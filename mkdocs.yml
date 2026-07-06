@@ -66,6 +66,37 @@ theme:
         icon: material/brightness-7
         name: Switch to dark mode
 
+# Overrides Material's default `code { word-break: break-word }`, which otherwise breaks
+# long identifiers (e.g. `project_name`) mid-word inside narrow table columns — see
+# stylesheets/extra.css (scaffolded alongside this file) for the fix itself.
+extra_css:
+  - stylesheets/extra.css
+
+# Adding this key at all switches MkDocs off its implicit default plugin set (just
+# `search`), so `search` is listed explicitly below or built-in search silently
+# disappears (nivintw/repo-management#85 fleet epic; #94/#95/#97 for the other three).
+plugins:
+  - search
+  # Per-page "last updated" date derived from git history (nivintw/repo-management#94).
+  # Needs full git history to compute correct per-page dates — the reusable Pages build
+  # workflow already checks out with fetch-depth: 0 for this reason.
+  - git-revision-date-localized:
+      type: date
+  # Branded social-card (og:image) generation per page (nivintw/repo-management#95).
+  # Needs cairosvg + pillow, which need native cairo/freetype libs the reusable Pages
+  # build workflow already apt-installs — cairosvg's ctypes loader can't resolve
+  # Homebrew's libcairo on macOS, so this can only be verified on the Linux CI build, not
+  # a local `mkdocs build`.
+  - social
+  # Publishes an llms.txt (per https://llmstxt.org/) so LLM tooling can fetch the docs
+  # directly instead of scraping themed HTML (nivintw/repo-management#97). `sections`
+  # mirrors the nav placeholder below (just `Home: index.md`) — like nav, the real
+  # per-page listing is authored per repo by the generate-docs skill, not here.
+  - llmstxt:
+      sections:
+        Documentation:
+          - index.md
+
 # Fleet-general baseline only — each entry earns its place with real content it enables,
 # not just because Material supports it (no mermaid custom_fences here; pymdownx.emoji is
 # scoped to Material's own icon set, never a general emoji picker — see below).
@@ -95,6 +126,20 @@ markdown_extensions:
   # Lets Markdown syntax (bold, code spans, links) work *inside* a raw HTML block.
   - md_in_html
   - footnotes
+  # Shared content fragments (`--8<-- "install.md"`) so e.g. install instructions can't
+  # drift between the homepage and per-plugin pages (nivintw/repo-management#96,
+  # config-only). base_path is relative to docs/includes/ — a snippet reference is just
+  # the filename within that dir, not the full docs/includes/... path.
+  - pymdownx.snippets:
+      base_path: docs/includes
+      check_paths: true
+  # Auto-links bare `owner/repo#N` issue/PR references and commit SHAs
+  # (nivintw/repo-management#96, config-only).
+  - pymdownx.magiclink:
+      repo_url_shortener: true
+      repo_url_shorthand: true
+      user: "nivintw"
+      repo: "repo-management"
 
 # docs/superpowers/** holds dev-only brainstorming specs and plans (the
 # superpowers:brainstorming/writing-plans convention) — shares the docs/ tree with the
@@ -110,6 +155,21 @@ markdown_extensions:
 # real build was tried (nivintw/copier-everything#157).
 exclude_docs: |
   superpowers/
+  includes/
+
+# MkDocs 1.5+'s own validation checks, made explicit rather than left to its undocumented
+# defaults — `warn` is what `--strict` (this fleet's `generate-docs` Stage 4 always builds
+# with) promotes to a hard failure, so a broken nav entry, dead link, missing anchor, or
+# non-portable absolute path is caught locally before it's caught live.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
 
 nav:
   - Home: index.md
