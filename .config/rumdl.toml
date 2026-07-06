@@ -16,3 +16,14 @@ exclude = ["LICENSE", "LICENSES/**", "**/CHANGELOG.md"]
 [MD046]
 # Always use fenced code blocks (```lang), never 4-space-indented.
 style = "fenced"
+
+[per-file-ignores]
+# MD033 (no inline HTML): castify's <figure class="cast"> embeds and similar raw-HTML
+# docs-site conventions need this even though MD033 is already off globally above — this
+# scopes it to just the docs tree if the global disable is ever narrowed later.
+# MD046 (fenced over indented): pymdownx.tabbed's content nesting under `=== "tab"`
+# requires 4-space indentation, the same convention as a list continuation — rumdl's
+# parser mistakes that indentation ahead of an already-fenced block for a raw indented
+# code block, then "fixes" it by wrapping the tab's prose in stray fences too, destroying
+# the tab structure (see nivintw/copier-everything#178).
+"docs/*.md" = ["MD033", "MD046"]

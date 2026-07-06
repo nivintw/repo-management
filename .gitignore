@@ -35,3 +35,6 @@ build/
 
 # ship progress files
 .ship/
+
+### MkDocs ###
+site/

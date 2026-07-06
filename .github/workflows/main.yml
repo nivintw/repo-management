@@ -132,3 +132,74 @@ jobs:
             exit 0
           fi
           gh pr merge "$num" --auto --rebase
+
+      # This template's own release-please-config.json.jinja always scaffolds a single
+      # package, so this never fires against a freshly-generated repo as-is — it guards the
+      # moment a consumer extends that config to 2+ packages by hand (release-please
+      # supports it; the config is a plain file a consumer can and does edit), which is
+      # exactly the real-world incident that motivated this fix. Once that happens: each
+      # package's Release PR bumps its own line in the SHARED manifest, so the first to
+      # auto-merge above changes main and every other Release PR's branch now textually
+      # conflicts with main on that shared file (mergeStateStatus DIRTY) and can never
+      # auto-merge. release-please doesn't refresh a stale branch whose generated content is
+      # unchanged — it compares the changes it wants, not branch mergeability — so a DIRTY
+      # Release PR never self-heals on its own. Close it instead: closing is release-please's
+      # documented regeneration path, so the next run that reaches this component recreates
+      # its Release PR from a fresh main (conflict-free), and the auto-merge step above
+      # re-arms it. Identified via the same CI_APP_SLUG trust anchor as approve-bot-prs.yml
+      # (author login == <slug>[bot]) plus release-please's own `autorelease: pending` label
+      # — both more stable than the tool's undocumented branch-naming — and fails closed
+      # (no-op) if the variable isn't set, same as that workflow. The label check is literal
+      # equality against DIRTY (not "!= CLEAN"): mergeStateStatus is transiently UNKNOWN right
+      # after a push, so a just-orphaned PR simply isn't caught this run and converges on a
+      # later one instead of being misclassified.
+      - name: Close any stranded (DIRTY) Release PRs so release-please regenerates them
+        if: vars.CI_APP_SLUG != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_APP_SLUG: ${{ vars.CI_APP_SLUG }}
+        run: |
+          set -euo pipefail
+          # `gh pr list --jq` only accepts a single filter expression (no `--arg` passthrough,
+          # unlike standalone jq) — piping through jq directly instead. Assigning the listing
+          # to a variable (rather than `mapfile < <(...)`, which runs the producer in a process
+          # substitution whose exit status `set -e` can't see) makes a `gh pr list` failure
+          # (auth, API 5xx) abort the step loudly instead of silently reading as "none found".
+          # --limit raised well past gh's 30-item default so a busier repo's stranded PR can't
+          # fall off the first page.
+          prs_json="$(gh pr list --state open --limit 100 \
+            --json number,author,labels,mergeStateStatus)"
+          # Same reasoning as above: a plain assignment (not `mapfile < <(...)`) so a jq
+          # failure trips `set -e` too, instead of silently reading as "none found". An empty
+          # filter result is a legitimate zero-matches outcome, not a failure — `mapfile` from
+          # an empty string yields a one-element array holding "", so that case is normalized
+          # back to a true zero-length array below.
+          stranded_str="$(printf '%s' "$prs_json" | jq --arg app "${CI_APP_SLUG}[bot]" \
+            '.[] | select(.author.login == $app and (.labels[]?.name == "autorelease: pending") and .mergeStateStatus == "DIRTY") | .number')"
+          stranded=()
+          if [ -n "$stranded_str" ]; then
+            mapfile -t stranded <<<"$stranded_str"
+          fi
+          if [ "${#stranded[@]}" -eq 0 ]; then
+            echo "No stranded Release PRs found."
+            exit 0
+          fi
+          for num in "${stranded[@]}"; do
+            echo "Closing stranded Release PR #${num} (DIRTY against current main)."
+            # Tolerate ONLY the expected race (someone/something else already closed or
+            # merged it between the list above and this close) so one benign race doesn't
+            # abort the rest of the batch; every other failure still reddens the job.
+            if ! gh pr close "$num" --comment "Closing — this Release PR's manifest edit now conflicts with main after another same-cycle Release PR merged first. release-please will regenerate this PR from a fresh main next time it runs for this component."; then
+              if ! state="$(gh pr view "$num" --json state --jq '.state')"; then
+                echo "::error::Could not verify state of PR #${num} after the close attempt above failed." >&2
+                exit 1
+              fi
+              if [ "$state" = "CLOSED" ] || [ "$state" = "MERGED" ]; then
+                echo "::notice::PR #${num} was already $(printf '%s' "$state" | tr '[:upper:]' '[:lower:]') before this step could close it — skipping."
+                continue
+              fi
+              echo "::error::Failed to close stranded Release PR #${num} for an unexpected reason." >&2
+              exit 1
+            fi
+          done

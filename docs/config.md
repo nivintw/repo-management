@@ -3,15 +3,6 @@ SPDX-FileCopyrightText: © 2026 Tyler Nivin
 SPDX-License-Identifier: MIT
 -->
 
-<!-- rumdl-disable-file MD046 -->
-<!--
-  MD046 false-positives on the multi-paragraph admonition bodies below: each line IS
-  properly 4-space-indented (verified), but rumdl's block scanner treats the blank-line
-  paragraph break inside the admonition as ending the indented block, then "fixes" the
-  following paragraph by wrapping it in a fenced code block — which breaks the admonition
-  rendering. The source is already correct; this is the linter, not the content.
--->
-
 # Config reference
 
 A config file names the repositories to manage and a shared block of sections applied to
