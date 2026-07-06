@@ -21,16 +21,15 @@ settings:
   # free plan. `private: false` is authoritative — an apply enforces it.
   private: false
 
-# `pages: {enabled: true, build_type: workflow}` deliberately isn't declared yet. Flipping
-# it here would race two independently-triggered workflows on this same merge: apply-config
-# (which applies this file) vs. docs-site.yml (which the same push also triggers, since it
-# touches docs/**/mkdocs.yml) — nothing orders "Pages source flipped to Actions" before "the
-# first Actions deploy actually succeeds", and a blind PUT to the Pages API doesn't check
-# readiness either. If apply-config wins that race and the first docs-site.yml run then
-# fails for any transient reason, the live site 404s until someone notices (this path is
-# gated on docs/**/mkdocs.yml changes, so an unrelated later push won't retry it). Landing
-# this alone, in its own commit/PR once a manual `workflow_dispatch` of docs-site.yml has
-# confirmed the build succeeds, removes the race entirely. See #87.
+# A manual `workflow_dispatch` of docs-site.yml against main confirmed the Actions-based
+# build+deploy succeeds. Declaring build_type: workflow here (in its own isolated commit,
+# touching no docs/** or mkdocs.yml) stops GitHub's classic Pages builder from
+# auto-triggering "pages build and deployment" on every push to main — which, left on
+# `legacy`, was actively racing docs-site.yml's Actions deploy for the same github-pages
+# environment slot on every commit, not just docs-related ones. See #87.
+pages:
+  enabled: true
+  build_type: workflow
 
 repos:
   - nivintw/repo-management
