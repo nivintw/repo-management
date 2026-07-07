@@ -90,8 +90,13 @@ def test_every_settings_field_produces_a_change(repo: MagicMock) -> None:
     unmanaged. Set every Settings field to a value the fake repo can't already have
     and require a change to account for each one.
     """
+    # `private` and `visibility` are mutually exclusive (both express repo visibility), so
+    # they can't be set together — drop `visibility` from the bulk pass and cover it on its
+    # own below, keeping every other field guarded here.
     values: dict[str, object] = {
-        name: _sample_value(field.annotation) for name, field in Settings.model_fields.items()
+        name: _sample_value(field.annotation)
+        for name, field in Settings.model_fields.items()
+        if name != "visibility"
     }
     repo.configure_mock(**dict.fromkeys(set(values) - _SPECIAL_FIELDS))
     repo.get_topics.return_value = []
@@ -106,7 +111,15 @@ def test_every_settings_field_produces_a_change(repo: MagicMock) -> None:
         else:
             assert isinstance(change.after, dict)
             managed.update(str(key) for key in change.after)
-    assert managed == set(Settings.model_fields)
+    assert managed == set(Settings.model_fields) - {"visibility"}
+
+    # `visibility` is managed via the same generic diff path; cover it explicitly.
+    repo.visibility = "public"
+    visibility_changes = SettingsManager().plan(
+        repo, SharedConfig(settings=Settings(visibility="internal"))
+    )
+    assert len(visibility_changes) == 1
+    assert visibility_changes[0].after == {"visibility": "internal"}
 
 
 def test_paired_title_backfilled_when_only_message_differs(repo: MagicMock) -> None:

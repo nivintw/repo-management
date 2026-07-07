@@ -17,12 +17,34 @@ sections, but scoped to the environment).
 | `prevent_self_review` | bool | unmanaged | |
 | `deployment_branch_policy.protected_branches` | bool | unmanaged | Mutually exclusive with `custom_branch_policies` |
 | `deployment_branch_policy.custom_branch_policies` | bool | unmanaged | Mutually exclusive with `protected_branches` |
+| `deployment_branch_policy.patterns` | list of `{name, type}` | unmanaged | The custom branch/tag patterns allowed to deploy; requires `custom_branch_policies: true` |
 | `secrets` | list[secret] | unmanaged | Same shape as the top-level `secrets` section |
 | `variables` | list[variable] | unmanaged | Same shape as the top-level `variables` section |
 
 Setting both `protected_branches: true` and `custom_branch_policies: true` is a config error
 at load time — GitHub's API rejects that combination too, but with an opaque error, so it's
 caught earlier here.
+
+Each entry in `patterns` has a `name` (required, non-empty — a branch/tag name or glob like
+`v*` or `releases/*`) and a `type` (`branch` \| `tag`, default `branch`).
+
+!!! note
+    `custom_branch_policies: true` alone enables custom policies but registers no patterns, so
+    nothing can deploy until at least one pattern is declared. `patterns` is an authoritative
+    set — the manager creates/deletes to match it exactly (patterns have no update, only
+    create/delete); an empty list removes all patterns, and leaving `patterns` unset leaves them
+    unmanaged. Declaring `patterns` requires `custom_branch_policies: true` (a config-load error
+    otherwise).
+
+```yaml
+environments:
+  - name: pypi
+    deployment_branch_policy:
+      custom_branch_policies: true
+      patterns:
+        - {name: "v*", type: tag}
+        - {name: "releases/*", type: branch}
+```
 
 Each reviewer is a `User` (by `login`) or a `Team` (by `slug`), resolved to the numeric ID
 GitHub's API requires when the plan runs — a `Team` reviewer requires an org-owned

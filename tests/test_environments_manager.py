@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +13,7 @@ import pytest
 from repo_management.changes import Action
 from repo_management.config import (
     ConfigError,
+    DeploymentBranchPattern,
     DeploymentBranchPolicy,
     Environment,
     Reviewer,
@@ -20,6 +22,9 @@ from repo_management.config import (
     Variable,
 )
 from repo_management.managers.environments import EnvironmentsManager
+
+URL = "https://api.github.com/repos/o/r"
+_POLICIES = f"{URL}/environments/prod/deployment-branch-policies"
 
 
 def _reviewer_entry(type_: str, reviewer_id: int) -> MagicMock:
@@ -370,3 +375,154 @@ def test_deployment_branch_policy_change(repo: MagicMock) -> None:
     policy = repo.create_environment.call_args.kwargs["deployment_branch_policy"]
     assert policy.custom_branch_policies is True
     assert policy.protected_branches is False
+
+
+def _policy_with_patterns(
+    *patterns: tuple[str, Literal["branch", "tag"]],
+) -> DeploymentBranchPolicy:
+    return DeploymentBranchPolicy(
+        custom_branch_policies=True,
+        patterns=[DeploymentBranchPattern(name=name, type=type_) for name, type_ in patterns],
+    )
+
+
+def test_new_environment_pushes_declared_patterns(repo: MagicMock) -> None:
+    """Creating an environment with custom patterns POSTs each after create_environment."""
+    repo.url = URL
+    repo.get_environments.return_value = []
+    repo.create_environment.return_value = _make_environment("prod")
+    desired = SharedConfig(
+        environments=[
+            Environment(name="prod", deployment_branch_policy=_policy_with_patterns(("v*", "tag")))
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.action is Action.CREATE
+    after = cast("dict[str, object]", change.after)
+    assert after["patterns"] == [{"name": "v*", "type": "tag"}]
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_any_call(
+        "POST", _POLICIES, input={"name": "v*", "type": "tag"}
+    )
+
+
+def test_existing_environment_adds_pattern(repo: MagicMock) -> None:
+    """A declared pattern absent from the environment's live set yields a pattern CREATE."""
+    repo.url = URL
+    current = _make_environment(
+        "prod", branch_policy={"protected_branches": False, "custom_branch_policies": True}
+    )
+    repo.get_environments.return_value = [current]
+    repo.requester.requestJsonAndCheck.return_value = ({}, {"branch_policies": []})
+    desired = SharedConfig(
+        environments=[
+            Environment(name="prod", deployment_branch_policy=_policy_with_patterns(("v*", "tag")))
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.action is Action.CREATE
+    assert change.target == "environment:prod:pattern:v*"
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_any_call(
+        "POST", _POLICIES, input={"name": "v*", "type": "tag"}
+    )
+
+
+def test_existing_environment_removes_undeclared_pattern(repo: MagicMock) -> None:
+    """A live pattern absent from the authoritative declared set yields a pattern DELETE."""
+    repo.url = URL
+    current = _make_environment(
+        "prod", branch_policy={"protected_branches": False, "custom_branch_policies": True}
+    )
+    repo.get_environments.return_value = [current]
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"branch_policies": [{"id": 5, "name": "v*", "type": "tag"}]},
+    )
+    desired = SharedConfig(
+        environments=[
+            Environment(
+                name="prod",
+                deployment_branch_policy=DeploymentBranchPolicy(
+                    custom_branch_policies=True, patterns=[]
+                ),
+            )
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.action is Action.DELETE
+    assert change.target == "environment:prod:pattern:v*"
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_any_call("DELETE", f"{_POLICIES}/5")
+
+
+def test_existing_environment_patterns_in_sync(repo: MagicMock) -> None:
+    """A declared pattern set matching the live one yields no change."""
+    repo.url = URL
+    current = _make_environment(
+        "prod", branch_policy={"protected_branches": False, "custom_branch_policies": True}
+    )
+    repo.get_environments.return_value = [current]
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"branch_policies": [{"id": 5, "name": "v*", "type": "tag"}]},
+    )
+    desired = SharedConfig(
+        environments=[
+            Environment(name="prod", deployment_branch_policy=_policy_with_patterns(("v*", "tag")))
+        ]
+    )
+    assert EnvironmentsManager().plan(repo, desired) == []
+
+
+def test_pattern_list_404_treated_as_empty(repo: MagicMock) -> None:
+    """A 404 on the patterns read (custom policies not yet enabled) is an empty live set."""
+    from github import GithubException  # noqa: PLC0415 — local to this narrow-scope test
+
+    repo.url = URL
+    current = _make_environment(
+        "prod", branch_policy={"protected_branches": False, "custom_branch_policies": True}
+    )
+    repo.get_environments.return_value = [current]
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(404, {"message": "Not Found"})
+    desired = SharedConfig(
+        environments=[
+            Environment(name="prod", deployment_branch_policy=_policy_with_patterns(("v*", "tag")))
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)
+
+    assert [c.action for c in changes] == [Action.CREATE]
+
+
+def test_pattern_list_non_404_propagates(repo: MagicMock) -> None:
+    """A non-404 error on the patterns read surfaces rather than being swallowed as empty."""
+    from github import GithubException  # noqa: PLC0415 — local to this narrow-scope test
+
+    repo.url = URL
+    current = _make_environment(
+        "prod", branch_policy={"protected_branches": False, "custom_branch_policies": True}
+    )
+    repo.get_environments.return_value = [current]
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(500, {"message": "boom"})
+    desired = SharedConfig(
+        environments=[
+            Environment(name="prod", deployment_branch_policy=_policy_with_patterns(("v*", "tag")))
+        ]
+    )
+
+    with pytest.raises(GithubException):
+        EnvironmentsManager().plan(repo, desired)

@@ -60,6 +60,8 @@ _KEYED_LISTS: dict[tuple[str, ...], str] = {
     ("rulesets",): "name",
     ("labels",): "name",
     ("collaborators",): "username",
+    ("teams",): "slug",
+    ("codeowners",): "pattern",
     ("webhooks",): "url",
     ("secrets",): "name",
     ("variables",): "name",
@@ -86,6 +88,11 @@ class Settings(Strict):
     description: str | None = None
     homepage: str | None = None
     private: bool | None = None
+    # Enterprise orgs have a third visibility tier, ``internal``, that ``private: bool`` can't
+    # express. Set ``visibility`` for the three-way (``public``/``private``/``internal``); it's
+    # mutually exclusive with ``private`` (setting both is rejected below). A personal-account
+    # repo can't be ``internal``, so ``private`` remains the natural choice there.
+    visibility: Literal["public", "private", "internal"] | None = None
     topics: list[str] | None = None
     has_issues: bool | None = None
     has_wiki: bool | None = None
@@ -105,6 +112,16 @@ class Settings(Strict):
     web_commit_signoff_required: bool | None = None
     is_template: bool | None = None
     archived: bool | None = None
+
+    @model_validator(mode="after")
+    def _visibility_xor_private(self) -> Settings:
+        # ``visibility`` supersedes ``private`` (it can also express ``internal``); declaring
+        # both invites an incoherent pair (e.g. ``private: false`` + ``visibility: private``),
+        # so exactly-one-or-neither is enforced here rather than left to an apply-time surprise.
+        if self.private is not None and self.visibility is not None:
+            msg = "set only one of 'private' or 'visibility'"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _paired_merge_commit_fields(self) -> Settings:
@@ -193,6 +210,25 @@ class Autolink(Strict):
             msg = f"{value!r} must contain the '<num>' placeholder for GitHub's reference number"
             raise ValueError(msg)
         return value
+
+
+class CodeownersEntry(Strict):
+    """One CODEOWNERS rule: a path pattern and the owners responsible for it.
+
+    Matched against existing entries by ``pattern`` for ``extends:`` merges. ``owners`` are
+    GitHub usernames (``@user``), teams (``@org/team``), or email addresses — passed through
+    verbatim; GitHub itself surfaces an owner that doesn't exist or lacks access.
+    """
+
+    pattern: str
+    owners: list[str] = Field(min_length=1)
+
+
+class TeamAccess(Strict):
+    """A team's permission grant on a repository, matched by team ``slug``."""
+
+    slug: str
+    permission: Permission = "push"
 
 
 class _EnvValued(Strict):
@@ -315,21 +351,52 @@ class Reviewer(Strict):
         return self
 
 
+class DeploymentBranchPattern(Strict):
+    """A single custom branch/tag pattern that may deploy to an environment (e.g. ``v*``)."""
+
+    name: str
+    type: Literal["branch", "tag"] = "branch"
+
+    @field_validator("name")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value.strip():
+            msg = "a deployment-branch-policy pattern 'name' must be non-empty"
+            raise ValueError(msg)
+        return value
+
+
 class DeploymentBranchPolicy(Strict):
     """Which branches/tags may deploy to an environment.
 
     ``protected_branches`` and ``custom_branch_policies`` are mutually exclusive on
     GitHub's API — setting both true is rejected at apply time with an opaque error, so
     it's rejected here instead, at config-validation time.
+
+    ``custom_branch_policies: true`` only tells GitHub custom policies are *in effect*; it
+    registers no patterns, so nothing can deploy until at least one is added. Declare the
+    patterns themselves under ``patterns`` (each a ``{name, type}``); the manager diffs them
+    against the environment's live patterns and creates/deletes to match. ``patterns`` unset
+    leaves them unmanaged; an empty list is the authoritative "no patterns" state. Because
+    patterns are the custom-policy mechanism, declaring them requires
+    ``custom_branch_policies: true``.
     """
 
     protected_branches: bool = False
     custom_branch_policies: bool = False
+    patterns: list[DeploymentBranchPattern] | None = None
 
     @model_validator(mode="after")
     def _mutually_exclusive(self) -> DeploymentBranchPolicy:
         if self.protected_branches and self.custom_branch_policies:
             msg = "'protected_branches' and 'custom_branch_policies' cannot both be true"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _patterns_require_custom(self) -> DeploymentBranchPolicy:
+        if self.patterns is not None and not self.custom_branch_policies:
+            msg = "'deployment_branch_policy.patterns' requires 'custom_branch_policies: true'"
             raise ValueError(msg)
         return self
 
@@ -352,9 +419,23 @@ class PagesSource(Strict):
     branch: str
     path: Literal["/", "/docs"] = "/"
 
+    @field_validator("branch")
+    @classmethod
+    def _branch_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            msg = "'source.branch' must be a non-empty branch name"
+            raise ValueError(msg)
+        return value
+
 
 class Pages(Strict):
-    """GitHub Pages configuration. ``enabled: false`` disables Pages if currently on."""
+    """GitHub Pages configuration. ``enabled: false`` disables Pages if currently on.
+
+    ``build_type`` and ``source`` must cohere the way GitHub's API enforces: a ``legacy``
+    (classic-branch) build requires a ``source``; a ``workflow`` (GitHub Actions) build must
+    not carry one. Both are validated here so a bad combination is a config-load error rather
+    than an apply-time 422.
+    """
 
     enabled: bool = True
     build_type: Literal["legacy", "workflow"] | None = None
@@ -369,6 +450,17 @@ class Pages(Strict):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def _source_coheres_with_build_type(self) -> Pages:
+        # GitHub 422s a legacy build with no source, and a workflow build that carries one.
+        if self.build_type == "legacy" and self.source is None:
+            msg = "'source' is required when 'build_type' is 'legacy'"
+            raise ValueError(msg)
+        if self.build_type == "workflow" and self.source is not None:
+            msg = "'source' must not be set when 'build_type' is 'workflow'"
+            raise ValueError(msg)
+        return self
+
 
 class SharedConfig(Strict):
     """The config sections applied to every repository in a :class:`Config`."""
@@ -379,6 +471,8 @@ class SharedConfig(Strict):
     rulesets: list[Ruleset] | None = None
     labels: list[Label] | None = None
     collaborators: list[Collaborator] | None = None
+    teams: list[TeamAccess] | None = None
+    codeowners: list[CodeownersEntry] | None = None
     webhooks: list[Webhook] | None = None
     secrets: list[Secret] | None = None
     variables: list[Variable] | None = None

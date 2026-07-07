@@ -12,11 +12,14 @@ import pytest
 from repo_management.config import (
     ActionsConfig,
     Autolink,
+    CodeownersEntry,
     Config,
     ConfigError,
+    DeploymentBranchPattern,
     DeploymentBranchPolicy,
     Label,
     Pages,
+    PagesSource,
     Reviewer,
     Secret,
     SelectedActions,
@@ -237,6 +240,31 @@ def test_deployment_branch_policy_rejects_both_true() -> None:
     DeploymentBranchPolicy()
 
 
+def test_deployment_branch_policy_patterns_require_custom() -> None:
+    """Declaring patterns requires custom_branch_policies: true (they are its mechanism)."""
+    with pytest.raises(ValueError, match="requires 'custom_branch_policies: true'"):
+        DeploymentBranchPolicy(patterns=[DeploymentBranchPattern(name="v*", type="tag")])
+    # custom_branch_policies with patterns (including an authoritative-empty list) loads.
+    DeploymentBranchPolicy(
+        custom_branch_policies=True, patterns=[DeploymentBranchPattern(name="v*", type="tag")]
+    )
+    DeploymentBranchPolicy(custom_branch_policies=True, patterns=[])
+
+
+def test_deployment_branch_pattern_name_non_empty() -> None:
+    """A pattern name must be a non-empty string."""
+    with pytest.raises(ValueError, match="non-empty"):
+        DeploymentBranchPattern(name="  ")
+    assert DeploymentBranchPattern(name="v*", type="tag").type == "tag"
+
+
+def test_codeowners_entry_requires_owners() -> None:
+    """A CODEOWNERS entry must name at least one owner."""
+    with pytest.raises(ValueError, match="owners"):
+        CodeownersEntry(pattern="*", owners=[])
+    assert CodeownersEntry(pattern="*", owners=["@a"]).owners == ["@a"]
+
+
 def test_autolink_requires_num_placeholder() -> None:
     """A url_template missing '<num>' would validate but never actually link anything.
 
@@ -269,6 +297,40 @@ def test_pages_requires_build_type_when_enabled() -> None:
         Pages()
     Pages(build_type="workflow")
     Pages(enabled=False)
+
+
+def test_pages_legacy_requires_source() -> None:
+    """A legacy (classic-branch) build requires a source; GitHub 422s without one."""
+    with pytest.raises(ValueError, match="'source' is required when 'build_type' is 'legacy'"):
+        Pages(build_type="legacy")
+    Pages(build_type="legacy", source=PagesSource(branch="gh-pages"))
+
+
+def test_pages_workflow_forbids_source() -> None:
+    """A workflow build must not carry a source; GitHub 422s when one is set."""
+    with pytest.raises(
+        ValueError, match="'source' must not be set when 'build_type' is 'workflow'"
+    ):
+        Pages(build_type="workflow", source=PagesSource(branch="main"))
+    Pages(build_type="workflow")
+
+
+def test_pages_source_branch_non_empty() -> None:
+    """An empty or whitespace-only source branch is rejected at load."""
+    with pytest.raises(ValueError, match=r"'source\.branch' must be a non-empty branch name"):
+        PagesSource(branch="")
+    with pytest.raises(ValueError, match=r"'source\.branch' must be a non-empty branch name"):
+        PagesSource(branch="   ")
+    assert PagesSource(branch="main").branch == "main"
+
+
+def test_settings_visibility_xor_private() -> None:
+    """'private' and 'visibility' are mutually exclusive; either alone (or neither) loads."""
+    with pytest.raises(ValueError, match="set only one of 'private' or 'visibility'"):
+        Settings(private=True, visibility="internal")
+    assert Settings(visibility="internal").visibility == "internal"
+    assert Settings(private=True).private is True
+    assert Settings().visibility is None
 
 
 def test_variable_requires_exactly_one_source() -> None:
