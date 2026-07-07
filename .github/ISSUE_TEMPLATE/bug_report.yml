@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: © 2026 Tyler Nivin
-# SPDX-License-Identifier: MIT
-
 name: 🐛 Bug report
 description: Report a problem with Repo Management
 labels: [bug]

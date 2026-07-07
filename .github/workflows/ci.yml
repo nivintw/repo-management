@@ -35,6 +35,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # fetch-depth: 0 so gitleaks scans the WHOLE history, not just the tip. The pre-commit
+          # `gitleaks --staged` hook is a no-op in CI's clean checkout (nothing is staged), so
+          # without this job a generated project ships effectively zero CI secret scanning — and
+          # a secret committed then removed in a later commit is invisible to a tip-only scan.
+          fetch-depth: 0
+          # Read-only gate — don't leave the checkout token in .git/config (zizmor artipacked).
+          persist-credentials: false
+      - name: Scan full git history for secrets (gitleaks)
+        if: inputs.skip-quality-gate != true
+        env:
+          # renovate: datasource=github-releases depName=gitleaks/gitleaks
+          GITLEAKS_VERSION: "8.30.1"
+          # SHA256 of gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz — refreshed with the version
+          # by scripts/refresh-binary-checksums.sh.
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"  # gitleaks:allow
+        run: |
+          set -euo pipefail
+          # Fail loudly on a shallow checkout rather than silently scanning a partial history —
+          # a shallow clone would turn this full-history scan into a false all-clear.
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            echo "::error::Checkout is shallow — gitleaks would scan only partial history. Ensure fetch-depth: 0."
+            exit 1
+          fi
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 60 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xz -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/gitleaks.tar.gz" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose .
+
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
