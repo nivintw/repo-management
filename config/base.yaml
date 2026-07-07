@@ -14,7 +14,8 @@
 settings:
   # Visibility is NOT set here on purpose — it's a mix across repos. The split configs set
   # it per-group instead: gha-public.yml pins `private: false`, gha-private.yml `private:
-  # true`. (The settings field is `private:`, a bool — there is no `visibility:` field.)
+  # true`. (A `visibility:` field also exists — for the enterprise-org `internal` tier — but
+  # this personal-account fleet only needs public/private, so `private:` is used here.)
   has_issues: true
   has_wiki: true
   has_projects: true

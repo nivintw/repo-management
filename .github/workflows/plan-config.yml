@@ -94,8 +94,6 @@ jobs:
           # fleet_env_sources) — enforced by tests/test_workflow_secrets.py (#39).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
           GIST_PAT: ${{ secrets.GIST_PAT }}
-          TWINE_PYPI_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_UPLOAD_TOKEN }}
-          TWINE_PYPI_TEST_UPLOAD_TOKEN: ${{ secrets.TWINE_PYPI_TEST_UPLOAD_TOKEN }}
           # Render rich output as plain, wide text for the summary (no TTY in CI).
           NO_COLOR: "1"
           COLUMNS: "200"

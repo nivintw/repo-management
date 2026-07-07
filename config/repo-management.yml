@@ -4,20 +4,19 @@
 # repo-management manages the fleet — including ITSELF — and is also the fleet's secret
 # SOURCE: apply-config.yml injects every `value_from_env` secret from THIS repo's Actions
 # secrets into the managed repos, so this repo must itself retain the full union of those
-# secrets. Left in gha-private.yml (which extends base.yaml), base's authoritative
-# `secrets:` (CI_APP_PRIVATE_KEY, GIST_PAT) would prune the package-layer TWINE tokens it
-# holds purely as that source — which is exactly what silently happened once.
+# secrets. That union is now just base.yaml's authoritative set (CI_APP_PRIVATE_KEY,
+# GIST_PAT): with ddns migrated to OIDC Trusted Publishing (#68), no PyPI upload token is
+# vaulted anywhere, so the source no longer holds anything beyond the fleet-standard creds.
+# (test_fleet_config.py's vault test still enforces that this config retains every
+# value_from_env secret any config injects, so the source can't be pruned out from under the
+# fleet.)
 #
-# So it gets its own config extending package.yml: as a Python package that also vaults the
-# publish tokens, it keeps base's two secrets PLUS TWINE_PYPI_UPLOAD_TOKEN +
-# TWINE_PYPI_TEST_UPLOAD_TOKEN. Extending the layer (rather than re-listing the secrets here)
-# keeps the vault automatically in sync with whatever package.yml defines. `private: false`
-# and the workflow-based Pages setup come along the same way — package.yml now extends
-# gha-public.yml, so both are inherited rather than re-declared here. (package.yml also
-# manages ddns directly via its own `repos:` — this file's repos: below overrides that for
-# repo-management, same as any extends chain.)
+# It gets its own config — rather than sitting in gha-public.yml's `repos:` list — so its
+# control-plane role is explicit and it has a home for any future per-repo settings. It's
+# public (published on PyPI), so it extends gha-public.yml directly, inheriting `private:
+# false` and the workflow-based Pages setup.
 
-extends: package.yml
+extends: gha-public.yml
 
 repos:
   - nivintw/repo-management
