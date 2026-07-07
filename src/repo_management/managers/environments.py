@@ -153,7 +153,7 @@ class EnvironmentsManager:
         return Change(
             domain=self.domain,
             action=Action.CREATE,
-            target=f"environment:{env_name}:pattern:{pattern.name}",
+            target=f"environment:{env_name}:pattern:{pattern.type}:{pattern.name}",
             before=None,
             after=body,
             apply=apply,
@@ -170,7 +170,7 @@ class EnvironmentsManager:
         return Change(
             domain=self.domain,
             action=Action.DELETE,
-            target=f"environment:{env_name}:pattern:{name}",
+            target=f"environment:{env_name}:pattern:{type_}:{name}",
             before={"name": name, "type": type_},
             after=None,
             apply=apply,

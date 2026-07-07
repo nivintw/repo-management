@@ -251,6 +251,26 @@ def test_deployment_branch_policy_patterns_require_custom() -> None:
     DeploymentBranchPolicy(custom_branch_policies=True, patterns=[])
 
 
+def test_deployment_branch_policy_patterns_reject_duplicates() -> None:
+    """Duplicate (name, type) patterns are rejected at load — they'd 422 as double CREATEs."""
+    with pytest.raises(ValueError, match="duplicate"):
+        DeploymentBranchPolicy(
+            custom_branch_policies=True,
+            patterns=[
+                DeploymentBranchPattern(name="v*", type="tag"),
+                DeploymentBranchPattern(name="v*", type="tag"),
+            ],
+        )
+    # Same name, different type is a distinct pattern and is allowed.
+    DeploymentBranchPolicy(
+        custom_branch_policies=True,
+        patterns=[
+            DeploymentBranchPattern(name="release", type="tag"),
+            DeploymentBranchPattern(name="release", type="branch"),
+        ],
+    )
+
+
 def test_deployment_branch_pattern_name_non_empty() -> None:
     """A pattern name must be a non-empty string."""
     with pytest.raises(ValueError, match="non-empty"):
