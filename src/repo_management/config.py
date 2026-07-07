@@ -400,6 +400,17 @@ class DeploymentBranchPolicy(Strict):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def _patterns_unique(self) -> DeploymentBranchPolicy:
+        # A pattern's identity is (name, type); a duplicate would emit two CREATEs for the same
+        # policy, the second of which 422s at apply. Reject it at load rather than mid-reconcile.
+        if self.patterns is not None:
+            keys = [(pattern.name, pattern.type) for pattern in self.patterns]
+            if len(keys) != len(set(keys)):
+                msg = "'deployment_branch_policy.patterns' has duplicate (name, type) entries"
+                raise ValueError(msg)
+        return self
+
 
 class Environment(Strict):
     """A deployment environment: protection rules plus environment-scoped secrets/variables."""

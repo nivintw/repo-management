@@ -429,7 +429,7 @@ def test_existing_environment_adds_pattern(repo: MagicMock) -> None:
     assert len(changes) == 1
     change = changes[0]
     assert change.action is Action.CREATE
-    assert change.target == "environment:prod:pattern:v*"
+    assert change.target == "environment:prod:pattern:tag:v*"
     change.apply()
     repo.requester.requestJsonAndCheck.assert_any_call(
         "POST", _POLICIES, input={"name": "v*", "type": "tag"}
@@ -463,7 +463,7 @@ def test_existing_environment_removes_undeclared_pattern(repo: MagicMock) -> Non
     assert len(changes) == 1
     change = changes[0]
     assert change.action is Action.DELETE
-    assert change.target == "environment:prod:pattern:v*"
+    assert change.target == "environment:prod:pattern:tag:v*"
     change.apply()
     repo.requester.requestJsonAndCheck.assert_any_call("DELETE", f"{_POLICIES}/5")
 
