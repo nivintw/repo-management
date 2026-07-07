@@ -135,6 +135,25 @@ def test_enabled_false_disables_existing(repo: MagicMock) -> None:
     repo.requester.requestJsonAndCheck.assert_called_with("DELETE", f"{URL}/pages")
 
 
+def test_pages_read_403_degrades_to_skip_with_warning(repo: MagicMock) -> None:
+    """A 403 on the Pages read (token lacks the Pages grant) skips Pages with a warning.
+
+    The reconciler runs each manager's plan() in a bare loop, so letting the 403 propagate
+    would abort every other domain for the repo. Degrade to the same skip shape as a 404.
+    """
+    repo.url = URL
+
+    def _forbidden(_verb: str, _url: str, **_kwargs: object) -> tuple[dict, dict]:
+        raise GithubException(403, {"message": "Resource not accessible by integration"})
+
+    repo.requester.requestJsonAndCheck.side_effect = _forbidden
+    desired = SharedConfig(pages=Pages(build_type="workflow"))
+
+    with pytest.warns(UserWarning, match="skipping Pages"):
+        changes = PagesManager().plan(repo, desired)
+    assert changes == []
+
+
 def test_non_404_error_propagates(repo: MagicMock) -> None:
     """A non-404 error from the GET is not swallowed as 'absent'."""
     repo.url = URL

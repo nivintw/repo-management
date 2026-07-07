@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 
     from repo_management.config import SharedConfig
 
+# GitHub's list-rulesets page cap; requesting the max minimizes round-trips.
+_PER_PAGE = 100
+
 
 class RulesetsManager:
     """Create and update repository rulesets, matched by name."""
@@ -58,11 +61,22 @@ class RulesetsManager:
     def _list(self, repo: Repository) -> list[dict[str, Any]]:
         # includes_parents=false: manage only this repo's own rulesets, not ones inherited
         # from the org/enterprise (which can't be edited or deleted through the repo).
-        _, data = repo.requester.requestJsonAndCheck(
-            "GET",
-            f"{repo.url}/rulesets?includes_parents=false",
-        )
-        return data
+        # Paginate: the endpoint caps a page at 100 (defaults to 30), so a repo owning more
+        # than a page of rulesets would otherwise silently drop the overflow from the diff.
+        rulesets: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            _, data = repo.requester.requestJsonAndCheck(
+                "GET",
+                f"{repo.url}/rulesets?includes_parents=false&per_page={_PER_PAGE}&page={page}",
+            )
+            if not data:
+                break
+            rulesets.extend(data)
+            if len(data) < _PER_PAGE:
+                break
+            page += 1
+        return rulesets
 
     def _get(self, repo: Repository, ruleset_id: int) -> dict[str, Any]:
         _, data = repo.requester.requestJsonAndCheck("GET", f"{repo.url}/rulesets/{ruleset_id}")

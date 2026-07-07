@@ -77,8 +77,9 @@ rulesets:
 
 ## The sections
 
-The five below (security, labels, collaborators, webhooks, GitHub Pages) are short enough
-to stay on this page as sections; the denser or paired ones get their own reference page:
+The seven below (security, labels, collaborators, teams, CODEOWNERS, webhooks, GitHub Pages)
+are short enough to stay on this page as sections; the denser or paired ones get their own
+reference page:
 
 | Section | Purpose |
 | --- | --- |
@@ -88,6 +89,8 @@ to stay on this page as sections; the denser or paired ones get their own refere
 | [security](#security) | Secret scanning, Dependabot, and private vulnerability reporting |
 | [labels](#labels) | Issue and PR labels |
 | [collaborators](#collaborators) | Direct collaborators and their permission level |
+| [teams](#teams) | Team → repository permission grants (org-owned repos only) |
+| [CODEOWNERS](#codeowners) | Declarative .github/CODEOWNERS file management |
 | [webhooks](#webhooks) | Repository webhooks |
 | [deploy_keys and autolinks](config/deploy-keys-and-autolinks.md) | Deploy keys and autolink references |
 | [GitHub Pages](#github-pages) | GitHub Pages configuration |
@@ -177,6 +180,53 @@ collaborator's granular `role_name` and maps only `read`/`write` back to `pull`/
 (`triage`, `maintain`, and `admin` are reported verbatim), so a config declaring `triage` or
 `maintain` reconciles correctly instead of endlessly re-applying.
 
+## Teams
+
+Team → repository permission grants, matched by team `slug`. Each entry grants one team a
+permission on the repo.
+
+Org-only: teams exist only in an organization, so a `teams:` section on a personal-account
+repo is a config error.
+
+Authoritative: a team grant present on the repo but absent from config is revoked; `teams: []`
+revokes all managed team grants; omitting the section leaves team access unmanaged.
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `slug` | string | **required** | Match key (the team's URL slug) |
+| `permission` | `pull` \| `triage` \| `push` \| `maintain` \| `admin` | `push` | |
+
+```yaml
+teams:
+  - slug: platform
+    permission: maintain
+  - slug: security
+    permission: admin
+```
+
+## CODEOWNERS
+
+Manages the single `.github/CODEOWNERS` file via the Contents API, matched by `pattern`. The
+rendered file carries a "Managed by repo-management" header.
+
+Authoritative: declaring `codeowners:` makes the file exactly the rendered entries;
+`codeowners: []` is the authoritative "no owners" state and *deletes* the file if present;
+omitting the section leaves CODEOWNERS unmanaged. Owners are passed through verbatim (GitHub
+validates them).
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pattern` | string | **required** | Match key; a path pattern like `*` or `/docs/` |
+| `owners` | list[string] | **required** (≥1) | `@user`, `@org/team`, or email |
+
+```yaml
+codeowners:
+  - pattern: "*"
+    owners: ["@acme/platform"]
+  - pattern: "/docs/"
+    owners: ["@acme/docs-team", "docs@example.com"]
+```
+
 ## Webhooks
 
 Repository webhooks, matched by `url`.
@@ -211,7 +261,7 @@ with `enabled: false` disables Pages if it's currently on.
 | --- | --- | --- | --- |
 | `enabled` | bool | `true` | Set `false` to disable an existing Pages site |
 | `build_type` | `legacy` \| `workflow` | **required** when enabled | |
-| `source.branch` | string | **required** if `source` is set | Only meaningful for `build_type: legacy` |
+| `source.branch` | string | **required** if `source` is set | Must be non-empty; a `source` belongs only to a `legacy` build (see note) |
 | `source.path` | `/` \| `/docs` | `/` | |
 | `cname` | string | unmanaged | Custom domain |
 | `https_enforced` | bool | unmanaged | |
@@ -225,6 +275,11 @@ pages:
 
 `build_type` is required whenever `enabled` is true (the default) — a config error at load
 time, not a deferred API rejection, if it's left out.
+
+!!! note
+    Build type and source must cohere, enforced at config load: a `legacy` build *requires* a
+    `source`, and a `workflow` build must *not* carry a `source` (either mismatch is a
+    config-load error). When a `source` is present, `source.branch` must be non-empty.
 
 !!! note
     GitHub's create-Pages-site endpoint only accepts `build_type`/`source` —
@@ -253,8 +308,9 @@ Merge rules:
 - **Scalars** (strings, bools, individual `settings`/`actions` fields): the override wins
   outright.
 - **Keyed lists** — `rulesets`, `labels`, `secrets`, `variables`, and `environments` by
-  `name`; `collaborators` by `username`; `webhooks` by `url`; `deploy_keys` by `key`;
-  `autolinks` by `key_prefix` — merge item-by-item: an override item sharing a base item's
+  `name`; `collaborators` by `username`; `teams` by `slug`; `codeowners` by `pattern`;
+  `webhooks` by `url`; `deploy_keys` by `key`; `autolinks` by `key_prefix` — merge
+  item-by-item: an override item sharing a base item's
   key *replaces* that item in place (keeping its position), and an override item with a new
   key is appended.
 

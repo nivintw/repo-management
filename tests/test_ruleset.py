@@ -12,6 +12,7 @@ from repo_management.ruleset import (
     BypassActor,
     CodeScanningRule,
     Conditions,
+    CopilotCodeReviewRule,
     FileExtensionRestrictionRule,
     FilePathRestrictionRule,
     MaxFilePathLengthRule,
@@ -180,6 +181,100 @@ def test_bypass_actor() -> None:
         "bypass_mode": "pull_request",
         "actor_id": 5,
     }
+
+
+def test_copilot_code_review_rule() -> None:
+    """The copilot_code_review rule renders its two boolean parameters."""
+    rule = CopilotCodeReviewRule(
+        type="copilot_code_review",
+        review_on_push=True,
+        review_draft_pull_requests=True,
+    )
+    assert rule.to_api() == {
+        "type": "copilot_code_review",
+        "parameters": {"review_on_push": True, "review_draft_pull_requests": True},
+    }
+
+
+def test_copilot_code_review_rule_via_union() -> None:
+    """copilot_code_review is a first-class member of the discriminated Rule union."""
+    adapter: TypeAdapter[object] = TypeAdapter(Rule)
+    rule = adapter.validate_python({"type": "copilot_code_review", "review_on_push": True})
+    assert isinstance(rule, CopilotCodeReviewRule)
+
+
+def test_push_ruleset_valid() -> None:
+    """A push ruleset carrying only push-only rules loads and renders empty conditions."""
+    ruleset = Ruleset.model_validate(
+        {
+            "name": "no-binaries",
+            "target": "push",
+            "rules": [
+                {"type": "file_extension_restriction", "restricted_file_extensions": [".exe"]}
+            ],
+        },
+    )
+    body = ruleset.to_api()
+    assert body["target"] == "push"
+    assert body["conditions"] == {}
+    assert body["rules"] == [
+        {
+            "type": "file_extension_restriction",
+            "parameters": {"restricted_file_extensions": [".exe"]},
+        },
+    ]
+
+
+def test_push_only_rule_rejected_on_branch_target() -> None:
+    """A push-only rule attached to a branch target is a load-time error, not an apply 422."""
+    with pytest.raises(ValidationError, match="require 'target: push'"):
+        Ruleset.model_validate(
+            {
+                "name": "bad",
+                "target": "branch",
+                "rules": [{"type": "max_file_size", "max_file_size": 100}],
+            },
+        )
+
+
+def test_branch_rule_rejected_on_push_target() -> None:
+    """A branch/tag rule attached to a push target is a load-time error."""
+    with pytest.raises(ValidationError, match="require a branch/tag target"):
+        Ruleset.model_validate(
+            {"name": "bad", "target": "push", "rules": [{"type": "non_fast_forward"}]},
+        )
+
+
+def test_push_ruleset_rejects_ref_name_condition() -> None:
+    """A push ruleset selects no refs, so a ref_name condition is rejected at load."""
+    with pytest.raises(ValidationError, match=r"must not set 'conditions\.ref_name'"):
+        Ruleset.model_validate(
+            {
+                "name": "bad",
+                "target": "push",
+                "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
+                "rules": [{"type": "max_file_size", "max_file_size": 100}],
+            },
+        )
+
+
+def test_bypass_actor_deploy_key_rejects_actor_id() -> None:
+    """A DeployKey bypass actor must not carry an actor_id."""
+    with pytest.raises(ValidationError, match="'DeployKey' bypass actor must not set 'actor_id'"):
+        BypassActor(actor_type="DeployKey", actor_id=5)
+
+
+@pytest.mark.parametrize("actor_type", ["Integration", "RepositoryRole", "Team"])
+def test_bypass_actor_requires_actor_id(actor_type: str) -> None:
+    """Integration/RepositoryRole/Team each require a concrete actor_id."""
+    with pytest.raises(ValidationError, match="requires 'actor_id'"):
+        BypassActor.model_validate({"actor_type": actor_type})
+
+
+def test_bypass_actor_org_admin_ignores_actor_id() -> None:
+    """OrganizationAdmin ignores actor_id: both an absent and a present id load."""
+    assert BypassActor(actor_type="OrganizationAdmin").actor_id is None
+    assert BypassActor(actor_type="OrganizationAdmin", actor_id=1).actor_id == 1
 
 
 def test_conditions_default() -> None:

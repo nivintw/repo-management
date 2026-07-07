@@ -29,6 +29,8 @@ def test_build_managers_registers_every_domain() -> None:
         "rulesets",
         "labels",
         "collaborators",
+        "teams",
+        "codeowners",
         "webhooks",
         "deploy_keys",
         "autolinks",

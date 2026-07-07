@@ -191,8 +191,29 @@ def test_list_excludes_inherited_rulesets() -> None:
 
     repo.requester.requestJsonAndCheck.assert_any_call(
         "GET",
-        f"{URL}/rulesets?includes_parents=false",
+        f"{URL}/rulesets?includes_parents=false&per_page=100&page=1",
     )
+
+
+def test_list_paginates_beyond_one_page() -> None:
+    """A repo owning >100 rulesets is fully listed by walking pages (drift isn't dropped)."""
+    page1 = [{"id": i, "name": f"rs-{i}"} for i in range(100)]
+    page2 = [{"id": 100, "name": "rs-100"}]
+
+    def request(verb: str, url: str, **_kwargs: object) -> tuple[dict, Any]:
+        if verb == "GET" and url.split("?", maxsplit=1)[0] == f"{URL}/rulesets":
+            return ({}, page2 if "page=2" in url else page1)
+        return ({}, {})
+
+    repo = MagicMock()
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.side_effect = request
+
+    # An authoritative empty config deletes every listed ruleset — one DELETE per ruleset
+    # proves all 101 (across both pages) were seen, not just the first page's 100.
+    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[]))
+    assert len(changes) == 101
+    assert all(change.action is Action.DELETE for change in changes)
 
 
 def test_realistic_server_response_is_in_sync() -> None:

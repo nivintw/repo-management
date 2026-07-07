@@ -23,8 +23,11 @@ environment first and then pushes each secret/variable against the now-real envi
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Protocol
+from urllib.parse import quote
 
+from github import GithubException
 from github.EnvironmentDeploymentBranchPolicy import EnvironmentDeploymentBranchPolicyParams
 from github.EnvironmentProtectionRuleReviewer import ReviewerParams
 
@@ -36,7 +39,12 @@ if TYPE_CHECKING:
     from github.Environment import Environment as GhEnvironment
     from github.Repository import Repository
 
-    from repo_management.config import Environment, Reviewer, SharedConfig
+    from repo_management.config import (
+        DeploymentBranchPattern,
+        Environment,
+        Reviewer,
+        SharedConfig,
+    )
 
 
 class _BranchPolicyLike(Protocol):
@@ -96,7 +104,77 @@ class EnvironmentsManager:
             changes.extend(
                 plan_variables(current, item.variables, domain=self.domain, target_prefix=prefix)
             )
+        policy = item.deployment_branch_policy
+        if policy is not None and policy.patterns is not None:
+            changes.extend(self._pattern_changes(repo, item.name, policy.patterns))
         return changes
+
+    def _pattern_changes(
+        self, repo: Repository, env_name: str, patterns: list[DeploymentBranchPattern]
+    ) -> list[Change]:
+        # Custom branch/tag patterns are a create-or-delete-only sub-resource (GitHub has no
+        # update), so diff the declared set against the live one and emit CREATE/DELETE for
+        # the difference. The declared list is authoritative: a live pattern not declared is
+        # deleted, matching this manager's "declared section is complete" convention.
+        current = {(p["name"], p["type"]): p["id"] for p in self._list_patterns(repo, env_name)}
+        wanted = {(pattern.name, pattern.type) for pattern in patterns}
+        changes = [
+            self._create_pattern(repo, env_name, pattern)
+            for pattern in patterns
+            if (pattern.name, pattern.type) not in current
+        ]
+        changes.extend(
+            self._delete_pattern(repo, env_name, pattern_id, name, type_)
+            for (name, type_), pattern_id in current.items()
+            if (name, type_) not in wanted
+        )
+        return changes
+
+    def _list_patterns(self, repo: Repository, env_name: str) -> list[dict[str, Any]]:
+        try:
+            _, data = repo.requester.requestJsonAndCheck("GET", _patterns_url(repo, env_name))
+        except GithubException as exc:
+            # Custom policies not enabled yet (or the environment is brand new to policies):
+            # no patterns to diff against, so treat as an empty live set.
+            if exc.status == HTTPStatus.NOT_FOUND:
+                return []
+            raise
+        return data.get("branch_policies", [])
+
+    def _create_pattern(
+        self, repo: Repository, env_name: str, pattern: DeploymentBranchPattern
+    ) -> Change:
+        url = _patterns_url(repo, env_name)
+        body = {"name": pattern.name, "type": pattern.type}
+
+        def apply() -> None:
+            repo.requester.requestJsonAndCheck("POST", url, input=body)
+
+        return Change(
+            domain=self.domain,
+            action=Action.CREATE,
+            target=f"environment:{env_name}:pattern:{pattern.name}",
+            before=None,
+            after=body,
+            apply=apply,
+        )
+
+    def _delete_pattern(
+        self, repo: Repository, env_name: str, pattern_id: int, name: str, type_: str
+    ) -> Change:
+        url = f"{_patterns_url(repo, env_name)}/{pattern_id}"
+
+        def apply() -> None:
+            repo.requester.requestJsonAndCheck("DELETE", url)
+
+        return Change(
+            domain=self.domain,
+            action=Action.DELETE,
+            target=f"environment:{env_name}:pattern:{name}",
+            before={"name": name, "type": type_},
+            after=None,
+            apply=apply,
+        )
 
     def _resolve_reviewers(
         self,
@@ -164,6 +242,9 @@ class EnvironmentsManager:
     ) -> Change:
         rules = _overlay_rules(_DEFAULT_RULES, item, reviewers)
 
+        policy = item.deployment_branch_policy
+        patterns = policy.patterns if policy is not None else None
+
         def apply() -> None:
             env = repo.create_environment(item.name, **_create_environment_kwargs(rules))
             if item.secrets is not None:
@@ -172,12 +253,22 @@ class EnvironmentsManager:
             if item.variables is not None:
                 for change in plan_variables(env, item.variables, domain=self.domain):
                     change.apply()
+            # create_environment set custom_branch_policies; register the declared patterns
+            # against the now-real environment, the same fold-in used for secrets/variables.
+            for pattern in patterns or []:
+                repo.requester.requestJsonAndCheck(
+                    "POST",
+                    _patterns_url(repo, item.name),
+                    input={"name": pattern.name, "type": pattern.type},
+                )
 
         after: dict[str, Any] = dict(rules)
         if item.secrets is not None:
             after["secrets"] = sorted(secret.name for secret in item.secrets)
         if item.variables is not None:
             after["variables"] = {variable.name: variable.resolve() for variable in item.variables}
+        if patterns is not None:
+            after["patterns"] = [{"name": p.name, "type": p.type} for p in patterns]
 
         return Change(
             domain=self.domain,
@@ -200,6 +291,13 @@ class EnvironmentsManager:
             after=None,
             apply=apply,
         )
+
+
+def _patterns_url(repo: Repository, env_name: str) -> str:
+    """The deployment-branch-policies sub-resource URL for an environment."""
+    # Encode the environment name: unlike a reviewer login/slug it isn't charset-restricted,
+    # so a name with a slash or space must not break out of this path segment.
+    return f"{repo.url}/environments/{quote(env_name, safe='')}/deployment-branch-policies"
 
 
 _DEFAULT_RULES: dict[str, Any] = {

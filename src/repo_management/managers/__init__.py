@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from repo_management.managers.actions import ActionsManager
 from repo_management.managers.autolinks import AutolinksManager
+from repo_management.managers.codeowners import CodeownersManager
 from repo_management.managers.collaborators import CollaboratorsManager
 from repo_management.managers.deploy_keys import DeployKeysManager
 from repo_management.managers.environments import EnvironmentsManager
@@ -24,6 +25,7 @@ from repo_management.managers.rulesets import RulesetsManager
 from repo_management.managers.secrets import SecretsManager
 from repo_management.managers.security import SecurityManager
 from repo_management.managers.settings import SettingsManager
+from repo_management.managers.teams import TeamsManager
 from repo_management.managers.variables import VariablesManager
 from repo_management.managers.webhooks import WebhooksManager
 
@@ -57,6 +59,8 @@ def build_managers(*, force_secrets: bool = False) -> list[Manager]:
         RulesetsManager(),
         LabelsManager(),
         CollaboratorsManager(),
+        TeamsManager(),
+        CodeownersManager(),
         WebhooksManager(),
         DeployKeysManager(),
         AutolinksManager(),

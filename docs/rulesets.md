@@ -12,7 +12,7 @@ Repository rulesets — branch or tag protection rules — are declared under a 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `name` | string | required | Match key |
-| `target` | `branch` \| `tag` | `branch` | |
+| `target` | `branch` \| `tag` \| `push` | `branch` | |
 | `enforcement` | `active` \| `evaluate` \| `disabled` | `active` | |
 | `bypass_actors` | list | `[]` | See [Bypass actors](#bypass-actors) |
 | `conditions` | object | empty `ref_name` | See [Conditions](#conditions) |
@@ -69,6 +69,24 @@ rulesets:
 
 The `bypass_actors` entries are what let the automated process (here, a GitHub App) still create/move/delete the tag while everyone else is blocked by the three rules above. Give admins a bypass too, not just the automation: without one, a broken App installation or key locks every repo owner out of their own tags until the ruleset itself is edited.
 
+## Push rulesets
+
+GitHub partitions rule types by target. A `push` ruleset accepts *only* the four file-restriction rule types — `file_path_restriction`, `max_file_path_length`, `file_extension_restriction`, and `max_file_size` — and every other rule type is branch/tag-only. This tool enforces the partition at config-load time (a load error), not at apply (a 422): the four file rules require `target: push`, any other rule type on a push target is rejected, and the four file rules are rejected on a branch/tag target.
+
+A push ruleset selects no refs, so it must *not* carry a `conditions.ref_name` include/exclude — declaring one is rejected at load.
+
+```yaml
+rulesets:
+  - name: block-binaries-and-large-files
+    target: push
+    enforcement: active
+    rules:
+      - type: max_file_size
+        max_file_size: 100
+      - type: file_extension_restriction
+        restricted_file_extensions: [".exe", ".dll"]
+```
+
 ## Matching and drift
 
 !!! note
@@ -102,8 +120,14 @@ conditions:
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `actor_type` | `Integration` \| `OrganizationAdmin` \| `RepositoryRole` \| `Team` \| `DeployKey` | required | |
-| `actor_id` | int | unset | Not needed for actor types without an id, e.g. `OrganizationAdmin` |
+| `actor_id` | int | unset | Required for `Integration`, `RepositoryRole`, and `Team`; must be omitted for `DeployKey`; ignored for `OrganizationAdmin` (set it or not — no effect) |
 | `bypass_mode` | `always` \| `pull_request` | `always` | |
+
+!!! note
+    The `actor_type`/`actor_id` coherence is validated at config load, following GitHub's own
+    rule: "Required for Integration, RepositoryRole, Team, and User actor types. If actor_type
+    is OrganizationAdmin, actor_id is ignored. If actor_type is DeployKey, this should be null."
+    This model does not include the `User` actor type.
 
 ## Rule types
 
@@ -193,7 +217,7 @@ rules:
 
 ### File restrictions
 
-Four separate rule types, each gating one kind of file-level change:
+Four separate rule types, each gating one kind of file-level change. These are valid *only* on a `push` ruleset (see [Push rulesets](#push-rulesets) above):
 
 | Rule type | Field | Default | Notes |
 | --- | --- | --- | --- |
@@ -223,3 +247,12 @@ rules:
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `code_scanning_tools` | list of `{tool, security_alerts_threshold, alerts_threshold}` | `[]` | `security_alerts_threshold` defaults to `high_or_higher`, `alerts_threshold` to `errors` |
+
+### copilot_code_review
+
+A branch-target rule that requests an automatic Copilot review on the PR flow. It supersedes the deprecated `automatic_copilot_code_review_enabled` `pull_request` parameter.
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `review_on_push` | bool | `false` | Re-review when new commits are pushed |
+| `review_draft_pull_requests` | bool | `false` | Also review draft PRs |

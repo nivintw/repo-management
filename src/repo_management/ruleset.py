@@ -3,21 +3,28 @@
 
 """Repository ruleset schema.
 
-Models the full GitHub repository ruleset surface for branch/tag targets: every documented
-rule type (as a ``type``-discriminated union), bypass actors, and ref-name conditions.
+Models the full GitHub repository ruleset surface for branch, tag, and push targets: every
+documented rule type (as a ``type``-discriminated union), bypass actors, and ref-name
+conditions.
 
 Field names mirror the GitHub REST API, so serialization is just pydantic's
 ``model_dump(exclude_none=True)`` — an unset optional field is omitted from the request
 body. Rules wrap their fields in the API's ``{type, parameters}`` envelope via
 :meth:`_Rule.to_api`; the only field whose name differs from its API key carries a
 ``serialization_alias``.
+
+GitHub partitions rule types by target: the four file-oriented rules
+(``file_path_restriction``, ``max_file_path_length``, ``file_extension_restriction``,
+``max_file_size``) attach only to a ``push`` ruleset, and every other rule type attaches only
+to a ``branch``/``tag`` ruleset. :class:`Ruleset` enforces that partition at load time so an
+invalid target/rule pairing fails fast rather than 422-ing at apply.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from repo_management.base import Strict
 
@@ -199,6 +206,30 @@ class CodeScanningRule(_Rule):
     code_scanning_tools: list[CodeScanningTool] = Field(default_factory=list)
 
 
+class CopilotCodeReviewRule(_Rule):
+    """The ``copilot_code_review`` rule (automatic Copilot review on the PR flow).
+
+    Supersedes the deprecated ``automatic_copilot_code_review_enabled`` parameter that used
+    to hang off the ``pull_request`` rule; it is a branch-target rule.
+    """
+
+    type: Literal["copilot_code_review"]
+    review_on_push: bool = False
+    review_draft_pull_requests: bool = False
+
+
+# The four file-oriented rule types GitHub accepts only on a ``push`` ruleset. Every other
+# rule type is branch/tag-only. :class:`Ruleset` enforces this partition at load.
+PUSH_ONLY_RULE_TYPES = frozenset(
+    {
+        "file_path_restriction",
+        "max_file_path_length",
+        "file_extension_restriction",
+        "max_file_size",
+    }
+)
+
+
 Rule = Annotated[
     SimpleRule
     | PatternRule
@@ -212,17 +243,44 @@ Rule = Annotated[
     | FileExtensionRestrictionRule
     | MaxFileSizeRule
     | WorkflowsRule
-    | CodeScanningRule,
+    | CodeScanningRule
+    | CopilotCodeReviewRule,
     Field(discriminator="type"),
 ]
 
 
+# Bypass-actor types that require a concrete numeric ``actor_id`` (an App id, role id, or
+# team id respectively). ``OrganizationAdmin`` ignores ``actor_id`` and ``DeployKey`` forbids
+# it — both handled explicitly below. Partition confirmed against GitHub's rulesets REST docs:
+# "Required for Integration, RepositoryRole, Team, and User actor types. If actor_type is
+# OrganizationAdmin, actor_id is ignored. If actor_type is DeployKey, this should be null."
+_ACTOR_ID_REQUIRED = frozenset({"Integration", "RepositoryRole", "Team"})
+
+
 class BypassActor(_ApiModel):
-    """An actor allowed to bypass the ruleset."""
+    """An actor allowed to bypass the ruleset.
+
+    GitHub pairs ``actor_id`` with ``actor_type``: ``Integration``/``RepositoryRole``/``Team``
+    each need a concrete id, ``DeployKey`` must not carry one, and ``OrganizationAdmin`` ignores
+    it (any value or none is accepted). The combinations GitHub's API rejects are rejected here
+    at load rather than left to 422 at apply.
+    """
 
     actor_type: Literal["Integration", "OrganizationAdmin", "RepositoryRole", "Team", "DeployKey"]
     actor_id: int | None = None
     bypass_mode: Literal["always", "pull_request"] = "always"
+
+    @model_validator(mode="after")
+    def _actor_id_matches_type(self) -> BypassActor:
+        if self.actor_type == "DeployKey":
+            if self.actor_id is not None:
+                msg = "a 'DeployKey' bypass actor must not set 'actor_id'"
+                raise ValueError(msg)
+        elif self.actor_type in _ACTOR_ID_REQUIRED and self.actor_id is None:
+            # OrganizationAdmin ignores actor_id, so it falls through with no constraint.
+            msg = f"a {self.actor_type!r} bypass actor requires 'actor_id'"
+            raise ValueError(msg)
+        return self
 
 
 class RefNameCondition(Strict):
@@ -242,19 +300,49 @@ class Ruleset(Strict):
     """A repository ruleset, matched against existing rulesets by ``name``."""
 
     name: str
-    target: Literal["branch", "tag"] = "branch"
+    target: Literal["branch", "tag", "push"] = "branch"
     enforcement: Literal["active", "evaluate", "disabled"] = "active"
     bypass_actors: list[BypassActor] = Field(default_factory=list)
     conditions: Conditions = Field(default_factory=Conditions)
     rules: list[Rule] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _target_rule_partition(self) -> Ruleset:
+        # GitHub accepts the four file-oriented rule types only on a push ruleset, and every
+        # other rule type only on a branch/tag ruleset — enforce that split at load rather
+        # than let an invalid pairing 422 at apply.
+        if self.target == "push":
+            offenders = sorted({rule.type for rule in self.rules} - PUSH_ONLY_RULE_TYPES)
+            if offenders:
+                msg = (
+                    f"a push ruleset accepts only {sorted(PUSH_ONLY_RULE_TYPES)}; "
+                    f"rule type(s) {offenders} require a branch/tag target"
+                )
+                raise ValueError(msg)
+            # Push rulesets don't select refs — a ref_name condition is rejected by the API.
+            if self.conditions.ref_name.include or self.conditions.ref_name.exclude:
+                msg = "a push ruleset must not set 'conditions.ref_name'"
+                raise ValueError(msg)
+        else:
+            offenders = sorted({rule.type for rule in self.rules} & PUSH_ONLY_RULE_TYPES)
+            if offenders:
+                msg = (
+                    f"rule type(s) {offenders} require 'target: push'; "
+                    f"they can't attach to a {self.target!r} ruleset"
+                )
+                raise ValueError(msg)
+        return self
+
     def to_api(self) -> dict[str, Any]:
         """Render the whole ruleset into a GitHub REST API request body."""
+        # A push ruleset carries no ref_name conditions (validated above), so it renders an
+        # empty conditions object rather than the branch/tag include/exclude shape.
+        conditions = {} if self.target == "push" else self.conditions.to_api()
         return {
             "name": self.name,
             "target": self.target,
             "enforcement": self.enforcement,
             "bypass_actors": [actor.to_api() for actor in self.bypass_actors],
-            "conditions": self.conditions.to_api(),
+            "conditions": conditions,
             "rules": [rule.to_api() for rule in self.rules],
         }

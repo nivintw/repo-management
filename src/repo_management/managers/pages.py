@@ -16,6 +16,7 @@ with those already set takes a POST followed immediately by a PUT, both inside o
 
 from __future__ import annotations
 
+import warnings
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
@@ -41,7 +42,22 @@ class PagesManager:
             return []
 
         url = f"{repo.url}/pages"
-        current = self._get(repo, url)
+        try:
+            current = self._get(repo, url)
+        except GithubException as exc:
+            if exc.status == HTTPStatus.FORBIDDEN:
+                # The Pages permission is granted separately from repo administration, so a
+                # token without it 403s on this read. Degrade to skip-with-warning rather
+                # than let the 403 abort every other domain's reconciliation for this repo
+                # (the reconciler runs each manager's plan() in a bare loop). Any other
+                # status still surfaces.
+                warnings.warn(
+                    f"skipping Pages for {repo.full_name}: read returned 403 (token lacks "
+                    "the Pages permission); every other domain still reconciles",
+                    stacklevel=2,
+                )
+                return []
+            raise
 
         if not pages.enabled:
             return [] if current is None else [self._disable(repo, url, current)]
