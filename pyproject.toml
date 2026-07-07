@@ -58,6 +58,10 @@ addopts = "--cov=repo_management --cov-report=term-missing --cov-fail-under=90"
 [tool.ruff]
 target-version = "py314"
 line-length = 100
+# The Claude Code guard hooks ship from the template as-is, so they aren't this project's own
+# code to lint (a future ruff rule shouldn't redden your CI over them). The `**/.claude/hooks`
+# glob matches them at any depth.
+extend-exclude = ["**/.claude/hooks"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -80,6 +84,8 @@ runtime-evaluated-base-classes = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
+# CLI scripts print to the user (T201) and aren't an importable package (INP001).
+"scripts/**" = ["T201", "INP001"]
 # tests use assert (S101) and aren't an importable package (INP001); they import test
 # deps at module level for annotations (TC), use fake secrets in fixtures (S105/S106),
 # assert against literal values (PLR2004), and have wide-arg helper builders (PLR0913).

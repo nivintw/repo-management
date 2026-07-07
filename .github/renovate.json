@@ -17,8 +17,8 @@
       "groupName": "ruff"
     },
     {
-      "description": "Only re-run the checksum refresh when one of the 5 tools the customManager below discovers via its # renovate: annotations actually changed — so an unrelated update (a ruff-pre-commit bump, an actions/checkout digest bump, etc.) doesn't also shell out to 5 external release hosts. BASE_REF is computed inline (merge-base against the default branch) rather than relying on the runner to export it, so the script's supply-chain tamper gate (refuse a same-version/different-hash re-pin) is always active on this automated path — and the command fails loudly if that computation itself fails, rather than letting a silently-empty BASE_REF degrade back to the gate being off.",
-      "matchPackageNames": ["aquasecurity/trivy", "google/osv-scanner", "korandoru/hawkeye", "tamasfe/taplo", "yannh/kubeconform"],
+      "description": "Only re-run the checksum refresh when one of the tools the customManager below discovers via its # renovate: annotations actually changed — so an unrelated update (a ruff-pre-commit bump, an actions/checkout digest bump, etc.) doesn't also shell out to the external release hosts. Covers both pin classes the script refreshes: the *_SHA256 asset-bearing tools (trivy/osv/hawkeye/taplo/kubeconform) and the *_COMMIT asset-less tools (bats, pinned by the commit its tag points at). BASE_REF is computed inline (merge-base against the default branch) rather than relying on the runner to export it, so the script's supply-chain tamper gate (refuse a same-version/different-pin re-pin) is always active on this automated path — and the command fails loudly if that computation itself fails, rather than letting a silently-empty BASE_REF degrade back to the gate being off.",
+      "matchPackageNames": ["aquasecurity/trivy", "google/osv-scanner", "korandoru/hawkeye", "tamasfe/taplo", "yannh/kubeconform", "bats-core/bats-core", "gitleaks/gitleaks"],
       "postUpgradeTasks": {
         "commands": ["BASE_REF=\"$(git merge-base HEAD origin/HEAD)\" || { echo 'ERROR: could not compute BASE_REF via git merge-base — refusing to run with the tamper gate silently disabled' >&2; exit 1; }; export BASE_REF; scripts/refresh-binary-checksums.sh"],
         "fileFilters": [".github/workflows/**"],
@@ -29,7 +29,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Pinned release binaries by a `# renovate:`-annotated *_VERSION env var (trivy, osv-scanner, hawkeye, taplo, kubeconform). Renovate bumps the version; the adjacent *_SHA256 is refreshed by scripts/refresh-binary-checksums.sh, run as a postUpgradeTask (in packageRules above, scoped to these 5 tools) so the fix lands in Renovate's own commit, since github-releases exposes no asset-digest datasource.",
+      "description": "Pinned release binaries by a `# renovate:`-annotated *_VERSION env var (trivy, osv-scanner, hawkeye, taplo, kubeconform, and bats). Renovate bumps the version; the adjacent pin (*_SHA256 for asset-bearing tools, *_COMMIT for asset-less bats) is refreshed by scripts/refresh-binary-checksums.sh, run as a postUpgradeTask (in packageRules above, scoped to these tools) so the fix lands in Renovate's own commit, since github-releases exposes no asset-digest datasource.",
       "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: \"(?<currentValue>[^\"]+)\""

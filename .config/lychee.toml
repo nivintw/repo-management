@@ -17,4 +17,13 @@ exclude = [
   # this PR merges and its docs-site.yml workflow deploys — 404s until then, self-heals once
   # deployed. Remove once the fleet-wide docs epic (#85) has fully landed for this repo.
   "nivintw\\.github\\.io/repo-management/(cli|config|rulesets)/",
+  # Documentation universals — safe to exclude in any project's docs.
+  # Loopback / local-dev hosts that never resolve in CI.
+  "^https?://(localhost|127\\.0\\.0\\.1)([:/]|$)",
+  # RFC 2606 reserved example domains — placeholders, never real links.
+  "^https?://([^/@]+\\.)?example\\.(com|org|net)([:/]|$)",
+  # A not-yet-published private GitHub Pages site — REQUIRES a subdomain label (`x.pages.github.io`),
+  # so the bare `pages.github.io` (GitHub's Pages home/docs) still gets link-checked. The `([:/]|$)`
+  # boundary after `pages.github.io` keeps a spoof host like `evil-pages.github.io.attacker.com` out.
+  "^https?://[^/@]+\\.pages\\.github\\.io([:/]|$)",
 ]

@@ -224,6 +224,13 @@ repos:
         entry: prek validate-config
         language: system
         files: '^\.pre-commit-config\.yaml$'
+      - id: check-copier-src-path
+        name: "🔧 copier · Require a remote _src_path (not a local path)"
+        # A local _src_path silently breaks `copier update` for every other clone and in CI.
+        entry: python3 scripts/check_copier_src_path.py
+        language: system
+        files: '^\.copier-answers\.yml$'
+        pass_filenames: true
 
       - id: ty
         name: "🐍 python · Type-check with ty"

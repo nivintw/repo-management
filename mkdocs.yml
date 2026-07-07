@@ -70,18 +70,15 @@ theme:
 # long identifiers (e.g. `project_name`) mid-word inside narrow table columns — see
 # stylesheets/extra.css (scaffolded alongside this file) for the fix itself.
 #
-# Wired for the vendored asciinema-player assets (see castify's embedding.md reference doc)
-# so a repo only needs to drop the vendored files at these conventional paths under
-# docs/assets/ to embed a `<figure class="cast">` terminal recording. Harmless to wire
-# unconditionally for a repo with no casts yet — mkdocs doesn't fail to build over a missing
-# extra_css/extra_javascript path — though a browser visiting the live site will 404 the two
-# asset requests until a repo actually adds the files.
+# The asciinema-player assets are deliberately NOT wired here. extra_css/extra_javascript load
+# site-wide on EVERY page, and no template task vendors docs/assets/asciinema-player.{css,min.js},
+# so wiring them unconditionally 404s both requests on every page of any docs site that hasn't
+# embedded a cast yet (nivintw/copier-everything#172). Embedding a cast is an opt-in step that
+# adds the two vendored asset files AND their extra_css/extra_javascript lines together (see
+# castify's embedding.md reference doc) — never one without the other. tests/test_docs_site.py
+# guards against a #196-style "restore the missing wiring" change reintroducing the 404.
 extra_css:
   - stylesheets/extra.css
-  - assets/asciinema-player.css
-
-extra_javascript:
-  - assets/asciinema-player.min.js
 
 # Adding this key at all switches MkDocs off its implicit default plugin set (just
 # `search`), so `search` is listed explicitly below or built-in search silently
