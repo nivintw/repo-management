@@ -22,5 +22,5 @@ repos:
   - nivintw/nivintw-claude-skills
   - nivintw/copier-everything
   - nivintw/dotfiles
-  # ddns is public too, but as a PyPI package repo it needs the TWINE tokens package.yml
-  # adds on top of this file — it's managed directly from there instead of listed here.
+  # ddns is public too, but is managed via its own config (package.yml) — where it inherits
+  # this file's public + workflow-Pages settings — rather than being listed here.

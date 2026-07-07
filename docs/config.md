@@ -323,26 +323,21 @@ configs — each with its own `repos:` list, picked up by the CLI's config-dir g
 no repos of their own. Neither extension is enforced by the schema; it's a naming convention
 this repo relies on to tell the two apart at a glance. `config/base.yaml` is the shared
 baseline that `config/gha-public.yml` and `config/gha-private.yml` extend. `config/package.yml`
-builds on `gha-public.yml` (rather than `base.yaml` directly, since publishing to PyPI means
-the code is inherently public) to add PyPI publish secrets — and, like `gha-public.yml`
-itself, plays a dual role: it's a layer `config/repo-management.yml` extends AND an applied
-config in its own right, managing `ddns` directly via its own `repos:`:
+is `ddns`'s applied config: it builds on `gha-public.yml` (rather than `base.yaml` directly,
+since publishing to PyPI means the code is inherently public) and manages `ddns` via its own
+`repos:`. It carries no publish secrets — `ddns` publishes via OIDC Trusted Publishing:
 
 ```yaml
-# config/package.yml — extends gha-public.yml; both a layer and an applied config.
+# config/package.yml — ddns's config; extends gha-public.yml (no publish-token secrets).
 extends: gha-public.yml
-
-secrets:
-  - {name: TWINE_PYPI_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_UPLOAD_TOKEN}
-  - {name: TWINE_PYPI_TEST_UPLOAD_TOKEN, value_from_env: TWINE_PYPI_TEST_UPLOAD_TOKEN}
 
 repos:
   - nivintw/ddns
 ```
 
 ```yaml
-# config/repo-management.yml — extends package.yml, overrides repos: to just itself.
-extends: package.yml
+# config/repo-management.yml — the control-plane repo; extends gha-public.yml directly.
+extends: gha-public.yml
 
 repos:
   - nivintw/repo-management

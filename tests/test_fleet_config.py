@@ -54,12 +54,7 @@ def test_ddns_resolves_to_standardised_credentials() -> None:
     assert config.secrets is not None
     assert config.variables is not None
 
-    assert _names(config.secrets) == {
-        "CI_APP_PRIVATE_KEY",
-        "GIST_PAT",
-        "TWINE_PYPI_UPLOAD_TOKEN",
-        "TWINE_PYPI_TEST_UPLOAD_TOKEN",
-    }
+    assert _names(config.secrets) == {"CI_APP_PRIVATE_KEY", "GIST_PAT"}
     assert _names(config.variables) == {"CI_CLIENT_ID", "CI_APP_SLUG"}
 
 
@@ -68,8 +63,9 @@ def test_repo_management_vault_holds_every_injected_secret() -> None:
 
     apply-config.yml injects each value_from_env secret from repo-management's own Actions
     secrets into the managed repos. repo-management is itself managed (authoritatively), so a
-    secret its config omits is pruned from the source — breaking the fleet apply. base.yaml's
-    two-secret authoritative set once did exactly that to the TWINE tokens; this locks it shut.
+    secret its config omits is pruned from the source — breaking the fleet apply. A narrower
+    authoritative secrets set on the source once did exactly that to a vaulted token; this
+    locks it shut by deriving the expected set from every config rather than hard-coding it.
     """
     vault = load_config(CONFIG_DIR / "repo-management.yml")
 
