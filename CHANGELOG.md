@@ -7,6 +7,18 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.8.0](https://github.com/nivintw/repo-management/compare/v1.7.7...v1.8.0) (2026-07-07)
+
+
+### Features
+
+* Expand the config surface — patterns, push rulesets, teams, CODEOWNERS ([f74a507](https://github.com/nivintw/repo-management/commit/f74a50715cef4119ebefb9c63ea112e1ee2ac1fb))
+
+
+### Bug Fixes
+
+* Harden deployment-branch-policy pattern handling (Copilot review) ([0a5676e](https://github.com/nivintw/repo-management/commit/0a5676eaa7bba67c89a1a2eab920431518580a30))
+
 ## [1.7.7](https://github.com/nivintw/repo-management/compare/v1.7.6...v1.7.7) (2026-07-06)
 
 
