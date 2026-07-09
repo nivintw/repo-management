@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT
 
 # CLI reference
 
-The `repo-management` command drives a [YAML config](config.md) against GitHub: validate it offline, preview the diff, or apply it. There are four subcommands: `validate`, `plan`, `apply`, and `list-repos`.
+The `repo-management` command drives a [YAML config](config.md) against GitHub: validate it offline, preview the diff, or apply it. There are four repo subcommands — `validate`, `plan`, `apply`, and `list-repos` — plus a [`projects`](projects.md) command group for managing a GitHub Projects v2 roadmap board (documented separately, since a board is owner-level rather than per-repo).
 
 ## validate
 
@@ -118,6 +118,14 @@ Lists the managed-repo fleet: the union of the `repos:` lists across every appli
 | `names` | A single comma-separated line of bare repo names, with the owner stripped. Requires the fleet to have a single owner — errors otherwise. |
 
 `names` output is sized for scoping a GitHub App token's `repositories:` list to exactly the fleet. Output is plain stdout — no styling or line wrapping — so it's safe to pipe or capture in a narrow terminal.
+
+## projects
+
+```console
+repo-management projects {validate|plan|apply|status|reconcile|insights} -c CONFIG
+```
+
+Manages a GitHub Projects v2 board — its field schema (`plan`/`apply`), a weekly status update (`status`), each item's `Status` (`reconcile`), and a committed insights chart (`insights`). A board is a single owner-level entity, not a repo, so these commands take their own config file and a token with the `project` scope. See **[Projects board](projects.md)** for the full reference.
 
 ## Global behavior
 
