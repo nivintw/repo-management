@@ -112,26 +112,33 @@ def test_fleet_repos_excludes_commented_out_repos() -> None:
 
 
 def test_security_floor_resolves_fleet_wide_from_base() -> None:
-    """The Dependabot security floor (#144) reaches every applied config via base.yaml.
+    """The Dependabot security floor (#144) reaches EVERY applied config via base.yaml.
 
-    The floor lives in base.yaml, so every config that ``extends: base.yaml`` (directly or
-    transitively) must resolve to Dependabot alerts + automated security fixes ON — that's what
-    an apply enables across the live fleet. Pin it on a real applied config so a dropped
-    ``extends:`` or a fat-fingered base edit can't silently disable the floor fleet-wide.
+    The floor lives in base.yaml, so every applied config (each ``config/*.yml`` — the exact set
+    the apply workflow reconciles; base.yaml and projects.yaml carry the ``.yaml`` extension and
+    are not applied) must resolve to Dependabot alerts + automated security fixes ON. Iterate the
+    whole set rather than spot-checking one, so a config that drops its ``extends:`` or overrides
+    ``security`` to opt out can't silently punch a hole in the fleet-wide floor and go unnoticed.
 
-    Equally load-bearing: the *other* security fields must stay ``None`` (unmanaged). Only the
-    two Dependabot toggles were declared on purpose — if secret scanning or private vulnerability
-    reporting flipped to managed here, an apply would start reconciling them on every repo too.
+    Equally load-bearing: the *other* security fields must stay ``None`` (unmanaged) on every
+    config. Only the two Dependabot toggles were declared on purpose — if secret scanning or
+    private vulnerability reporting flipped to managed, an apply would start reconciling them on
+    every repo too.
     """
-    config = load_config(CONFIG_DIR / "gha-public.yml")  # extends base.yaml
+    applied = sorted(
+        CONFIG_DIR.glob("*.yml")
+    )  # every applied config; base.yaml/projects.yaml are .yaml
+    assert applied, "no applied configs matched config/*.yml — the glob found nothing"
 
-    assert config.security is not None
-    assert config.security.vulnerability_alerts is True
-    assert config.security.automated_security_fixes is True
-    # The floor manages ONLY the two Dependabot toggles; everything else stays unmanaged.
-    assert config.security.secret_scanning is None
-    assert config.security.secret_scanning_push_protection is None
-    assert config.security.private_vulnerability_reporting is None
+    for cfg in applied:
+        config = load_config(cfg)
+        assert config.security is not None, cfg.name
+        assert config.security.vulnerability_alerts is True, cfg.name
+        assert config.security.automated_security_fixes is True, cfg.name
+        # The floor manages ONLY the two Dependabot toggles; everything else stays unmanaged.
+        assert config.security.secret_scanning is None, cfg.name
+        assert config.security.secret_scanning_push_protection is None, cfg.name
+        assert config.security.private_vulnerability_reporting is None, cfg.name
 
 
 def test_fleet_repos_errors_on_empty_dir(tmp_path: Path) -> None:
