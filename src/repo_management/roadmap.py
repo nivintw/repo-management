@@ -318,20 +318,24 @@ def build_status_update(board: Board, today: dt.date) -> tuple[Health, str]:
     return health, _status_body(today, facts, board)
 
 
-def _safe_title(title: str | None) -> str:
-    """A board item's title, safe to render into a posted status update.
+def _safe_text(text: str) -> str:
+    """Board-derived text, safe to render into a posted status update.
 
-    Neutralizes ``@mentions`` (a zero-width space after ``@`` defuses the mention) so the
-    posted markdown can't ping arbitrary people, and guards a missing title.
+    Escapes HTML (GitHub markdown renders a raw-HTML subset, so an issue title/phase with
+    ``<...>`` could otherwise inject markup) and neutralizes ``@mentions`` (a zero-width
+    space after ``@`` defuses the mention) so the posted update can't ping arbitrary people.
     """
-    if not title:
-        return "(untitled)"
-    return title.replace("@", "@\u200b")
+    return html.escape(text, quote=False).replace("@", "@\u200b")
+
+
+def _safe_title(title: str | None) -> str:
+    """A board item's title, safe to render, guarding a missing title (see :func:`_safe_text`)."""
+    return _safe_text(title) if title else "(untitled)"
 
 
 def _status_body(today: dt.date, facts: _StatusFacts, board: Board) -> str:
     def line(item: BoardItem) -> str:
-        phase = f" ({item.phase})" if item.phase else ""
+        phase = f" ({_safe_text(item.phase)})" if item.phase else ""
         return f"- {item.ref}  {_safe_title(item.title)}{phase}"
 
     # Date the header to the week's Monday, not the run date, so a delayed or manually
