@@ -4,9 +4,9 @@
 # repo-management manages the fleet — including ITSELF — and is also the fleet's secret
 # SOURCE: apply-config.yml injects every `value_from_env` secret from THIS repo's Actions
 # secrets into the managed repos, so this repo must itself retain the full union of those
-# secrets. That union is now just base.yaml's authoritative set (CI_APP_PRIVATE_KEY,
-# GIST_PAT): with ddns migrated to OIDC Trusted Publishing (#68), no PyPI upload token is
-# vaulted anywhere, so the source no longer holds anything beyond the fleet-standard creds.
+# secrets. That union is base.yaml's authoritative set (CI_APP_PRIVATE_KEY, GIST_PAT) — shared
+# fleet-wide — plus ROADMAP_PROJECT_TOKEN below, which is declared ONLY here so it stays scoped
+# to this repo (the roadmap automations run here) rather than being pushed to every fleet repo.
 # (test_fleet_config.py's vault test still enforces that this config retains every
 # value_from_env secret any config injects, so the source can't be pruned out from under the
 # fleet.)
@@ -17,6 +17,15 @@
 # false` and the workflow-based Pages setup.
 
 extends: gha-public.yml
+
+secrets:
+  # ROADMAP_PROJECT_TOKEN: a classic PAT with the `project` scope, used by the roadmap
+  # automations (project-status/reconcile/insights.yml) to read+write the user-owned Fleet
+  # Roadmap Projects v2 board. Declared here — merged onto base.yaml's fleet-wide set — so the
+  # authoritative `secrets:` reconcile keeps it on THIS repo instead of pruning it, without
+  # provisioning it to any other fleet repo. Add the value as a repo Actions secret of the same
+  # name BEFORE this lands (apply fails fast on an unset value when creating an absent secret).
+  - {name: ROADMAP_PROJECT_TOKEN, value_from_env: ROADMAP_PROJECT_TOKEN}
 
 repos:
   - nivintw/repo-management

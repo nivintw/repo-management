@@ -78,7 +78,7 @@ def _propagated_secret_env_keys(workflow: Path) -> set[str]:
 
 def test_configs_declare_the_expected_value_from_env_secrets() -> None:
     """Lock the known set so an accidental config change is visible here, not only via drift."""
-    assert _expected_env_sources() == {"CI_APP_PRIVATE_KEY", "GIST_PAT"}
+    assert _expected_env_sources() == {"CI_APP_PRIVATE_KEY", "GIST_PAT", "ROADMAP_PROJECT_TOKEN"}
 
 
 @pytest.mark.parametrize("name", sorted(WORKFLOWS))
