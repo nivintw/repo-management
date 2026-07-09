@@ -37,13 +37,13 @@ on:
 permissions:
   contents: read
 
-# Coalesce a burst of runs — rapid label events, or an event landing while a scheduled sweep
-# runs — into the latest one: cancel-in-progress cancels any in-flight run in this group when a
-# newer one starts. Safe because every run recomputes the same desired state from scratch
-# (idempotent), so a cancelled run loses nothing — the newer run supersedes it and re-derives
-# the full board state anyway.
+# Group per event type so a burst of same-type runs coalesces (rapid label events cancel each
+# other down to the latest) WITHOUT an issue event cancelling an in-flight scheduled sweep —
+# the sweep runs in its own `roadmap-reconcile-schedule` group. Coalescing is safe because
+# every run recomputes the same desired state from scratch (idempotent), so a cancelled run
+# loses nothing.
 concurrency:
-  group: roadmap-reconcile
+  group: roadmap-reconcile-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
