@@ -11,22 +11,15 @@ back to diff it. Consequences:
   its value is current, re-writing it on every apply is pure churn.
 - A declared ``secrets`` section is authoritative: a secret absent from it is deleted.
 
-Two things override that skip-if-exists default for an existing secret:
+When an *existing* secret is nonetheless re-pushed — via ``force``, or via a source-timestamp
+comparison — is decided by :class:`~repo_management.managers._secret_variable.SecretsPolicy`.
+Values are never shown in plans; ``Repository.create_secret`` performs the libsodium encryption.
 
-- ``force=True`` (surfaced as ``--force-secrets`` on the CLI) re-pushes every declared secret
-  unconditionally — deliberate rotation, e.g. after issuing a new token.
-- ``source_secrets`` — a ``{source-secret-name: updated_at}`` map of the source repo's own
-  Actions secrets (see :func:`repo_management.client.source_secret_timestamps`) — re-pushes an
-  existing secret only when its source changed more recently than the target's ``updated_at``.
-  What we can't date on both sides (an inline ``value``, or a source with no known timestamp)
-  keeps the skip-if-exists default. This is how a rotation at the source propagates to the
-  fleet on the next apply without re-pushing every secret every run.
-
-Values are never shown in plans. ``Repository.create_secret`` performs the libsodium encryption.
-
-The diff logic itself lives in :mod:`repo_management.managers._secret_variable`, shared with
-the environments manager's per-environment secrets (which passes no ``source_secrets`` and so
-keeps the plain force/skip policy).
+The diff logic itself lives in :mod:`repo_management.managers._secret_variable`, shared with the
+environments manager's per-environment secrets. Only this repo-level manager passes a
+``SecretsPolicy``; environment-scoped secrets keep the bare skip-if-exists default (the
+source-timestamp policy is scoped to repo secrets, which is all this feature targets — and all
+the fleet uses).
 """
 
 from __future__ import annotations
@@ -53,18 +46,11 @@ class SecretsManager:
     def __init__(
         self, *, force: bool = False, source_secrets: Mapping[str, datetime] | None = None
     ) -> None:
-        """Build the manager.
-
-        ``force`` re-pushes every existing secret; ``source_secrets`` re-pushes only those whose
-        source secret changed more recently than the target's ``updated_at``. With neither, an
-        existing secret is left untouched.
-        """
-        self._force = force
-        self._source_secrets = source_secrets
+        """Build the manager; see :class:`SecretsPolicy` for what these knobs do."""
+        self._policy = SecretsPolicy(force=force, source_secrets=source_secrets)
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
         """Return redacted changes to create, optionally re-push, and delete secrets."""
         if desired.secrets is None:
             return []
-        policy = SecretsPolicy(force=self._force, source_secrets=self._source_secrets)
-        return plan_secrets(repo, desired.secrets, domain=self.domain, policy=policy)
+        return plan_secrets(repo, desired.secrets, domain=self.domain, policy=self._policy)

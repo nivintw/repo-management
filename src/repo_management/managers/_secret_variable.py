@@ -34,10 +34,12 @@ class SecretsPolicy:
     - ``force`` re-pushes every declared secret unconditionally (rotation).
     - ``source_secrets`` — a ``{source-secret-name: updated_at}`` map from the source repo (see
       :func:`repo_management.client.source_secret_timestamps`) — re-pushes only the secrets
-      whose source changed more recently than the target's own ``updated_at``.
+      whose source changed more recently than the target's own ``updated_at``. A secret that
+      can't be dated on both sides (an inline ``value``, a source with no known timestamp, or a
+      target with no ``updated_at``) is left alone even here.
 
     The default (neither set) is the write-only skip-if-exists policy: leave existing secrets
-    alone. Environment-scoped secrets use this default.
+    alone.
     """
 
     force: bool = False
@@ -71,11 +73,8 @@ def plan_secrets(
 
     Values are write-only, so an existing secret is normally left untouched — re-pushing it
     every apply is pure churn. The list is authoritative: anything absent from ``desired`` is
-    deleted. ``policy`` (see :class:`SecretsPolicy`) decides when an *existing* secret is
-    nonetheless re-pushed; its default leaves every existing secret alone. A secret that can't
-    be dated on both sides (an inline ``value``, a source with no known timestamp, or a target
-    with no ``updated_at``) keeps that skip-if-exists default even under a source-timestamp
-    policy.
+    deleted. ``policy`` (see :class:`SecretsPolicy`, default skip-if-exists) decides when an
+    *existing* secret is re-pushed anyway.
     """
     policy = policy or SecretsPolicy()
     existing = {secret.name: secret.updated_at for secret in container.get_secrets()}
