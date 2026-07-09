@@ -108,7 +108,14 @@ def _source_is_newer(
     """
     if not source_secrets or secret.value_from_env is None or target_updated is None:
         return False
+    # Keyed by the env-var name because that's the source secret's own name (the workflow
+    # authors `FOO: ${{ secrets.FOO }}`); a divergent mapping simply misses and skips.
     source_updated = source_secrets.get(secret.value_from_env)
+    # Strictly newer, deliberately: a push restamps the target to now, so a later run sees
+    # source <= target and converges (no re-push loop). It also makes a repo that is its own
+    # source idempotent (equal timestamps skip). The cost is a ~1s window — GitHub dates
+    # secrets to the second — where a rotation in the same second as the last write is missed
+    # until the source is touched again; that's the safe direction (leave-in-place, not clobber).
     return source_updated is not None and source_updated > target_updated
 
 

@@ -76,10 +76,17 @@ def test_source_secret_timestamps_unset_repo_is_empty(monkeypatch: pytest.Monkey
 
 
 def test_source_secret_timestamps_unreadable_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A permission error reading source secrets degrades to an empty map with a warning."""
+    """A permission error reading the source secrets degrades to an empty map with a warning.
+
+    The realistic failure is the token lacking secrets:read, which surfaces from
+    ``get_secrets()`` (not ``get_repo``) — point the mock there so this test would catch a
+    regression that moved the fetch outside the try.
+    """
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/source")
     client = MagicMock()
-    client.get_repo.side_effect = GithubException(403, {"message": "Forbidden"}, None)
+    client.get_repo.return_value.get_secrets.side_effect = GithubException(
+        403, {"message": "Resource not accessible by integration"}, None
+    )
 
-    with pytest.warns(UserWarning, match="fall back to skip-if-exists"):
+    with pytest.warns(UserWarning, match="force-secrets"):
         assert source_secret_timestamps(client) == {}

@@ -37,6 +37,8 @@ WORKFLOWS = {
 
 # An ``env:`` value that pulls from the secrets context, e.g. ``${{ secrets.GIST_PAT }}``.
 _SECRET_REF = re.compile(r"\$\{\{\s*secrets\.")
+# The same, but capturing the referenced secret name (``GIST_PAT`` from the example above).
+_SECRET_REF_NAME = re.compile(r"\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}")
 
 
 @functools.lru_cache(maxsize=1)
@@ -74,6 +76,44 @@ def _propagated_secret_env_keys(workflow: Path) -> set[str]:
                 if isinstance(value, str) and _SECRET_REF.search(value)
             )
     return keys
+
+
+def _propagated_secret_env_pairs(workflow: Path) -> dict[str, str]:
+    """Map each propagation-step env-var KEY to the ``secrets.<X>`` name it references.
+
+    Same step selection as :func:`_propagated_secret_env_keys`, but keeps the referenced secret
+    name so a test can assert the env-var name equals the secret name it reads.
+    """
+    data = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    pairs: dict[str, str] = {}
+    for job in data.get("jobs", {}).values():
+        for step in job.get("steps", []):
+            run = step.get("run")
+            if not (isinstance(run, str) and "repo-management" in run):
+                continue
+            for key, value in (step.get("env") or {}).items():
+                match = isinstance(value, str) and _SECRET_REF_NAME.search(value)
+                if match:
+                    pairs[key] = match.group(1)
+    return pairs
+
+
+@pytest.mark.parametrize("name", sorted(WORKFLOWS))
+def test_secret_env_var_name_matches_its_source_secret_name(name: str) -> None:
+    """Each ``KEY: ${{ secrets.REF }}`` must have ``KEY == REF``.
+
+    The source-timestamp secret propagation (SecretsPolicy) keys its comparison by the source
+    repo's *secret name* but looks it up by the config's ``value_from_env`` (the env-var KEY).
+    Those coincide only under this identity convention; a ``FOO: ${{ secrets.BAR }}`` mapping
+    would silently strand FOO's rotation. Lock the convention so that can't drift in unnoticed.
+    """
+    mismatched = {
+        key: ref for key, ref in _propagated_secret_env_pairs(WORKFLOWS[name]).items() if key != ref
+    }
+    assert not mismatched, (
+        f"{WORKFLOWS[name].name}: env var name must equal the secret it reads "
+        f"(source-timestamp propagation keys on the secret name); mismatched={mismatched}"
+    )
 
 
 def test_configs_declare_the_expected_value_from_env_secrets() -> None:

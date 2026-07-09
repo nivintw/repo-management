@@ -54,8 +54,11 @@ def plan_config(client: Github, config: Config, *, force_secrets: bool = False) 
 
     The source repo's secret timestamps are read once up front and shared across every repo's
     plan, so an unchanged source secret is skipped fleet-wide without a per-repo re-push.
+    ``--force-secrets`` re-pushes everything regardless, so the timestamp read is skipped then —
+    it'd be a wasted round-trip and could emit a misleading "unavailable" warning for a run that
+    never consults it.
     """
-    source_secrets = source_secret_timestamps(client)
+    source_secrets = {} if force_secrets else source_secret_timestamps(client)
     plans: list[RepoPlan] = []
     for name in config.repos:
         repo = get_repo(client, name)
