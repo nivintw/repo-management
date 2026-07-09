@@ -192,6 +192,22 @@ def test_status_tolerates_malformed_dates() -> None:
     assert health == "ON_TRACK"
 
 
+def test_status_body_neutralizes_mentions() -> None:
+    """An @mention in an item title is defused so the posted update can't ping people."""
+    item = _item(1, state="CLOSED", closed_at="2026-07-07")
+    item.title = "@ghost fix the thing"
+    _, body = build_status_update(_board(item, last_update="2026-07-06"), TODAY)
+    assert "@ghost" not in body
+    assert "@\u200bghost" in body
+
+
+def test_status_body_dates_to_week_monday() -> None:
+    """The header is dated to the week's Monday, not the (possibly mid-week) run date."""
+    _, body = build_status_update(_board(_item(1, state="CLOSED", closed_at="2026-07-07")), TODAY)
+    monday = TODAY - dt.timedelta(days=TODAY.weekday())
+    assert f"**Week of {monday:%b %d}**" in body
+
+
 # --- reconcile --------------------------------------------------------------------------
 
 
@@ -212,6 +228,11 @@ def test_status_tolerates_malformed_dates() -> None:
 def test_desired_status(state: str, labels: tuple[str, ...], expected: str | None) -> None:
     """State and status:* labels map to a definitive Status, or None when ambiguous."""
     assert desired_status(_item(state=state, labels=labels)) == expected
+
+
+def test_desired_status_multiple_labels_is_ambiguous() -> None:
+    """Two distinct status:* labels => ambiguous => leave the item unchanged (None)."""
+    assert desired_status(_item(state="OPEN", labels=("status:ready", "status:blocked"))) is None
 
 
 def test_reconcile_sets_status_when_it_differs() -> None:

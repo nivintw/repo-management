@@ -318,13 +318,27 @@ def build_status_update(board: Board, today: dt.date) -> tuple[Health, str]:
     return health, _status_body(today, facts, board)
 
 
+def _safe_title(title: str | None) -> str:
+    """A board item's title, safe to render into a posted status update.
+
+    Neutralizes ``@mentions`` (a zero-width space after ``@`` defuses the mention) so the
+    posted markdown can't ping arbitrary people, and guards a missing title.
+    """
+    if not title:
+        return "(untitled)"
+    return title.replace("@", "@\u200b")
+
+
 def _status_body(today: dt.date, facts: _StatusFacts, board: Board) -> str:
     def line(item: BoardItem) -> str:
         phase = f" ({item.phase})" if item.phase else ""
-        return f"- {item.ref}  {item.title}{phase}"
+        return f"- {item.ref}  {_safe_title(item.title)}{phase}"
 
+    # Date the header to the week's Monday, not the run date, so a delayed or manually
+    # triggered run still labels the update with the week it summarizes.
+    monday = today - dt.timedelta(days=today.weekday())
     parts = [
-        f"**Week of {today:%b %d}** — {len(facts.closed)} closed, {len(facts.open_items)} open"
+        f"**Week of {monday:%b %d}** — {len(facts.closed)} closed, {len(facts.open_items)} open"
     ]
     parts.append("\n**Shipped this week**")
     parts += [line(item) for item in facts.closed[:8]] or ["- Nothing merged this week."]
@@ -384,9 +398,12 @@ def desired_status(item: BoardItem) -> str | None:
     """
     if item.state in ("CLOSED", "MERGED"):
         return _DONE
-    for label in item.labels:
-        if label in _LABEL_STATUS:
-            return _LABEL_STATUS[label]
+    # Ambiguous if the item carries more than one *distinct* status:* mapping — picking the
+    # first label the API happens to return would make the reconcile flap between values run
+    # to run. Leave it untouched until the labels are cleaned up.
+    matched = {_LABEL_STATUS[label] for label in item.labels if label in _LABEL_STATUS}
+    if len(matched) == 1:
+        return next(iter(matched))
     return None
 
 

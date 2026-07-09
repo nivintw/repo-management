@@ -125,7 +125,7 @@ Lists the managed-repo fleet: the union of the `repos:` lists across every appli
 repo-management projects {validate|plan|apply|status|reconcile|insights} -c CONFIG
 ```
 
-Manages a GitHub Projects v2 board — its field schema (`plan`/`apply`), a weekly status update (`status`), each item's `Status` (`reconcile`), and a committed insights chart (`insights`). A board is a single owner-level entity, not a repo, so these commands take their own config file and a token with the `project` scope. See **[Projects board](projects.md)** for the full reference.
+Manages a GitHub Projects v2 board — its field schema (`plan`/`apply`), a weekly status update (`status`), each item's `Status` (`reconcile`), and a committed insights chart (`insights`). A board is a single owner-level entity, not a repo, so these commands take their own config file and a token with Projects access (a fine-grained PAT's `Projects: Read and write` is the least-privilege choice; a classic PAT's `project` scope also works). See **[Projects board](projects.md)** for the full reference.
 
 ## Global behavior
 
