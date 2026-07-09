@@ -16,7 +16,7 @@ What is *not* managed: **board membership** (which issues are on the board) and 
 
 ## Authentication
 
-A user-level Projects v2 board can't be read or written by the default `GITHUB_TOKEN`. Every `projects` command needs a token with the **`project`** scope (read for `plan`/`status`/`insights`, write for `apply`/`reconcile`/`status`), from `--token` or `$GITHUB_TOKEN`.
+A user-level Projects v2 board can't be read or written by the default `GITHUB_TOKEN`. Every `projects` command needs a token with Projects read/write, from `--token` or `$GITHUB_TOKEN` — a **fine-grained PAT with `Projects: Read and write`** is the least-privilege choice (a classic PAT's `project` scope also works but is broader; read alone suffices for `plan`/`status`/`insights`, write for `apply`/`reconcile`/`status`).
 
 !!! note "Why a PAT, not the CI App"
     The fleet's CI GitHub App administers *repositories*, but org Apps don't cleanly reach *user-owned* Projects v2 boards. So the roadmap automations authenticate with a **fine-grained PAT** carrying `Projects: Read and write`, stored as the `ROADMAP_PROJECT_TOKEN` repository secret. A PAT is broader and less-rotatable than the App — the pragmatic trade-off for a user-owned board; revisit if the board moves to an org.

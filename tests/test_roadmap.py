@@ -1,7 +1,15 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-"""Tests for the roadmap board automations (status / reconcile / insights)."""
+"""Tests for the roadmap board automations (status / reconcile / insights).
+
+Scope note: these unit tests exercise the parsing/computation and assert the exact GraphQL
+mutation *payloads*, but they cannot validate the hand-written query/mutation *documents*
+against GitHub's live schema — a mistyped field name or wrong input shape fails only at
+runtime against the API. That conformance is deliberately out of scope for the unit suite
+(the queries were verified by hand against the live board); the fail-loud spine
+(`GraphQLClient.query` raising on `errors`) is what surfaces such a mistake at runtime.
+"""
 
 from __future__ import annotations
 
@@ -150,9 +158,10 @@ def test_status_body_lists_shipped_blocked_and_up_next() -> None:
     _, body = build_status_update(board, TODAY)
     assert "Shipped this week" in body
     assert "repo-management#2" in body  # blocked item listed
-    assert "Up next" in body
-    # Up-next picks the earliest open phase (P1 before P2), so #4 leads.
-    assert body.index("#4") < body.index("Up next") + 200
+    # Up-next is only the earliest open phase's Ready work (P1), so #4 is in and P2's #3 is out.
+    up_next = body.split("**Up next**", 1)[1]
+    assert "#4" in up_next
+    assert "#3" not in up_next
 
 
 def test_status_nothing_merged_line() -> None:
@@ -160,6 +169,27 @@ def test_status_nothing_merged_line() -> None:
     board = _board(_item(1, status="In Progress"), last_update="2026-07-07")
     _, body = build_status_update(board, TODAY)
     assert "Nothing merged this week." in body
+
+
+def test_status_at_risk_on_overdue_nonsafety_phase() -> None:
+    """An overdue non-P1 phase alone => AT_RISK (isolating the overdue disjunct)."""
+    board = _board(
+        _item(1, phase="P2 MkDocs chain", target="2026-07-01", status="In Progress"),
+        _item(
+            2, state="CLOSED", closed_at="2026-07-07", item_id="I2"
+        ),  # recent close => not stalled
+        last_update="2026-07-06",
+    )
+    health, body = build_status_update(board, TODAY)
+    assert health == "AT_RISK"
+    assert "**Overdue phases:** P2 MkDocs chain" in body
+
+
+def test_status_tolerates_malformed_dates() -> None:
+    """A non-ISO date doesn't crash the status computation; the item just isn't counted overdue."""
+    board = _board(_item(1, status="In Progress", target="not-a-date"))
+    health, _ = build_status_update(board, TODAY)  # no ValueError
+    assert health == "ON_TRACK"
 
 
 # --- reconcile --------------------------------------------------------------------------
@@ -344,6 +374,23 @@ def test_fetch_board_missing_project_raises() -> None:
         fetch_board(gql, _config())
 
 
+def test_fetch_board_excludes_archived_items() -> None:
+    """Archived items (still returned by the items connection) are filtered out of the snapshot."""
+    archived = _node(9, item_id="arch")
+    archived["isArchived"] = True
+    gql = FakeGQL(_page([_node(1, item_id="I1"), archived]))
+    board = fetch_board(gql, _config())
+    assert [item.number for item in board.items] == [1]  # #9 archived => excluded
+
+
+def test_fetch_board_handles_no_status_updates() -> None:
+    """A board that has never had a status update parses to last_update=None."""
+    page = _page([_node(1, item_id="I1")])
+    page["user"]["projectV2"]["statusUpdates"]["nodes"] = []
+    gql = FakeGQL(page)
+    assert fetch_board(gql, _config()).last_update is None
+
+
 def test_days_since_last_update() -> None:
     """The helper returns whole days since the last update, or None when there's none."""
     assert days_since_last_update(_board(last_update="2026-07-06T00:00:00Z"), TODAY) == 2
@@ -362,3 +409,12 @@ def test_post_status_update_dates_from_item_span() -> None:
     assert sent["status"] == "ON_TRACK"
     assert sent["startDate"] == "2026-07-13"
     assert sent["targetDate"] == "2026-09-21"
+
+
+def test_post_status_update_omits_dates_when_absent() -> None:
+    """With no item dates, the update carries no start/target rather than an empty/bogus span."""
+    gql = FakeGQL()
+    post_status_update(gql, _board(_item(1)), "COMPLETE", "body")
+    sent = gql.mutations[0]
+    assert "startDate" not in sent
+    assert "targetDate" not in sent

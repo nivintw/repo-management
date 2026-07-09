@@ -72,6 +72,7 @@ query($owner:String!, $number:Int!, $cursor:String){
         pageInfo{ hasNextPage endCursor }
         nodes{
           id
+          isArchived
           fieldValues(first:20){
             nodes{
               ... on ProjectV2ItemFieldSingleSelectValue {
@@ -162,7 +163,14 @@ class Board:
 
 
 def _date(iso: str | None) -> dt.date | None:
-    return dt.date.fromisoformat(iso[:10]) if iso else None
+    # Defensive against a non-ISO date from the API: these dates feed the unattended status
+    # and reconcile runs, so a malformed value degrades to "unknown" rather than crashing them.
+    if not iso:
+        return None
+    try:
+        return dt.date.fromisoformat(iso[:10])
+    except ValueError:
+        return None
 
 
 def fetch_board(gql: GraphQL, config: ProjectsConfig) -> Board:
@@ -182,7 +190,16 @@ def fetch_board(gql: GraphQL, config: ProjectsConfig) -> Board:
         if not meta:
             meta = project
             phase_order, status_field = _parse_fields(project["fields"]["nodes"])
-        items.extend(_parse_item(node) for node in project["items"]["nodes"] if node.get("content"))
+        # Skip content-less draft nodes and ARCHIVED items: the Projects v2 items connection
+        # returns archived items too (archiving only flips isArchived), so an archived item
+        # left in the snapshot would be re-archived on every reconcile run — never reaching
+        # "in sync" — and would keep skewing the status tallies and insights. Exclude them so
+        # all three automations operate on the board's active items only.
+        items.extend(
+            _parse_item(node)
+            for node in project["items"]["nodes"]
+            if node and node.get("content") and not node.get("isArchived")
+        )
         page = project["items"]["pageInfo"]
         if not page["hasNextPage"]:
             break

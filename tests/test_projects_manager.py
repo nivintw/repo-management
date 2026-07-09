@@ -157,6 +157,18 @@ def test_reordered_options_trigger_update() -> None:
     assert changes[0].after == ["Done", "Todo"]
 
 
+def test_option_null_description_matches_default() -> None:
+    """A live option with description=null is in sync with a config option that omits it.
+
+    GitHub returns null for a description-less option, so the `or ""` normalization is
+    load-bearing: without it every plan/apply would emit a phantom UPDATE and never read
+    in-sync.
+    """
+    live = {"id": "opt_Todo", "name": "Todo", "color": "GRAY", "description": None}
+    gql = FakeGQL([_single_select("Status", [live])])
+    assert ProjectsManager(gql).plan(_config(_status("Todo"))) == []
+
+
 def test_recolored_option_triggers_update_and_keeps_id() -> None:
     """A color change on an existing option updates it in place (id preserved)."""
     gql = FakeGQL([_single_select("Status", [_option("Todo", color="GRAY")])])

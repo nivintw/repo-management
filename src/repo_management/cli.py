@@ -104,10 +104,10 @@ def _fail(message: str) -> typer.Exit:
 
 @contextmanager
 def _api_errors() -> Iterator[None]:
-    """Map the expected API/config failures to a clean ``error:`` exit, never a traceback."""
+    """Map the expected API/config/IO failures to a clean ``error:`` exit, never a traceback."""
     try:
         yield
-    except (ConfigError, ProjectNotFoundError) as exc:
+    except (ConfigError, ProjectNotFoundError, OSError) as exc:
         raise _fail(str(exc)) from exc
     except GithubException as exc:
         msg = f"GitHub API error: {exc.data or exc}"
@@ -338,6 +338,13 @@ def projects_status(
     """Post a weekly roadmap status update (deterministic health label + narrative)."""
     today = dt.datetime.now(tz=dt.UTC).date()
     gql, board = _load_board(config, token)
+    # Fail loud on an empty/misconfigured board rather than stamping a bogus "COMPLETE / 0
+    # open" update on it (#135): a board with no issue/PR items — genuinely empty, freshly
+    # created, all-draft, or pointed at the wrong number — is a failure, not a finished
+    # roadmap. This gates even --force and --dry-run, since it's never a valid state to post.
+    if not any(item.number is not None for item in board.items):
+        msg = f"board {board.title} has no issues/PRs — refusing to post a status update"
+        raise _fail(msg)
     days = days_since_last_update(board, today)
     if not force and not dry_run and days is not None and days < _STATUS_DEDUPE_DAYS:
         console.print(
@@ -348,7 +355,8 @@ def projects_status(
     if dry_run:
         console.print(f"[bold]{board.url}[/bold]\n[bold]{health}[/bold]\n\n{body}")
         return
-    post_status_update(gql, board, health, body)
+    with _api_errors():
+        post_status_update(gql, board, health, body)
     console.print(f"[green]✓[/green] posted [bold]{health}[/bold] status update to {board.url}")
 
 
@@ -370,6 +378,11 @@ def projects_reconcile(
     """Reconcile each item's Status from its issue state + labels, and archive old closed items."""
     today = dt.datetime.now(tz=dt.UTC).date()
     gql, board = _load_board(config, token)
+    # Fail loud rather than silently reporting "in sync": a board with no Status field can't
+    # be reconciled at all, and a green no-op every 6h would let its Status drift unnoticed.
+    if board.status_field is None:
+        msg = f"board {board.title} has no 'Status' field — run `projects apply` to create it first"
+        raise _fail(msg)
     archive = None if archive_after_days < 0 else archive_after_days
     changes = plan_reconcile(gql, board, today, archive_after_days=archive)
 
@@ -390,8 +403,9 @@ def projects_insights(
     """Render the board's cross-repo insights to a committed SVG."""
     _gql, board = _load_board(config, token)
     svg = render_insights_svg(board)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(svg, encoding="utf-8")
+    with _api_errors():
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(svg, encoding="utf-8")
     console.print(f"[green]✓[/green] wrote insights for {board.title} to {output}")
 
 
