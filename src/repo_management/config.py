@@ -599,7 +599,7 @@ class ProjectsConfig(Strict):
     Deliberately models the board's **schema only** — the custom fields and their
     single-select options. Board *membership* (which issues are items) and per-item field
     *values* are owned by planning/automation tooling, not this declarative config, because
-    they churn as issues open and close; see ``docs/config/projects.md``. Built-in fields
+    they churn as issues open and close; see ``docs/projects.md``. Built-in fields
     (Status excepted, since it's a normal single-select) and any field not declared here are
     left unmanaged.
     """

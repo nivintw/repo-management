@@ -32,7 +32,7 @@ fields:
       - name: Todo
         color: GRAY
         description: Not started
-      - name: In progress
+      - name: In Progress
         color: YELLOW
         description: Being worked on
       - name: Done

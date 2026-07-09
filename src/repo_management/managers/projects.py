@@ -14,11 +14,11 @@ A field declared in config is created if absent; a single-select's options are r
 match (create / recolor / reorder / remove). A field already present with a *different* data
 type is left alone with a warning, because GitHub exposes no field-type mutation. Board
 membership and per-item field values are deliberately not managed here (see
-``docs/config/projects.md``) — they belong to planning/automation tooling.
+``docs/projects.md``) — they belong to planning/automation tooling.
 
 The built-in ``Status`` field is an ordinary single-select, so declaring a ``Status`` field
 in config reconciles its options like any other — that's how the roadmap board carries one
-status field (Todo / Ready / In progress / In review / Blocked / Done) instead of a built-in
+status field (Todo / Ready / In Progress / In Review / Blocked / Done) instead of a built-in
 field plus a drift-prone custom one.
 """
 
