@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -26,6 +27,15 @@ from repo_management.config import (
 from repo_management.graphql import GraphQLClient
 from repo_management.managers.projects import ProjectNotFoundError, ProjectsManager
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config
+from repo_management.roadmap import (
+    Board,
+    build_status_update,
+    days_since_last_update,
+    fetch_board,
+    plan_reconcile,
+    post_status_update,
+    render_insights_svg,
+)
 
 if TYPE_CHECKING:
     from repo_management.changes import Change
@@ -292,6 +302,111 @@ def projects_apply(
             msg = f"applying {change.target}: {exc.data or exc}"
             raise _fail(msg) from exc
     console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
+
+
+# The roadmap automations (status / reconcile / insights) all read the board once, sharing
+# the schema manager's GraphQL client and the same board config file.
+_STATUS_DEDUPE_DAYS = 6
+
+_DryRunOpt = Annotated[
+    bool, typer.Option("--dry-run", help="Compute and print, but make no writes.")
+]
+
+
+def _load_board(config: Path, token: str | None) -> tuple[GraphQLClient, Board]:
+    desired = _load_projects(config)
+    gql = GraphQLClient(get_client(token))
+    try:
+        return gql, fetch_board(gql, desired)
+    except ProjectNotFoundError as exc:
+        raise _fail(str(exc)) from exc
+    except GithubException as exc:
+        msg = f"GitHub API error: {exc.data or exc}"
+        raise _fail(msg) from exc
+
+
+@projects_app.command("status")
+def projects_status(
+    config: _ProjectsConfigOpt = Path("config/projects.yaml"),
+    token: _TokenOpt = None,
+    *,
+    dry_run: _DryRunOpt = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Post even if a recent update exists.")
+    ] = False,
+) -> None:
+    """Post a weekly roadmap status update (deterministic health label + narrative)."""
+    today = dt.datetime.now(tz=dt.UTC).date()
+    gql, board = _load_board(config, token)
+    days = days_since_last_update(board, today)
+    if not force and not dry_run and days is not None and days < _STATUS_DEDUPE_DAYS:
+        console.print(
+            f"[yellow]skip[/yellow]: last update was {days}d ago (<{_STATUS_DEDUPE_DAYS})"
+        )
+        return
+    health, body = build_status_update(board, today)
+    if dry_run:
+        console.print(f"[bold]{board.url}[/bold]\n[bold]{health}[/bold]\n\n{body}")
+        return
+    post_status_update(gql, board, health, body)
+    console.print(f"[green]✓[/green] posted [bold]{health}[/bold] status update to {board.url}")
+
+
+@projects_app.command("reconcile")
+def projects_reconcile(
+    config: _ProjectsConfigOpt = Path("config/projects.yaml"),
+    token: _TokenOpt = None,
+    *,
+    yes: _YesOpt = False,
+    dry_run: _DryRunOpt = False,
+    archive_after_days: Annotated[
+        int,
+        typer.Option(
+            "--archive-after-days",
+            help="Archive items closed longer ago than this (negative disables archival).",
+        ),
+    ] = 14,
+) -> None:
+    """Reconcile each item's Status from its issue state + labels, and archive old closed items."""
+    today = dt.datetime.now(tz=dt.UTC).date()
+    gql, board = _load_board(config, token)
+    archive = None if archive_after_days < 0 else archive_after_days
+    changes = plan_reconcile(gql, board, today, archive_after_days=archive)
+
+    if not changes:
+        console.print(f"[green]✓[/green] [bold]{board.title}[/bold]: in sync")
+        return
+    console.print(f"[bold]{board.title}[/bold] — {len(changes)} change(s):")
+    for change in changes:
+        console.print(f"  {change.describe()}")
+    if dry_run:
+        return
+    if not yes and not typer.confirm(f"\nApply {len(changes)} change(s)?"):
+        msg = "aborted"
+        raise _fail(msg)
+    for change in changes:
+        try:
+            change.apply()
+        except GithubException as exc:
+            msg = f"applying {change.target}: {exc.data or exc}"
+            raise _fail(msg) from exc
+    console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
+
+
+@projects_app.command("insights")
+def projects_insights(
+    config: _ProjectsConfigOpt = Path("config/projects.yaml"),
+    token: _TokenOpt = None,
+    output: Annotated[
+        Path, typer.Option("--output", "-o", help="Where to write the insights SVG.")
+    ] = Path("docs/roadmap/insights.svg"),
+) -> None:
+    """Render the board's cross-repo insights to a committed SVG."""
+    _gql, board = _load_board(config, token)
+    svg = render_insights_svg(board)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(svg, encoding="utf-8")
+    console.print(f"[green]✓[/green] wrote insights for {board.title} to {output}")
 
 
 def main() -> None:
