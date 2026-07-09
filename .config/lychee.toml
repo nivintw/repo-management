@@ -16,7 +16,10 @@ exclude = [
   # README's new MkDocs-site links (#87): these sub-pages don't exist on the live site until
   # this PR merges and its docs-site.yml workflow deploys — 404s until then, self-heals once
   # deployed. Remove once the fleet-wide docs epic (#85) has fully landed for this repo.
-  "nivintw\\.github\\.io/repo-management/(cli|config|rulesets)/",
+  "nivintw\\.github\\.io/repo-management/(cli|config|rulesets|projects)/",
+  # README's `examples/projects.yaml` link (Projects board feature): the file doesn't exist on
+  # `main` until this PR merges, so the blob/main URL 404s until then — self-heals on merge.
+  "github\\.com/nivintw/repo-management/blob/main/examples/projects\\.yaml",
   # Documentation universals — safe to exclude in any project's docs.
   # Loopback / local-dev hosts that never resolve in CI.
   "^https?://(localhost|127\\.0\\.0\\.1)([:/]|$)",
