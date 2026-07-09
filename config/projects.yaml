@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# The Fleet Roadmap board (https://github.com/users/nivintw/projects/2) — its field SCHEMA,
+# codified so it's reproducible instead of hand-built and drift-prone. Reconciled with the
+# `projects` commands (NOT the per-repo plan/apply — a board is owner-level, not a repo):
+#
+#   repo-management projects plan  -c config/projects.yaml
+#   repo-management projects apply -c config/projects.yaml
+#
+# The token needs the `project` scope. Only fields + single-select options are managed here;
+# board membership and per-issue field VALUES (which issue is in which Phase/batch, its
+# Status, its dates) are owned by tooling — the fleet-roadmap planner and the roadmap
+# automations (`projects status`/`reconcile`/`insights`) — not this declarative schema,
+# because they change constantly as issues open and close.
+#
+# NOT managed here, on purpose:
+#   - `Review batch` — its options (B1…Bn) are per-planning-run review-grouping artifacts, not
+#     durable schema; the fleet-roadmap planner owns them. Left unmanaged (untouched).
+#   - The legacy custom `Roadmap status` field — superseded by the single built-in `Status`
+#     below. The manager never deletes a field (only options within a declared field), so
+#     retiring `Roadmap status` is a one-time manual delete once nothing reads it.
+
+owner: nivintw
+owner_type: user
+number: 2
+
+fields:
+  # ONE status field — the built-in `Status` (an ordinary single-select), extended to carry
+  # the full roadmap lifecycle. This replaces the old built-in `Status` + custom `Roadmap
+  # status` pair, which drifted and had to be double-synced: only the built-in field drives
+  # GitHub's closed→Done workflow, the board columns, and grouping, so a parallel custom
+  # field bought nothing but drift. Options map 1:1 onto the handle-task-tracking labels.
+  # `Todo`/`In Progress`/`Done` keep GitHub's existing names (and thus their ids + assigned
+  # items); `Ready`/`In Review`/`Blocked` are added.
+  - name: Status
+    data_type: single_select
+    options:
+      - name: Todo
+        color: GREEN
+        description: This item hasn't been started
+      - name: Ready
+        color: BLUE
+        description: Triaged and ready to start
+      - name: In Progress
+        color: YELLOW
+        description: This is actively being worked on
+      - name: In Review
+        color: ORANGE
+        description: PR open and under review
+      - name: Blocked
+        color: RED
+        description: Blocked on a dependency
+      - name: Done
+        color: PURPLE
+        description: This has been completed
+
+  # Roadmap phases — the deliberate ordering the drain follows.
+  - name: Phase
+    data_type: single_select
+    options:
+      - name: P1 Safety
+        color: GRAY
+      - name: P2 MkDocs chain
+        color: GRAY
+      - name: PE Fleet-ship
+        color: GRAY
+      - name: P3 dev-kit hardening
+        color: GRAY
+      - name: P4 Template hardening
+        color: GRAY
+      - name: P5 Adoption + settings
+        color: GRAY
+      - name: P6 Trusted publishing
+        color: GRAY
+      - name: P7 Polish + triage
+        color: GRAY
+
+  - name: Priority
+    data_type: single_select
+    options:
+      - name: High
+        color: GRAY
+      - name: Medium
+        color: GRAY
+      - name: Low
+        color: GRAY
+
+  # Roadmap span — set per item by the planner; the manager only ensures the fields exist.
+  - name: Start
+    data_type: date
+  - name: Target
+    data_type: date

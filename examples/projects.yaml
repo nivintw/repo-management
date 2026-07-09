@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Example config for `repo-management projects` — a GitHub Projects v2 board's field SCHEMA.
+#
+# A board is a single owner-level entity, so this file has no `repos:` and no `extends:` — it
+# is loaded on its own by the `projects` commands:
+#
+#   repo-management projects validate -c projects.yaml   # schema check, no network
+#   repo-management projects plan     -c projects.yaml   # show field/option diff (read-only)
+#   repo-management projects apply    -c projects.yaml   # reconcile (prompts before writing)
+#
+# The token needs the `project` scope (read for plan, write for apply). Only the board's
+# custom fields and their single-select options are managed — NOT which issues are on the
+# board or their field values (those churn as issues open/close; leave them to automation).
+# A field you don't list here is left untouched; within a single-select you DO list, the
+# `options` are authoritative (an option not listed is removed, dropping it from every item
+# that had it — a plan shows that before you apply).
+
+owner: your-login
+owner_type: user # or `organization`
+number: 1 # the board's number, from its URL (…/projects/<number>)
+
+fields:
+  # A single-select field. `options` are ordered (that's their display order) and matched
+  # against the live board by `name`, so a same-named option keeps its id and the items on it.
+  - name: Status
+    data_type: single_select
+    options:
+      - name: Todo
+        color: GRAY
+        description: Not started
+      - name: In progress
+        color: YELLOW
+        description: Being worked on
+      - name: Done
+        color: GREEN
+        description: Completed
+
+  # A date field carries no options — the manager only ensures it exists.
+  - name: Target
+    data_type: date

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import enum
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from github import GithubException
@@ -17,11 +17,18 @@ from repo_management.client import get_client
 from repo_management.config import (
     Config,
     ConfigError,
+    ProjectsConfig,
     fleet_repo_names,
     fleet_repos,
     load_config,
+    load_projects_config,
 )
+from repo_management.graphql import GraphQLClient
+from repo_management.managers.projects import ProjectNotFoundError, ProjectsManager
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config
+
+if TYPE_CHECKING:
+    from repo_management.changes import Change
 
 app = typer.Typer(
     help="YAML-config-driven GitHub repository manager.",
@@ -198,6 +205,93 @@ def apply(
             msg = f"applying {repo_plan.repo_name}: {exc.data or exc}"
             raise _fail(msg) from exc
     console.print(f"\n[green]✓ applied {total} change(s)[/green]")
+
+
+projects_app = typer.Typer(
+    help="Manage a GitHub Projects v2 board: its field schema and roadmap automations.",
+    no_args_is_help=True,
+)
+app.add_typer(projects_app, name="projects")
+
+_ProjectsConfigOpt = Annotated[
+    Path,
+    typer.Option("--config", "-c", help="Path to the projects board config."),
+]
+
+
+def _load_projects(config: Path) -> ProjectsConfig:
+    try:
+        return load_projects_config(config)
+    except ConfigError as exc:
+        raise _fail(str(exc)) from exc
+
+
+def _project_changes(config: Path, token: str | None) -> tuple[ProjectsConfig, list[Change]]:
+    desired = _load_projects(config)
+    manager = ProjectsManager(GraphQLClient(get_client(token)))
+    try:
+        return desired, manager.plan(desired)
+    except ProjectNotFoundError as exc:
+        raise _fail(str(exc)) from exc
+    except GithubException as exc:
+        msg = f"GitHub API error: {exc.data or exc}"
+        raise _fail(msg) from exc
+
+
+def _print_project_plan(desired: ProjectsConfig, changes: list[Change]) -> None:
+    board = f"{desired.owner}/#{desired.number}"
+    if not changes:
+        console.print(f"[green]✓[/green] [bold]{board}[/bold]: in sync")
+        return
+    console.print(f"[bold]{board}[/bold] — {len(changes)} change(s):")
+    for change in changes:
+        console.print(f"  {change.describe()}")
+
+
+@projects_app.command("validate")
+def projects_validate(config: _ProjectsConfigOpt = Path("config/projects.yaml")) -> None:
+    """Validate the projects board config without contacting GitHub."""
+    loaded = _load_projects(config)
+    console.print(
+        f"[green]✓[/green] {config} is valid ({len(loaded.fields)} field(s) on "
+        f"{loaded.owner}/#{loaded.number})"
+    )
+
+
+@projects_app.command("plan")
+def projects_plan(
+    config: _ProjectsConfigOpt = Path("config/projects.yaml"),
+    token: _TokenOpt = None,
+) -> None:
+    """Show the changes needed to reconcile the board's field schema (no writes)."""
+    desired, changes = _project_changes(config, token)
+    _print_project_plan(desired, changes)
+    console.print(f"\n{len(changes)} change(s).")
+
+
+@projects_app.command("apply")
+def projects_apply(
+    config: _ProjectsConfigOpt = Path("config/projects.yaml"),
+    token: _TokenOpt = None,
+    *,
+    yes: _YesOpt = False,
+) -> None:
+    """Apply the board field-schema changes to GitHub."""
+    desired, changes = _project_changes(config, token)
+    _print_project_plan(desired, changes)
+    if not changes:
+        console.print("\n[green]nothing to do[/green]")
+        return
+    if not yes and not typer.confirm(f"\nApply {len(changes)} change(s)?"):
+        msg = "aborted"
+        raise _fail(msg)
+    for change in changes:
+        try:
+            change.apply()
+        except GithubException as exc:
+            msg = f"applying {change.target}: {exc.data or exc}"
+            raise _fail(msg) from exc
+    console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
 
 
 def main() -> None:

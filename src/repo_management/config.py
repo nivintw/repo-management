@@ -528,6 +528,104 @@ class Config(SharedConfig):
         return value
 
 
+# GitHub's single-select option palette (ProjectV2SingleSelectFieldOptionColor).
+ProjectFieldColor = Literal["GRAY", "BLUE", "GREEN", "YELLOW", "ORANGE", "RED", "PINK", "PURPLE"]
+
+
+class ProjectFieldOption(Strict):
+    """One single-select option: its display name, color, and description.
+
+    Matched against a field's live options by ``name``, so renaming the *color* or
+    *description* of a same-named option updates it in place (preserving the option's id and
+    the board items already assigned to it). An option present on the field but absent from
+    the declared list is *removed* by an apply — and removing an option drops it from every
+    item that had it, so a plan surfaces that as a destructive change before it's applied.
+    """
+
+    name: str
+    color: ProjectFieldColor = "GRAY"
+    description: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _name_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            msg = "a single-select option 'name' must be non-empty"
+            raise ValueError(msg)
+        return value
+
+
+class ProjectField(Strict):
+    """A Projects v2 custom field. Only ``single_select`` fields carry ``options``.
+
+    ``single_select`` requires a non-empty ``options`` list (GitHub rejects an option-less
+    single-select); every other type must omit ``options``. The manager creates a missing
+    field and, for single-selects, reconciles its options; it never changes an existing
+    field's ``data_type`` (GitHub has no such mutation), so a type change must be made by
+    hand.
+    """
+
+    name: str
+    data_type: Literal["single_select", "date", "text", "number"] = "single_select"
+    options: list[ProjectFieldOption] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            msg = "a project field 'name' must be non-empty"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _options_match_type(self) -> ProjectField:
+        if self.data_type == "single_select":
+            if not self.options:
+                msg = f"field {self.name!r}: 'single_select' requires a non-empty 'options' list"
+                raise ValueError(msg)
+            names = [option.name for option in self.options]
+            if len(names) != len(set(names)):
+                msg = f"field {self.name!r}: duplicate option names"
+                raise ValueError(msg)
+        elif self.options is not None:
+            msg = f"field {self.name!r}: 'options' is only valid for a 'single_select' field"
+            raise ValueError(msg)
+        return self
+
+
+class ProjectsConfig(Strict):
+    """A GitHub Projects v2 board to manage: its owner, number, and custom-field schema.
+
+    Deliberately models the board's **schema only** — the custom fields and their
+    single-select options. Board *membership* (which issues are items) and per-item field
+    *values* are owned by planning/automation tooling, not this declarative config, because
+    they churn as issues open and close; see ``docs/config/projects.md``. Built-in fields
+    (Status excepted, since it's a normal single-select) and any field not declared here are
+    left unmanaged.
+    """
+
+    owner: str
+    owner_type: Literal["user", "organization"] = "user"
+    number: int
+    fields: list[ProjectField] = Field(min_length=1)
+
+    @field_validator("owner")
+    @classmethod
+    def _valid_owner(cls, value: str) -> str:
+        if not _GITHUB_IDENTIFIER.fullmatch(value):
+            msg = f"{value!r} is not a valid GitHub owner login"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _field_names_unique(self) -> ProjectsConfig:
+        names = [field.name for field in self.fields]
+        if len(names) != len(set(names)):
+            msg = "duplicate field names in 'fields'"
+            raise ValueError(msg)
+        return self
+
+
 def _require_env(name: str) -> str:
     # Treat empty as unset: in GitHub Actions `${{ secrets.X }}` for an unset secret expands
     # to "" (the var is defined but empty), so a presence-only check would silently propagate
@@ -670,6 +768,30 @@ def load_config(path: Path) -> Config:
         return Config.model_validate(data)
     except ValidationError as exc:
         msg = f"invalid configuration in {path}:\n{exc}"
+        raise ConfigError(msg) from exc
+
+
+def load_projects_config(path: Path) -> ProjectsConfig:
+    """Load and validate a Projects v2 board config file.
+
+    Separate from :func:`load_config`: a board is a single owner-level entity with its own
+    schema (no ``repos:``, no ``extends:`` layering), reconciled by the ``projects`` CLI
+    commands rather than the per-repo path.
+
+    Args:
+        path: Path to the YAML board configuration file.
+
+    Returns:
+        The validated :class:`ProjectsConfig`.
+
+    Raises:
+        ConfigError: If the file is missing, not valid YAML/UTF-8, or fails schema validation.
+    """
+    data = _read_yaml(path)
+    try:
+        return ProjectsConfig.model_validate(data)
+    except ValidationError as exc:
+        msg = f"invalid projects configuration in {path}:\n{exc}"
         raise ConfigError(msg) from exc
 
 
