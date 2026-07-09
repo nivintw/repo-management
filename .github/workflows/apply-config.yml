@@ -103,6 +103,7 @@ jobs:
           # fails fast on an unset-or-empty value, so a missing repo secret can't silently
           # blank one out across the fleet.
           #   - CI_APP_PRIVATE_KEY / GIST_PAT: base.yaml, fleet-wide.
+          #   - ROADMAP_PROJECT_TOKEN: repo-management.yml only (the roadmap board PAT).
           # This set MUST equal the configs' env-source names (every `value_from_env` plus any
           # webhook `secret_from_env` — i.e. fleet_env_sources). GitHub Actions requires a
           # literal `${{ secrets.X }}` per secret (so the block can't be derived at runtime),
@@ -110,6 +111,7 @@ jobs:
           # drift from the configs — so they can't silently fall out of sync (#39).
           CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
           GIST_PAT: ${{ secrets.GIST_PAT }}
+          ROADMAP_PROJECT_TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
         run: |
           # Every applied config is a config/*.yml file; base.yaml (note the .yaml
           # extension) is the shared base they extend, so the glob skips it.
