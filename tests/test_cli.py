@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from repo_management import cli
 from repo_management.changes import Action, Change
 from repo_management.config import Config, ConfigError
 from repo_management.reconciler import RepoPlan
+from repo_management.roadmap import StatusFieldInfo
 
 runner = CliRunner()
 
@@ -378,3 +380,202 @@ def test_projects_plan_board_not_found(tmp_path: Path, monkeypatch: pytest.Monke
     _stub_manager(monkeypatch, cli.ProjectNotFoundError("board not found"))
     result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
     assert result.exit_code == 1
+
+
+# --- projects roadmap automations (status / reconcile / insights) -----------------------
+
+
+def _stub_board(monkeypatch: pytest.MonkeyPatch, board: cli.Board) -> None:
+    """Wire the roadmap commands onto a fixed board, bypassing the network."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "GraphQLClient", lambda _client: object())
+    monkeypatch.setattr(cli, "fetch_board", lambda _gql, _cfg: board)
+
+
+def _board(last_update: str | None = None) -> cli.Board:
+    return cli.Board(
+        id="PROJ",
+        title="Fleet Roadmap",
+        url="https://example/2",
+        last_update=last_update,
+        phase_order=[],
+        status_field=StatusFieldInfo(id="F", options={"Todo": "o"}),
+        items=[],
+    )
+
+
+def test_projects_status_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Status --dry-run prints the computed label and body without posting."""
+    _stub_board(monkeypatch, _board())
+    posted: list[bool] = []
+    monkeypatch.setattr(cli, "post_status_update", lambda *_a: posted.append(True))
+    result = runner.invoke(
+        cli.app, ["projects", "status", "-c", str(write_projects(tmp_path)), "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert posted == []
+    assert "COMPLETE" in result.stdout  # empty board => nothing open => COMPLETE
+
+
+def test_projects_status_posts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Status posts when no recent update exists."""
+    _stub_board(monkeypatch, _board())
+    posted: list[str] = []
+    monkeypatch.setattr(
+        cli, "post_status_update", lambda _g, _b, health, _body: posted.append(health)
+    )
+    result = runner.invoke(cli.app, ["projects", "status", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 0
+    assert posted == ["COMPLETE"]
+
+
+def test_projects_status_dedupes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Status skips (no post) when a recent update is within the dedupe window."""
+    _stub_board(monkeypatch, _board(last_update="2026-07-08T00:00:00Z"))
+    monkeypatch.setattr(cli.dt, "datetime", _FixedDatetime)
+    posted: list[bool] = []
+    monkeypatch.setattr(cli, "post_status_update", lambda *_a: posted.append(True))
+    result = runner.invoke(cli.app, ["projects", "status", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 0
+    assert posted == []
+    assert "skip" in result.stdout
+
+
+def test_projects_reconcile_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reconcile --dry-run prints planned changes without applying."""
+    _stub_board(monkeypatch, _board())
+    applied: list[bool] = []
+    change = Change(
+        "roadmap", Action.UPDATE, "status:x#1", "Todo", "Done", lambda: applied.append(True)
+    )
+    monkeypatch.setattr(cli, "plan_reconcile", lambda *_a, **_k: [change])
+    result = runner.invoke(
+        cli.app, ["projects", "reconcile", "-c", str(write_projects(tmp_path)), "--dry-run"]
+    )
+    assert result.exit_code == 0
+    assert applied == []
+    assert "1 change(s)" in result.stdout
+
+
+def test_projects_reconcile_applies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reconcile --yes applies each planned change."""
+    _stub_board(monkeypatch, _board())
+    applied: list[bool] = []
+    change = Change(
+        "roadmap", Action.UPDATE, "status:x#1", "Todo", "Done", lambda: applied.append(True)
+    )
+    monkeypatch.setattr(cli, "plan_reconcile", lambda *_a, **_k: [change])
+    result = runner.invoke(
+        cli.app, ["projects", "reconcile", "-c", str(write_projects(tmp_path)), "--yes"]
+    )
+    assert result.exit_code == 0
+    assert applied == [True]
+
+
+def test_projects_reconcile_in_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reconcile reports an in-sync board when nothing needs changing."""
+    _stub_board(monkeypatch, _board())
+    monkeypatch.setattr(cli, "plan_reconcile", lambda *_a, **_k: [])
+    result = runner.invoke(cli.app, ["projects", "reconcile", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 0
+    assert "in sync" in result.stdout
+
+
+def test_projects_insights_writes_svg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Insights renders the SVG to the requested output path."""
+    _stub_board(monkeypatch, _board())
+    monkeypatch.setattr(cli, "render_insights_svg", lambda _board: "<svg>ok</svg>")
+    out = tmp_path / "sub" / "insights.svg"
+    result = runner.invoke(
+        cli.app,
+        ["projects", "insights", "-c", str(write_projects(tmp_path)), "-o", str(out)],
+    )
+    assert result.exit_code == 0
+    assert out.read_text(encoding="utf-8") == "<svg>ok</svg>"
+
+
+def test_projects_plan_github_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GithubException while planning the schema exits cleanly."""
+    _stub_manager(monkeypatch, GithubException(403, {"message": "nope"}, None))
+    result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 1
+
+
+def test_projects_apply_github_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GithubException while applying a schema change exits cleanly."""
+
+    def _boom() -> None:
+        raise GithubException(422, {"message": "bad"}, None)
+
+    _stub_manager(monkeypatch, [Change("projects", Action.CREATE, "field:X", None, {}, _boom)])
+    result = runner.invoke(
+        cli.app, ["projects", "apply", "-c", str(write_projects(tmp_path)), "--yes"]
+    )
+    assert result.exit_code == 1
+
+
+def test_projects_status_board_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A board the token can't read exits non-zero from a roadmap command."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "GraphQLClient", lambda _client: object())
+
+    def _raise(_gql: object, _cfg: object) -> cli.Board:
+        msg = "board not found"
+        raise cli.ProjectNotFoundError(msg)
+
+    monkeypatch.setattr(cli, "fetch_board", _raise)
+    result = runner.invoke(cli.app, ["projects", "status", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 1
+
+
+def test_projects_insights_github_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GithubException while reading the board exits cleanly from a roadmap command."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "GraphQLClient", lambda _client: object())
+
+    def _raise(_gql: object, _cfg: object) -> cli.Board:
+        raise GithubException(403, {"message": "nope"}, None)
+
+    monkeypatch.setattr(cli, "fetch_board", _raise)
+    result = runner.invoke(cli.app, ["projects", "insights", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 1
+
+
+def test_projects_reconcile_declined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Declining the reconcile confirmation aborts without applying."""
+    _stub_board(monkeypatch, _board())
+    applied: list[bool] = []
+    change = Change(
+        "roadmap", Action.UPDATE, "status:x#1", "Todo", "Done", lambda: applied.append(True)
+    )
+    monkeypatch.setattr(cli, "plan_reconcile", lambda *_a, **_k: [change])
+    result = runner.invoke(
+        cli.app, ["projects", "reconcile", "-c", str(write_projects(tmp_path))], input="n\n"
+    )
+    assert result.exit_code == 1
+    assert applied == []
+
+
+def test_projects_reconcile_apply_github_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A GithubException while applying a reconcile change exits cleanly."""
+    _stub_board(monkeypatch, _board())
+
+    def _boom() -> None:
+        raise GithubException(422, {"message": "bad"}, None)
+
+    change = Change("roadmap", Action.UPDATE, "status:x#1", "Todo", "Done", _boom)
+    monkeypatch.setattr(cli, "plan_reconcile", lambda *_a, **_k: [change])
+    result = runner.invoke(
+        cli.app, ["projects", "reconcile", "-c", str(write_projects(tmp_path)), "--yes"]
+    )
+    assert result.exit_code == 1
+
+
+class _FixedDatetime(dt.datetime):
+    """A datetime whose `now()` is pinned, so the dedupe window is deterministic."""
+
+    @classmethod
+    def now(cls, tz: dt.tzinfo | None = None) -> _FixedDatetime:
+        return cls(2026, 7, 8, tzinfo=tz)
