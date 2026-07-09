@@ -7,6 +7,26 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.9.0](https://github.com/nivintw/repo-management/compare/v1.8.0...v1.9.0) (2026-07-09)
+
+
+### Features
+
+* **projects:** Add ProjectsManager for declarative board schema ([d5e4f30](https://github.com/nivintw/repo-management/commit/d5e4f30dee3174f25bc15d303c01217101ac56eb))
+* **projects:** Add roadmap status/reconcile/insights automations ([3b5a7a1](https://github.com/nivintw/repo-management/commit/3b5a7a1cd563cc10535607a9c4f51f1c199eed88))
+* **projects:** Add roadmap status/reconcile/insights workflows ([5a4c863](https://github.com/nivintw/repo-management/commit/5a4c863bfb18f46cf1172bf8bee4ba3a5324628c))
+* **projects:** Declare ROADMAP_PROJECT_TOKEN so apply-config won't prune it ([f315723](https://github.com/nivintw/repo-management/commit/f3157232d1be769ded1138cdabac5d70467d1da8))
+
+
+### Bug Fixes
+
+* **projects:** Address Copilot review — field-value/label truncation + wording ([9b16ab0](https://github.com/nivintw/repo-management/commit/9b16ab0610c6da1ddfd9ca11363c4eddf217b1b8))
+* **projects:** Address Copilot round 2 — label ambiguity, mention safety, week date ([ddf1c90](https://github.com/nivintw/repo-management/commit/ddf1c9090e50b1b0c536077021888518b97d866c))
+* **projects:** Address Copilot round 3 — doc ref, option casing, sweep concurrency ([e50d20e](https://github.com/nivintw/repo-management/commit/e50d20ea14cdffda89692ab692ca136fdaf98a55))
+* **projects:** Correct token guidance — user boards need a classic project-scope PAT ([99f7888](https://github.com/nivintw/repo-management/commit/99f78885a42872679e2b5270ff6c9cd2f1a136f2))
+* **projects:** Exclude archived items and fail loud on empty/misconfigured boards ([440034a](https://github.com/nivintw/repo-management/commit/440034a8e9e8f506f11b37ee4b1d104bef8e784f))
+* **projects:** HTML-escape board titles/phase in the status update body ([6840503](https://github.com/nivintw/repo-management/commit/68405039648ba04cb79b09f7c366b3f1204ddb72))
+
 ## [1.8.0](https://github.com/nivintw/repo-management/compare/v1.7.7...v1.8.0) (2026-07-07)
 
 
