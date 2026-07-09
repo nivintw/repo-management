@@ -50,11 +50,26 @@ Two things override that skip-if-exists default for an existing secret:
   to the fleet on the next apply, while an unchanged secret (or one a target already holds a
   newer copy of) is skipped — no `--force-secrets`, no fleet-wide churn.
 
-  This is best-effort and never fails the run: a secret sourced from an inline `value:`, a
-  `value_from_env` with no matching source secret, or a local run (no `GITHUB_REPOSITORY`)
-  simply keeps the plain skip-if-exists default. Environment-scoped secrets
-  ([environments](environments.md)) also keep the plain default — the source-timestamp
-  comparison applies to repo-level secrets only.
+  For a secret to be timestamp-propagated, two conditions must hold — and both **degrade
+  quietly to skip-if-exists** (never a wrong overwrite):
+
+  - The env var must be named **identically** to the source secret it reads —
+    `FOO: ${{ secrets.FOO }}`, not `FOO: ${{ secrets.BAR }}`. The comparison keys off the
+    source secret's *name*, so a renamed mapping just won't match. (This repo's
+    `test_workflow_secrets` enforces the identity for its own workflows.)
+  - The source secret must be a **repo-level** Actions secret — org-level secrets inherited
+    by the repo aren't returned by the read.
+
+    An inline `value:` secret and a local run (no `GITHUB_REPOSITORY`) likewise keep the plain
+    default, and environment-scoped secrets ([environments](environments.md)) always do — the
+    source-timestamp comparison is scoped to repo-level secrets.
+
+!!! warning "Uncertainty leaves the old value in place"
+    Every path the comparison can't resolve — a source it can't read (a permission error logs
+    a warning but does **not** fail the run), a name mismatch, an undatable side — biases
+    toward *not* re-pushing. That protects a value someone rotated by hand, but it means a
+    source rotation can silently fail to propagate. When you need a rotation to reach the fleet
+    for certain, use **`--force-secrets`** rather than relying on the automatic comparison.
 
 !!! warning
     Literal `value:` is supported for convenience, but a secret's value in plain YAML is a

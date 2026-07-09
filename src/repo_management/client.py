@@ -73,9 +73,24 @@ def source_secret_timestamps(client: Github) -> dict[str, datetime]:
     source, and overwrite only when the source secret changed more recently.
 
     The source repo is taken from ``GITHUB_REPOSITORY`` (always set under GitHub Actions).
-    Returns an empty map when that's unset (e.g. a local run) or the source secrets can't be
-    read (the token lacks the permission) — callers then fall back to the write-only
-    skip-if-exists policy rather than failing.
+
+    Two preconditions for a secret to be timestamp-propagated (both silently degrade to
+    skip-if-exists, never a wrong overwrite — see the note on the bias below):
+
+    - The env var must be named identically to the source secret it reads — ``FOO:
+      ${{ secrets.FOO }}`` — because the map is keyed by source *secret* name while the manager
+      looks it up by the config's ``value_from_env`` (env-var) name. A divergent mapping
+      (``FOO: ${{ secrets.BAR }}``) simply won't match. This repo's ``test_workflow_secrets``
+      enforces the identity for its own workflows.
+    - The source secret must be a *repo-level* Actions secret; ``get_secrets()`` doesn't return
+      org-level secrets inherited by the repo.
+
+    Returns an empty map when ``GITHUB_REPOSITORY`` is unset (e.g. a local run) or the source
+    secrets can't be read (the token lacks the permission). Callers then fall back to the
+    write-only skip-if-exists policy rather than failing — so a read error biases toward leaving
+    an existing secret in place, *not* propagating a rotation. That's non-blocking by design
+    (one read error must not red the whole fleet reconcile), but it means ``--force-secrets``
+    remains the only *guaranteed* way to push a rotation when this read is unavailable.
     """
     source = os.environ.get(SOURCE_REPO_ENV)
     if not source:
@@ -90,7 +105,8 @@ def source_secret_timestamps(client: Github) -> dict[str, datetime]:
     except GithubException as exc:
         warnings.warn(
             f"cannot read source secret timestamps from {source!r} ({exc.data or exc}); "
-            "secrets fall back to skip-if-exists",
+            "existing secrets will NOT be re-pushed this run — rerun with --force-secrets to "
+            "force a rotation to propagate",
             stacklevel=2,
         )
         return {}

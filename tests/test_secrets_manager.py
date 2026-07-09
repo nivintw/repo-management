@@ -85,6 +85,51 @@ def test_source_newer_than_target_repushes(
     repo.create_secret.assert_called_once_with("TOKEN", "rotated-value")
 
 
+def test_force_overrides_a_source_older_than_target(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Force wins over the timestamp verdict: an older source is still re-pushed under force.
+
+    plan_config always threads source_secrets (possibly {}), so force and the timestamp policy
+    coexist on the real --force-secrets path — pin that force takes precedence.
+    """
+    monkeypatch.setenv("TOKEN_SRC", "v")
+    repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=_NEW)]  # target NEWER
+    desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
+
+    changes = SecretsManager(force=True, source_secrets={"TOKEN_SRC": _OLD}).plan(repo, desired)
+
+    assert [c.action for c in changes] == [Action.UPDATE]
+
+
+def test_mixed_batch_resolves_each_secret_independently(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One plan call with re-push + skip + create secrets resolves each on its own merits."""
+    monkeypatch.setenv("FRESH_SRC", "v")  # only the re-pushed and created secrets resolve
+    monkeypatch.setenv("NEW_SRC", "v")
+    repo.get_secrets.return_value = [
+        make_secret("FRESH", updated_at=_OLD),  # source newer -> UPDATE
+        make_secret("STALE", updated_at=_NEW),  # source older -> skip
+    ]
+    desired = SharedConfig(
+        secrets=[
+            Secret(name="FRESH", value_from_env="FRESH_SRC"),
+            Secret(name="STALE", value_from_env="STALE_SRC"),
+            Secret(name="NEW", value_from_env="NEW_SRC"),  # absent target -> CREATE
+        ]
+    )
+
+    changes = SecretsManager(
+        source_secrets={"FRESH_SRC": _NEW, "STALE_SRC": _OLD, "NEW_SRC": _NEW}
+    ).plan(repo, desired)
+
+    assert {c.target: c.action for c in changes} == {
+        "secret:FRESH": Action.UPDATE,
+        "secret:NEW": Action.CREATE,
+    }
+
+
 def test_source_not_newer_than_target_is_skipped(repo: MagicMock) -> None:
     """A target at least as new as its source is left untouched — our workflow already set it."""
     repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=_NEW)]
