@@ -16,10 +16,14 @@ What is *not* managed: **board membership** (which issues are on the board) and 
 
 ## Authentication
 
-A user-level Projects v2 board can't be read or written by the default `GITHUB_TOKEN`. Every `projects` command needs a token with Projects read/write, from `--token` or `$GITHUB_TOKEN` — a **fine-grained PAT with `Projects: Read and write`** is the least-privilege choice (a classic PAT's `project` scope also works but is broader; read alone suffices for `plan`/`status`/`insights`, write for `apply`/`reconcile`/`status`).
+A user-level Projects v2 board can't be read or written by the default `GITHUB_TOKEN`. Every `projects` command needs a token with Projects access, from `--token` or `$GITHUB_TOKEN`.
 
-!!! note "Why a PAT, not the CI App"
-    The fleet's CI GitHub App administers *repositories*, but org Apps don't cleanly reach *user-owned* Projects v2 boards. So the roadmap automations authenticate with a **fine-grained PAT** carrying `Projects: Read and write`, stored as the `ROADMAP_PROJECT_TOKEN` repository secret. A PAT is broader and less-rotatable than the App — the pragmatic trade-off for a user-owned board; revisit if the board moves to an org.
+For a **user-owned** board (the common case), that means a **classic PAT with the `project` scope** — `read:project` alone suffices for the read-only commands (`plan`, `insights`, `status --dry-run`), and full `project` for the writes (`apply`, `reconcile`, `status`). Fine-grained PATs expose a Projects permission only for **org-owned** boards — [there is no user-account Projects permission](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens) — so a fine-grained PAT with `Projects: Read and write` is an option **only if this board is org-owned**. (A classic `project` PAT can't be scoped to a single project; that breadth is the trade-off for a user-owned board until GitHub adds a fine-grained equivalent.)
+
+`project` is the only scope needed to manage the board's schema and post status updates. The **one** case that needs more: `status`/`reconcile`/`insights` read each item's linked issue/PR (title, state, `status:*` labels), and reading that content for an item in a **private** repo requires the `repo` scope too — without it, private-repo items are invisible to the token and silently drop out of the board snapshot. A board that only tracks public-repo issues (like the Fleet Roadmap today) needs `project` alone; add `repo` if you put private-repo issues on it.
+
+!!! note "Why a classic PAT, not the CI App or a fine-grained token"
+    The fleet's CI GitHub App administers *repositories*, but org Apps don't cleanly reach *user-owned* Projects v2 boards — and fine-grained PATs offer no Projects permission for user-owned boards at all. So for the Fleet Roadmap (a user-owned board), the automations authenticate with a **classic PAT carrying the `project` scope**, stored as the `ROADMAP_PROJECT_TOKEN` repository secret. A classic PAT is broader and less-rotatable than the App or a fine-grained token — the pragmatic trade-off GitHub currently forces for a user-owned board; revisit (switch to a fine-grained `Projects: Read and write` PAT) if the board ever moves to an org.
 
 ## Config file
 

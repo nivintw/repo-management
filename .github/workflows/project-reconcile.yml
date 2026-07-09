@@ -17,8 +17,8 @@
 # Fleet-wide EVENT latency (templating these workflows into every repo via copier-everything)
 # is a documented follow-up, not this PR — the scheduled sweep is the net until then.
 #
-# AUTH + SAFE-UNTIL-CONFIGURED: same fine-grained PAT (`ROADMAP_PROJECT_TOKEN`) and preflight
-# skip as project-status.yml.
+# AUTH + SAFE-UNTIL-CONFIGURED: same classic `project`-scope PAT (`ROADMAP_PROJECT_TOKEN`) and
+# preflight skip as project-status.yml (fine-grained PATs don't cover user-owned boards).
 
 name: roadmap-reconcile
 

@@ -10,9 +10,10 @@
 #   repo-management projects plan     -c projects.yaml   # show field/option diff (read-only)
 #   repo-management projects apply    -c projects.yaml   # reconcile (prompts before writing)
 #
-# The token needs Projects read/write (a fine-grained PAT with `Projects: Read and write` is
-# the least-privilege choice; a classic PAT's `project` scope also works but is broader). Only
-# the board's
+# The token needs Projects access. A USER-owned board requires a CLASSIC PAT with the `project`
+# scope (`read:project` for read-only); fine-grained PATs only expose a Projects permission for
+# ORG-owned boards, so use a fine-grained PAT with `Projects: Read and write` ONLY if this board
+# is org-owned. Only the board's
 # custom fields and their single-select options are managed — NOT which issues are on the
 # board or their field values (those churn as issues open/close; leave them to automation).
 # A field you don't list here is left untouched; within a single-select you DO list, the

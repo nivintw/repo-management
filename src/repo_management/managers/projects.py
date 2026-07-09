@@ -98,8 +98,9 @@ def query_project(
     if project is None:
         msg = (
             f"Projects v2 board {config.owner}/#{config.number} not found — check owner/number/"
-            "owner_type and that the token has Projects access (a classic PAT's 'project' scope "
-            "or a fine-grained PAT's 'Projects' permission)"
+            "owner_type and that the token has Projects access (a user-owned board needs a "
+            "classic PAT with the 'project' scope; a fine-grained PAT's Projects permission "
+            "covers org-owned boards only)"
         )
         raise ProjectNotFoundError(msg)
     return project
