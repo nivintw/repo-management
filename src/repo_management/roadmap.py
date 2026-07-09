@@ -28,10 +28,10 @@ from __future__ import annotations
 import datetime as dt
 import html
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from repo_management.changes import Action, Change
-from repo_management.managers.projects import ProjectNotFoundError
+from repo_management.managers.projects import query_project
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,8 +53,9 @@ _DONE = "Done"
 # Open blocked-item count at which the board reads as AT_RISK.
 _BLOCKED_HEAVY = 3
 
-# ProjectV2StatusUpdateStatus values (verified against the live schema).
-Health = str
+# The board's health label — the ProjectV2StatusUpdateStatus values (verified against the
+# live schema), as a Literal so a typo'd label is a type error rather than an apply-time 422.
+Health = Literal["INACTIVE", "ON_TRACK", "AT_RISK", "OFF_TRACK", "COMPLETE"]
 
 _BOARD_QUERY = """
 query($owner:String!, $number:Int!, $cursor:String){
@@ -171,23 +172,13 @@ def fetch_board(gql: GraphQL, config: ProjectsConfig) -> Board:
         ProjectNotFoundError: If the board can't be read (bad owner/number, or the token
             lacks the ``project`` scope).
     """
-    root = "user" if config.owner_type == "user" else "organization"
-    query = _BOARD_QUERY % {"root": root}
-
     meta: dict[str, Any] = {}
     phase_order: list[str] = []
     status_field: StatusFieldInfo | None = None
     items: list[BoardItem] = []
     cursor: str | None = None
     while True:
-        data = gql.query(query, owner=config.owner, number=config.number, cursor=cursor)
-        project = (data.get(root) or {}).get("projectV2")
-        if project is None:
-            msg = (
-                f"Projects v2 board {config.owner}/#{config.number} not found "
-                "(check owner/number/owner_type and the token's 'project' scope)"
-            )
-            raise ProjectNotFoundError(msg)
+        project = query_project(gql, config, _BOARD_QUERY, cursor=cursor)
         if not meta:
             meta = project
             phase_order, status_field = _parse_fields(project["fields"]["nodes"])
@@ -229,8 +220,9 @@ def _parse_item(node: dict[str, Any]) -> BoardItem:
     values: dict[str, str] = {}
     for value in node["fieldValues"]["nodes"]:
         name = (value.get("field") or {}).get("name")
-        if name and (value.get("name") or value.get("date")):
-            values[name] = value.get("name") or value.get("date")
+        resolved = value.get("name") or value.get("date")
+        if name and resolved:
+            values[name] = resolved
     labels = [label["name"] for label in (content.get("labels") or {}).get("nodes", [])]
     return BoardItem(
         id=node["id"],
@@ -353,13 +345,13 @@ def days_since_last_update(board: Board, today: dt.date) -> int | None:
 
 def post_status_update(gql: GraphQL, board: Board, health: Health, body: str) -> None:
     """Post a status update to the board, dating it to the board's item span when known."""
-    starts = sorted(d for item in board.items if (d := _date(item.start)))
-    targets = sorted(d for item in board.items if (d := _date(item.target)))
+    starts = [d for item in board.items if (d := _date(item.start))]
+    targets = [d for item in board.items if (d := _date(item.target))]
     field_input: dict[str, Any] = {"projectId": board.id, "status": health, "body": body}
     if starts:
-        field_input["startDate"] = starts[0].isoformat()
+        field_input["startDate"] = min(starts).isoformat()
     if targets:
-        field_input["targetDate"] = targets[-1].isoformat()
+        field_input["targetDate"] = max(targets).isoformat()
     gql.query(_POST_STATUS, input=field_input)
 
 
@@ -485,7 +477,7 @@ def render_insights_svg(board: Board) -> str:
         body.append(f'<text x="12" y="{y}" class="h">{html.escape(heading)}</text>')
         y += 12
         for name, count in rows:
-            bar = int(max_bar * count / overall_max) if overall_max else 0
+            bar = int(max_bar * count / overall_max)  # overall_max >= 1 (max default)
             body.append(f'<text x="12" y="{y + bar_h - 3}" class="l">{html.escape(name)}</text>')
             body.append(
                 f'<rect x="{label_w}" y="{y}" width="{bar}" height="{bar_h}" class="b" rx="2"/>'
