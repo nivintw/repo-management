@@ -5,9 +5,24 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_source_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the suite independent of ambient CI env.
+
+    GitHub Actions sets ``GITHUB_REPOSITORY``, which would make the reconciler's source-secret
+    lookup fire against a mock client. Clear it so tests only exercise that path when they set
+    it deliberately.
+    """
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
 
 
 @pytest.fixture
@@ -66,10 +81,11 @@ def make_hook(
     return hook
 
 
-def make_secret(name: str) -> MagicMock:
-    """Build a mock PyGithub secret exposing only its name."""
+def make_secret(name: str, updated_at: datetime | None = None) -> MagicMock:
+    """Build a mock PyGithub secret exposing its name and last-updated time."""
     secret = MagicMock(name=f"Secret({name})")
     secret.name = name
+    secret.updated_at = updated_at
     return secret
 
 

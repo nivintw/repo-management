@@ -36,8 +36,25 @@ deleted from the repo.
 
 Secret values are write-only: GitHub never returns them, so apply never diffs the current
 value against the declared one. By default a secret already present on the repo is left
-alone; pass `--force-secrets` (on both `plan` and `apply`) to re-push every declared secret,
-e.g. to rotate one. Values are never printed in plans.
+alone — re-pushing it every apply would be pure churn. Values are never printed in plans.
+
+Two things override that skip-if-exists default for an existing secret:
+
+- **`--force-secrets`** (on both `plan` and `apply`) re-pushes *every* declared secret
+  unconditionally — the blunt rotation lever.
+- **Source timestamps (automatic under Actions).** GitHub does expose each secret's
+  `updated_at`, even though it hides the value. When `apply` runs inside GitHub Actions, the
+  tool reads the `updated_at` of its *own* repo's Actions secrets — the ones backing the
+  `value_from_env` sources — and re-pushes a target secret only when its source changed more
+  recently than the target's own `updated_at`. So rotating a secret at the source propagates
+  to the fleet on the next apply, while an unchanged secret (or one a target already holds a
+  newer copy of) is skipped — no `--force-secrets`, no fleet-wide churn.
+
+  This is best-effort and never fails the run: a secret sourced from an inline `value:`, a
+  `value_from_env` with no matching source secret, or a local run (no `GITHUB_REPOSITORY`)
+  simply keeps the plain skip-if-exists default. Environment-scoped secrets
+  ([environments](environments.md)) also keep the plain default — the source-timestamp
+  comparison applies to repo-level secrets only.
 
 !!! warning
     Literal `value:` is supported for convenience, but a secret's value in plain YAML is a

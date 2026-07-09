@@ -13,16 +13,35 @@ duplicated per call site.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from repo_management.changes import Action, Change
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
+    from datetime import datetime
 
     from github.Variable import Variable as GhVariable
 
     from repo_management.config import Secret, Variable
+
+
+@dataclass(frozen=True)
+class SecretsPolicy:
+    """When to re-push an *existing* secret whose value can't be read back to diff.
+
+    - ``force`` re-pushes every declared secret unconditionally (rotation).
+    - ``source_secrets`` — a ``{source-secret-name: updated_at}`` map from the source repo (see
+      :func:`repo_management.client.source_secret_timestamps`) — re-pushes only the secrets
+      whose source changed more recently than the target's own ``updated_at``.
+
+    The default (neither set) is the write-only skip-if-exists policy: leave existing secrets
+    alone. Environment-scoped secrets use this default.
+    """
+
+    force: bool = False
+    source_secrets: Mapping[str, datetime] | None = None
 
 
 class SecretsContainer(Protocol):
@@ -46,20 +65,26 @@ def plan_secrets(
     *,
     domain: str,
     target_prefix: str = "",
-    force: bool = False,
+    policy: SecretsPolicy | None = None,
 ) -> list[Change]:
     """Diff ``desired`` secrets against ``container.get_secrets()``.
 
-    Mirrors :class:`~repo_management.managers.secrets.SecretsManager`'s policy: an existing
-    secret is left untouched unless ``force`` is set (values are write-only, so we can't tell
-    whether it's current), and the list is authoritative — anything absent is deleted.
+    Values are write-only, so an existing secret is normally left untouched — re-pushing it
+    every apply is pure churn. The list is authoritative: anything absent from ``desired`` is
+    deleted. ``policy`` (see :class:`SecretsPolicy`) decides when an *existing* secret is
+    nonetheless re-pushed; its default leaves every existing secret alone. A secret that can't
+    be dated on both sides (an inline ``value``, a source with no known timestamp, or a target
+    with no ``updated_at``) keeps that skip-if-exists default even under a source-timestamp
+    policy.
     """
-    existing = {secret.name for secret in container.get_secrets()}
-    changes = [
-        _upsert_secret(container, secret, domain, target_prefix, exists=secret.name in existing)
-        for secret in desired
-        if force or secret.name not in existing
-    ]
+    policy = policy or SecretsPolicy()
+    existing = {secret.name: secret.updated_at for secret in container.get_secrets()}
+    changes: list[Change] = []
+    for secret in desired:
+        if secret.name not in existing:
+            changes.append(_upsert_secret(container, secret, domain, target_prefix, exists=False))
+        elif policy.force or _source_is_newer(secret, existing[secret.name], policy.source_secrets):
+            changes.append(_upsert_secret(container, secret, domain, target_prefix, exists=True))
 
     wanted = {secret.name for secret in desired}
     changes.extend(
@@ -68,6 +93,24 @@ def plan_secrets(
         if name not in wanted
     )
     return changes
+
+
+def _source_is_newer(
+    secret: Secret,
+    target_updated: datetime | None,
+    source_secrets: Mapping[str, datetime] | None,
+) -> bool:
+    """Whether ``secret``'s source changed more recently than the target's last write.
+
+    True only when both sides are datable: a ``source_secrets`` map is provided, the secret is
+    sourced from an env var whose source-repo secret we hold a timestamp for, and the target
+    carries an ``updated_at`` the source is strictly newer than. Any missing piece is False —
+    the write-only skip-if-exists default: never re-push a secret we can't prove is stale.
+    """
+    if not source_secrets or secret.value_from_env is None or target_updated is None:
+        return False
+    source_updated = source_secrets.get(secret.value_from_env)
+    return source_updated is not None and source_updated > target_updated
 
 
 def _delete_secret(

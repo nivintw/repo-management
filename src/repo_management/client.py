@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from typing import TYPE_CHECKING
 
 from github import Auth, Github, GithubException
@@ -13,9 +14,12 @@ from github import Auth, Github, GithubException
 from repo_management.config import ConfigError
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from github.Repository import Repository
 
 TOKEN_ENV = "GITHUB_TOKEN"  # noqa: S105 — env var name, not a secret
+SOURCE_REPO_ENV = "GITHUB_REPOSITORY"
 
 
 def get_client(token: str | None = None) -> Github:
@@ -56,3 +60,37 @@ def get_repo(client: Github, full_name: str) -> Repository:
     except GithubException as exc:
         msg = f"cannot access repository {full_name!r}: {exc.data or exc}"
         raise ConfigError(msg) from exc
+
+
+def source_secret_timestamps(client: Github) -> dict[str, datetime]:
+    """Map each source Actions secret name to when it was last updated.
+
+    The ``apply`` workflow runs inside a *source* repository whose own Actions secrets populate
+    the ``value_from_env`` sources the CLI then propagates to the managed repos. GitHub never
+    exposes a secret's value, but it does expose each secret's ``updated_at`` — read here from
+    the source repo the very same way a target repo's secrets are read. This lets the secrets
+    manager skip re-pushing a target secret whose value is already at least as new as the
+    source, and overwrite only when the source secret changed more recently.
+
+    The source repo is taken from ``GITHUB_REPOSITORY`` (always set under GitHub Actions).
+    Returns an empty map when that's unset (e.g. a local run) or the source secrets can't be
+    read (the token lacks the permission) — callers then fall back to the write-only
+    skip-if-exists policy rather than failing.
+    """
+    source = os.environ.get(SOURCE_REPO_ENV)
+    if not source:
+        return {}
+    try:
+        repo = client.get_repo(source)
+        return {
+            secret.name: secret.updated_at
+            for secret in repo.get_secrets()
+            if secret.updated_at is not None
+        }
+    except GithubException as exc:
+        warnings.warn(
+            f"cannot read source secret timestamps from {source!r} ({exc.data or exc}); "
+            "secrets fall back to skip-if-exists",
+            stacklevel=2,
+        )
+        return {}
