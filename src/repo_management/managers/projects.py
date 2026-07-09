@@ -78,6 +78,32 @@ mutation($input: UpdateProjectV2FieldInput!){
 """
 
 
+def query_project(
+    gql: GraphQL, config: ProjectsConfig, query: str, /, **variables: object
+) -> dict[str, Any]:
+    """Run a projectV2 query for the configured board and return its node.
+
+    Resolves the query root from ``owner_type`` (``user`` vs ``organization``), always passes
+    ``owner``/``number``, and forwards any extra ``variables`` (e.g. a pagination ``cursor``).
+    Shared by the schema manager and the roadmap automations so the root selection and the
+    not-found message live in one place.
+
+    Raises:
+        ProjectNotFoundError: If the board can't be read (bad coordinates, or a token without
+            the ``project`` scope).
+    """
+    root = "user" if config.owner_type == "user" else "organization"
+    data = gql.query(query % {"root": root}, owner=config.owner, number=config.number, **variables)
+    project = (data.get(root) or {}).get("projectV2")
+    if project is None:
+        msg = (
+            f"Projects v2 board {config.owner}/#{config.number} not found "
+            "(check owner/number/owner_type and the token's 'project' scope)"
+        )
+        raise ProjectNotFoundError(msg)
+    return project
+
+
 class ProjectsManager:
     """Reconcile a Projects v2 board's custom fields and single-select options."""
 
@@ -109,18 +135,7 @@ class ProjectsManager:
         return changes
 
     def _fetch(self, desired: ProjectsConfig) -> dict[str, Any]:
-        root = "user" if desired.owner_type == "user" else "organization"
-        data = self._gql.query(
-            _PROJECT_QUERY % {"root": root}, owner=desired.owner, number=desired.number
-        )
-        project = (data.get(root) or {}).get("projectV2")
-        if project is None:
-            msg = (
-                f"Projects v2 board {desired.owner}/#{desired.number} not found "
-                "(check the owner, number, owner_type, and that the token has the 'project' "
-                "scope / read access)"
-            )
-            raise ProjectNotFoundError(msg)
+        project = query_project(self._gql, desired, _PROJECT_QUERY)
         fields: dict[str, dict[str, Any]] = {}
         for node in project["fields"]["nodes"]:
             if not node:  # non-field union members serialize as {}

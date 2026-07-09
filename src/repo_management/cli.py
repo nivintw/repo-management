@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -38,6 +39,8 @@ from repo_management.roadmap import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from repo_management.changes import Change
 
 app = typer.Typer(
@@ -99,6 +102,45 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(1)
 
 
+@contextmanager
+def _api_errors() -> Iterator[None]:
+    """Map the expected API/config failures to a clean ``error:`` exit, never a traceback."""
+    try:
+        yield
+    except (ConfigError, ProjectNotFoundError) as exc:
+        raise _fail(str(exc)) from exc
+    except GithubException as exc:
+        msg = f"GitHub API error: {exc.data or exc}"
+        raise _fail(msg) from exc
+
+
+def _print_changes(title: str, changes: list[Change]) -> None:
+    """Print a plan: an in-sync line, or a header plus one line per change."""
+    if not changes:
+        console.print(f"[green]✓[/green] [bold]{title}[/bold]: in sync")
+        return
+    console.print(f"[bold]{title}[/bold] — {len(changes)} change(s):")
+    for change in changes:
+        console.print(f"  {change.describe()}")
+
+
+def _apply_changes(changes: list[Change], *, yes: bool) -> None:
+    """Confirm (unless ``yes``), apply each change, and report — or note nothing to do."""
+    if not changes:
+        console.print("\n[green]nothing to do[/green]")
+        return
+    if not yes and not typer.confirm(f"\nApply {len(changes)} change(s)?"):
+        msg = "aborted"
+        raise _fail(msg)
+    for change in changes:
+        try:
+            change.apply()
+        except GithubException as exc:
+            msg = f"applying {change.target}: {exc.data or exc}"
+            raise _fail(msg) from exc
+    console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
+
+
 def _load(config: Path) -> Config:
     try:
         return load_config(config)
@@ -117,23 +159,13 @@ def _select(config: Config, repo: str | None) -> Config:
 
 
 def _plans(config: Config, token: str | None, *, force_secrets: bool = False) -> list[RepoPlan]:
-    try:
+    with _api_errors():
         client = get_client(token)
         return plan_config(client, config, force_secrets=force_secrets)
-    except ConfigError as exc:
-        raise _fail(str(exc)) from exc
-    except GithubException as exc:
-        msg = f"GitHub API error: {exc.data or exc}"
-        raise _fail(msg) from exc
 
 
 def _print_plan(plan: RepoPlan) -> None:
-    if plan.in_sync:
-        console.print(f"[green]✓[/green] [bold]{plan.repo_name}[/bold]: in sync")
-        return
-    console.print(f"[bold]{plan.repo_name}[/bold] — {len(plan.changes)} change(s):")
-    for change in plan.changes:
-        console.print(f"  {change.describe()}")
+    _print_changes(plan.repo_name, plan.changes)
 
 
 @app.command()
@@ -238,24 +270,9 @@ def _load_projects(config: Path) -> ProjectsConfig:
 
 def _project_changes(config: Path, token: str | None) -> tuple[ProjectsConfig, list[Change]]:
     desired = _load_projects(config)
-    manager = ProjectsManager(GraphQLClient(get_client(token)))
-    try:
+    with _api_errors():
+        manager = ProjectsManager(GraphQLClient(get_client(token)))
         return desired, manager.plan(desired)
-    except ProjectNotFoundError as exc:
-        raise _fail(str(exc)) from exc
-    except GithubException as exc:
-        msg = f"GitHub API error: {exc.data or exc}"
-        raise _fail(msg) from exc
-
-
-def _print_project_plan(desired: ProjectsConfig, changes: list[Change]) -> None:
-    board = f"{desired.owner}/#{desired.number}"
-    if not changes:
-        console.print(f"[green]✓[/green] [bold]{board}[/bold]: in sync")
-        return
-    console.print(f"[bold]{board}[/bold] — {len(changes)} change(s):")
-    for change in changes:
-        console.print(f"  {change.describe()}")
 
 
 @projects_app.command("validate")
@@ -275,7 +292,7 @@ def projects_plan(
 ) -> None:
     """Show the changes needed to reconcile the board's field schema (no writes)."""
     desired, changes = _project_changes(config, token)
-    _print_project_plan(desired, changes)
+    _print_changes(f"{desired.owner}/#{desired.number}", changes)
     console.print(f"\n{len(changes)} change(s).")
 
 
@@ -288,20 +305,8 @@ def projects_apply(
 ) -> None:
     """Apply the board field-schema changes to GitHub."""
     desired, changes = _project_changes(config, token)
-    _print_project_plan(desired, changes)
-    if not changes:
-        console.print("\n[green]nothing to do[/green]")
-        return
-    if not yes and not typer.confirm(f"\nApply {len(changes)} change(s)?"):
-        msg = "aborted"
-        raise _fail(msg)
-    for change in changes:
-        try:
-            change.apply()
-        except GithubException as exc:
-            msg = f"applying {change.target}: {exc.data or exc}"
-            raise _fail(msg) from exc
-    console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
+    _print_changes(f"{desired.owner}/#{desired.number}", changes)
+    _apply_changes(changes, yes=yes)
 
 
 # The roadmap automations (status / reconcile / insights) all read the board once, sharing
@@ -315,14 +320,9 @@ _DryRunOpt = Annotated[
 
 def _load_board(config: Path, token: str | None) -> tuple[GraphQLClient, Board]:
     desired = _load_projects(config)
-    gql = GraphQLClient(get_client(token))
-    try:
+    with _api_errors():
+        gql = GraphQLClient(get_client(token))
         return gql, fetch_board(gql, desired)
-    except ProjectNotFoundError as exc:
-        raise _fail(str(exc)) from exc
-    except GithubException as exc:
-        msg = f"GitHub API error: {exc.data or exc}"
-        raise _fail(msg) from exc
 
 
 @projects_app.command("status")
@@ -373,24 +373,10 @@ def projects_reconcile(
     archive = None if archive_after_days < 0 else archive_after_days
     changes = plan_reconcile(gql, board, today, archive_after_days=archive)
 
-    if not changes:
-        console.print(f"[green]✓[/green] [bold]{board.title}[/bold]: in sync")
+    _print_changes(board.title, changes)
+    if dry_run or not changes:
         return
-    console.print(f"[bold]{board.title}[/bold] — {len(changes)} change(s):")
-    for change in changes:
-        console.print(f"  {change.describe()}")
-    if dry_run:
-        return
-    if not yes and not typer.confirm(f"\nApply {len(changes)} change(s)?"):
-        msg = "aborted"
-        raise _fail(msg)
-    for change in changes:
-        try:
-            change.apply()
-        except GithubException as exc:
-            msg = f"applying {change.target}: {exc.data or exc}"
-            raise _fail(msg) from exc
-    console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
+    _apply_changes(changes, yes=yes)
 
 
 @projects_app.command("insights")
