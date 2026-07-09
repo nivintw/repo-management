@@ -40,10 +40,12 @@ name: renovate
 
 on:
   schedule:
-    # Every 3 hours. The concurrency guard below serializes runs, so this only shortens the
-    # rebase->merge gap for automerge-eligible PRs (see #78) — it never overlaps runs.
-    # Renovate's own scheduling/limits govern PR cadence beyond this.
-    - cron: "0 */3 * * *"
+    # Daily. Renovate is the freshness *ceiling* only — Dependabot owns the fast security
+    # *floor* (repo-management#144), so Renovate is off the critical path and no longer needs a
+    # tight cadence. Its minimumReleaseAge hold already delays merges by days, so a daily sweep
+    # changes runner cost / PR-noise, not when anything actually lands. The concurrency guard
+    # below still serializes runs; Renovate's own scheduling/limits govern PR cadence beyond this.
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       dryRun:

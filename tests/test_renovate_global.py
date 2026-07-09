@@ -58,6 +58,17 @@ def test_refresh_script_is_allowlisted_and_exists() -> None:
     assert REFRESH_SCRIPT.is_file(), f"allowlisted postUpgradeTask script missing: {REFRESH_SCRIPT}"
 
 
+def test_vulnerability_alerts_disabled_dedups_the_security_seam() -> None:
+    """Renovate must NOT open vulnerability PRs — that path is Dependabot's alone (#144).
+
+    The fleet runs a Dependabot security *floor* (enabled via repo-management's security config)
+    and a Renovate freshness *ceiling*. If Renovate's ``vulnerabilityAlerts`` stayed on, a single
+    advisory would yield two competing security PRs. Pin it off so the seam can't silently
+    re-open on a later edit and reintroduce duplicate remediation PRs fleet-wide.
+    """
+    assert _config()["vulnerabilityAlerts"]["enabled"] is False
+
+
 def test_refresh_script_consumes_base_ref() -> None:
     """Cross-check the other half of the contract: the script actually reads BASE_REF.
 
