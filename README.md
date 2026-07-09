@@ -39,9 +39,11 @@ repo-management apply     -c repos.yaml   # reconcile (prompts before writing)
 
 See the [CLI reference][docs-cli] for every command and flag, the
 [config reference][docs-config] for the full config-file schema and every section it
-manages, and the [rulesets reference][docs-rulesets] for branch/tag ruleset details. The
-repository's `examples/` has a fully-worked [`base.yaml`][example-base] +
-[`repos.yaml`][example-repos] pair.
+manages, the [rulesets reference][docs-rulesets] for branch/tag ruleset details, and the
+[Projects board reference][docs-projects] for declaratively managing a GitHub Projects v2
+roadmap board and its automations. The repository's `examples/` has a fully-worked
+[`base.yaml`][example-base] + [`repos.yaml`][example-repos] pair (plus
+[`projects.yaml`][example-projects] for a board).
 
 ## Fleet automation
 
@@ -86,8 +88,10 @@ environment/Trusted-Publisher setup.
 [repo]: https://github.com/nivintw/repo-management
 [example-base]: https://github.com/nivintw/repo-management/blob/main/examples/base.yaml
 [example-repos]: https://github.com/nivintw/repo-management/blob/main/examples/repos.yaml
+[example-projects]: https://github.com/nivintw/repo-management/blob/main/examples/projects.yaml
 [license]: https://github.com/nivintw/repo-management/blob/main/LICENSE
 [docs-cli]: https://nivintw.github.io/repo-management/cli/
 [docs-config]: https://nivintw.github.io/repo-management/config/
 [docs-rulesets]: https://nivintw.github.io/repo-management/rulesets/
+[docs-projects]: https://nivintw.github.io/repo-management/projects/
 [docs-fleet-automation]: https://nivintw.github.io/repo-management/#fleet-automation

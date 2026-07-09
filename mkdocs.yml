@@ -112,6 +112,7 @@ plugins:
           - config/secrets-and-variables.md
           - config/environments.md
           - rulesets.md
+          - projects.md
 
 # Fleet-general baseline only — each entry earns its place with real content it enables,
 # not just because Material supports it (no mermaid custom_fences here; pymdownx.emoji is
@@ -199,3 +200,4 @@ nav:
       - Secrets and variables: config/secrets-and-variables.md
       - Environments: config/environments.md
   - Rulesets: rulesets.md
+  - Projects board: projects.md
