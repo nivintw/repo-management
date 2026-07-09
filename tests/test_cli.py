@@ -16,7 +16,7 @@ from repo_management import cli
 from repo_management.changes import Action, Change
 from repo_management.config import Config, ConfigError
 from repo_management.reconciler import RepoPlan
-from repo_management.roadmap import StatusFieldInfo
+from repo_management.roadmap import BoardItem, StatusFieldInfo
 
 runner = CliRunner()
 
@@ -392,15 +392,28 @@ def _stub_board(monkeypatch: pytest.MonkeyPatch, board: cli.Board) -> None:
     monkeypatch.setattr(cli, "fetch_board", lambda _gql, _cfg: board)
 
 
-def _board(last_update: str | None = None) -> cli.Board:
+def _board(
+    last_update: str | None = None,
+    *,
+    items: list[BoardItem] | None = None,
+    with_status_field: bool = True,
+) -> cli.Board:
+    # Default: one closed item, so the board is non-empty (the status command's empty-board
+    # guard would otherwise reject it) and computes COMPLETE (nothing open).
     return cli.Board(
         id="PROJ",
         title="Fleet Roadmap",
         url="https://example/2",
         last_update=last_update,
         phase_order=[],
-        status_field=StatusFieldInfo(id="F", options={"Todo": "o"}),
-        items=[],
+        status_field=StatusFieldInfo(id="F", options={"Todo": "o"}) if with_status_field else None,
+        items=[
+            BoardItem(
+                id="I1", repo="r", number=1, title="t", state="CLOSED", closed_at="2026-07-01"
+            )
+        ]
+        if items is None
+        else items,
     )
 
 
@@ -512,6 +525,56 @@ def test_projects_apply_github_error(tmp_path: Path, monkeypatch: pytest.MonkeyP
         cli.app, ["projects", "apply", "-c", str(write_projects(tmp_path)), "--yes"]
     )
     assert result.exit_code == 1
+
+
+def test_projects_status_empty_board_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Status refuses to post on a board with no issues/PRs (#135 fail-loud), even with --force."""
+    _stub_board(monkeypatch, _board(items=[]))
+    posted: list[bool] = []
+    monkeypatch.setattr(cli, "post_status_update", lambda *_a: posted.append(True))
+    result = runner.invoke(
+        cli.app, ["projects", "status", "-c", str(write_projects(tmp_path)), "--force"]
+    )
+    assert result.exit_code == 1
+    assert posted == []
+
+
+def test_projects_reconcile_no_status_field_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reconcile fails loud (not a green no-op) when the board has no Status field."""
+    _stub_board(monkeypatch, _board(with_status_field=False))
+    result = runner.invoke(cli.app, ["projects", "reconcile", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 1
+
+
+def test_projects_reconcile_negative_archive_days(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A negative --archive-after-days disables archival (passes archive_after_days=None)."""
+    _stub_board(monkeypatch, _board())
+    seen: list[int | None] = []
+
+    def _capture(
+        _gql: object, _board: object, _today: object, *, archive_after_days: int | None
+    ) -> list[Change]:
+        seen.append(archive_after_days)
+        return []
+
+    monkeypatch.setattr(cli, "plan_reconcile", _capture)
+    result = runner.invoke(
+        cli.app,
+        [
+            "projects",
+            "reconcile",
+            "-c",
+            str(write_projects(tmp_path)),
+            "--archive-after-days",
+            "-1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert seen == [None]
 
 
 def test_projects_status_board_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

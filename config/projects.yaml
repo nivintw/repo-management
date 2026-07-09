@@ -8,7 +8,9 @@
 #   repo-management projects plan  -c config/projects.yaml
 #   repo-management projects apply -c config/projects.yaml
 #
-# The token needs the `project` scope. Only fields + single-select options are managed here;
+# The token needs Projects read/write — a fine-grained PAT with `Projects: Read and write` is
+# the least-privilege choice (a classic PAT's `project` scope also works but is broader). Only
+# fields + single-select options are managed here;
 # board membership and per-issue field VALUES (which issue is in which Phase/batch, its
 # Status, its dates) are owned by tooling — the fleet-roadmap planner and the roadmap
 # automations (`projects status`/`reconcile`/`insights`) — not this declarative schema,
