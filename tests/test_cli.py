@@ -276,3 +276,105 @@ def test_main_invokes_app(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "app", lambda: called.append(True))
     cli.main()
     assert called == [True]
+
+
+# --- projects sub-app -------------------------------------------------------------------
+
+PROJECTS = "owner: nivintw\nnumber: 2\nfields:\n  - name: Target\n    data_type: date\n"
+
+
+def write_projects(tmp_path: Path, text: str = PROJECTS) -> Path:
+    """Write a projects board config file and return its path."""
+    path = tmp_path / "projects.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _stub_manager(monkeypatch: pytest.MonkeyPatch, plan_result: list[Change] | Exception) -> None:
+    """Wire the projects CLI onto a fake manager whose `plan` returns/raises `plan_result`."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "GraphQLClient", lambda _client: object())
+
+    class _Manager:
+        def __init__(self, _gql: object) -> None: ...
+
+        def plan(self, _desired: object) -> list[Change]:
+            if isinstance(plan_result, Exception):
+                raise plan_result
+            return plan_result
+
+    monkeypatch.setattr(cli, "ProjectsManager", _Manager)
+
+
+def test_projects_validate_ok(tmp_path: Path) -> None:
+    """Projects validate reports a valid board config."""
+    result = runner.invoke(cli.app, ["projects", "validate", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 0
+    assert "valid" in result.stdout
+
+
+def test_projects_validate_bad(tmp_path: Path) -> None:
+    """Projects validate exits non-zero on an invalid board config."""
+    path = write_projects(tmp_path, "owner: nivintw\nnumber: 2\nfields: []\n")
+    result = runner.invoke(cli.app, ["projects", "validate", "-c", str(path)])
+    assert result.exit_code == 1
+
+
+def test_projects_plan_shows_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Projects plan prints the changes the manager returns."""
+    _stub_manager(monkeypatch, [_change()])
+    result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 0
+    assert "1 change(s)" in result.stdout
+
+
+def test_projects_plan_in_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Projects plan reports an in-sync board."""
+    _stub_manager(monkeypatch, [])
+    result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 0
+    assert "in sync" in result.stdout
+
+
+def test_projects_apply_applies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Projects apply runs each change's apply() after confirmation."""
+    applied: list[bool] = []
+    change = Change("projects", Action.CREATE, "field:X", None, {}, lambda: applied.append(True))
+    _stub_manager(monkeypatch, [change])
+    result = runner.invoke(
+        cli.app, ["projects", "apply", "-c", str(write_projects(tmp_path)), "--yes"]
+    )
+    assert result.exit_code == 0
+    assert applied == [True]
+    assert "applied 1 change(s)" in result.stdout
+
+
+def test_projects_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Projects apply short-circuits when the board is already in sync."""
+    _stub_manager(monkeypatch, [])
+    result = runner.invoke(
+        cli.app, ["projects", "apply", "-c", str(write_projects(tmp_path)), "--yes"]
+    )
+    assert result.exit_code == 0
+    assert "nothing to do" in result.stdout
+
+
+def test_projects_apply_aborts_without_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Declining the confirmation prompt aborts without applying."""
+    applied: list[bool] = []
+    change = Change("projects", Action.CREATE, "field:X", None, {}, lambda: applied.append(True))
+    _stub_manager(monkeypatch, [change])
+    result = runner.invoke(
+        cli.app, ["projects", "apply", "-c", str(write_projects(tmp_path))], input="n\n"
+    )
+    assert result.exit_code == 1
+    assert applied == []
+
+
+def test_projects_plan_board_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A board the token can't read exits non-zero with the error surfaced."""
+    _stub_manager(monkeypatch, cli.ProjectNotFoundError("board not found"))
+    result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
+    assert result.exit_code == 1
