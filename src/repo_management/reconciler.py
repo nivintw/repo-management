@@ -53,12 +53,13 @@ def plan_config(client: Github, config: Config, *, force_secrets: bool = False) 
     """Build a :class:`RepoPlan` for each repository, applying the shared config to each.
 
     The source repo's secret timestamps are read once up front and shared across every repo's
-    plan, so an unchanged source secret is skipped fleet-wide without a per-repo re-push.
-    ``--force-secrets`` re-pushes everything regardless, so the timestamp read is skipped then —
-    it'd be a wasted round-trip and could emit a misleading "unavailable" warning for a run that
-    never consults it.
+    plan, so an unchanged source secret is skipped fleet-wide without a per-repo re-push. The
+    read is skipped entirely — no wasted round-trip, no misleading "unavailable" warning — when
+    nothing would consult it: under ``--force-secrets`` (which re-pushes everything anyway), or
+    when no configured secret is ``value_from_env``-sourced (only those are timestamp-compared).
     """
-    source_secrets = {} if force_secrets else source_secret_timestamps(client)
+    read_timestamps = not force_secrets and _has_env_sourced_secret(config)
+    source_secrets = source_secret_timestamps(client) if read_timestamps else {}
     plans: list[RepoPlan] = []
     for name in config.repos:
         repo = get_repo(client, name)
@@ -69,6 +70,17 @@ def plan_config(client: Github, config: Config, *, force_secrets: bool = False) 
             )
         )
     return plans
+
+
+def _has_env_sourced_secret(config: Config) -> bool:
+    """Whether any configured secret is ``value_from_env``-sourced (the only kind timestamped).
+
+    Inline ``value`` secrets are never timestamp-compared, so a config without a single
+    ``value_from_env`` secret has no use for the source-timestamp read at all.
+    """
+    return bool(config.secrets) and any(
+        secret.value_from_env is not None for secret in config.secrets
+    )
 
 
 def apply_plan(plan: RepoPlan) -> None:
