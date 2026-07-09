@@ -77,7 +77,13 @@ def plan_secrets(
     *existing* secret is re-pushed anyway.
     """
     policy = policy or SecretsPolicy()
-    existing = {secret.name: secret.updated_at for secret in container.get_secrets()}
+    # getattr, not attribute access: the SecretsContainer protocol only promises get_secrets()
+    # yields objects with a name, and this helper also serves the environments manager. A
+    # container that doesn't expose updated_at just reads as undatable — which _source_is_newer
+    # already treats as skip-if-exists — rather than crashing a run that isn't even comparing.
+    existing = {
+        secret.name: getattr(secret, "updated_at", None) for secret in container.get_secrets()
+    }
     changes: list[Change] = []
     for secret in desired:
         if secret.name not in existing:
