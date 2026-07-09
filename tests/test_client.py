@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
+from conftest import make_secret
 from github import GithubException
 
-from repo_management.client import get_client, get_repo
+from repo_management.client import get_client, get_repo, source_secret_timestamps
 from repo_management.config import ConfigError
 
 
@@ -46,3 +48,38 @@ def test_get_repo_failure() -> None:
     client.get_repo.side_effect = GithubException(404, {"message": "Not Found"}, None)
     with pytest.raises(ConfigError, match="cannot access"):
         get_repo(client, "owner/missing")
+
+
+def test_source_secret_timestamps_maps_name_to_updated_at(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The source repo's secrets are read into a name -> updated_at map (values skipped)."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/source")
+    updated = datetime(2026, 6, 1, tzinfo=UTC)
+    client = MagicMock()
+    client.get_repo.return_value.get_secrets.return_value = [
+        make_secret("TOKEN", updated_at=updated),
+        make_secret("UNDATED", updated_at=None),  # dropped — nothing to compare against
+    ]
+
+    assert source_secret_timestamps(client) == {"TOKEN": updated}
+    client.get_repo.assert_called_once_with("owner/source")
+
+
+def test_source_secret_timestamps_unset_repo_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no GITHUB_REPOSITORY (a local run) the map is empty and no API call is made."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    client = MagicMock()
+
+    assert source_secret_timestamps(client) == {}
+    client.get_repo.assert_not_called()
+
+
+def test_source_secret_timestamps_unreadable_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A permission error reading source secrets degrades to an empty map with a warning."""
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/source")
+    client = MagicMock()
+    client.get_repo.side_effect = GithubException(403, {"message": "Forbidden"}, None)
+
+    with pytest.warns(UserWarning, match="fall back to skip-if-exists"):
+        assert source_secret_timestamps(client) == {}

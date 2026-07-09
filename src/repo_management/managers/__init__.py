@@ -30,6 +30,9 @@ from repo_management.managers.variables import VariablesManager
 from repo_management.managers.webhooks import WebhooksManager
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import datetime
+
     from github.Repository import Repository
 
     from repo_management.changes import Change
@@ -46,11 +49,17 @@ class Manager(Protocol):
         ...
 
 
-def build_managers(*, force_secrets: bool = False) -> list[Manager]:
+def build_managers(
+    *,
+    force_secrets: bool = False,
+    source_secrets: Mapping[str, datetime] | None = None,
+) -> list[Manager]:
     """Build the ordered manager registry the reconciler runs for each repo.
 
     ``force_secrets`` re-pushes existing secret values (rotation) instead of skipping them;
-    every other manager is stateless, so the flag only reaches :class:`SecretsManager`.
+    ``source_secrets`` re-pushes only the secrets whose source changed more recently than the
+    target's ``updated_at``. Every other manager is stateless, so both only reach
+    :class:`SecretsManager`.
     """
     return [
         SettingsManager(),
@@ -65,7 +74,7 @@ def build_managers(*, force_secrets: bool = False) -> list[Manager]:
         DeployKeysManager(),
         AutolinksManager(),
         PagesManager(),
-        SecretsManager(force=force_secrets),
+        SecretsManager(force=force_secrets, source_secrets=source_secrets),
         VariablesManager(),
         EnvironmentsManager(),
     ]

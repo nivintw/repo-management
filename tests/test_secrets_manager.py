@@ -5,13 +5,18 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import pytest
 from conftest import make_secret
 
 from repo_management.changes import Action
 from repo_management.config import Secret, SharedConfig
 from repo_management.managers.secrets import SecretsManager
+
+_OLD = datetime(2026, 1, 1, tzinfo=UTC)
+_NEW = datetime(2026, 6, 1, tzinfo=UTC)
 
 
 def test_no_secrets_is_noop(repo: MagicMock) -> None:
@@ -63,6 +68,63 @@ def test_force_repushes_existing_secret(repo: MagicMock) -> None:
     change.apply()
     repo.create_secret.assert_called_once_with("EXISTING_SECRET", "literalvalue")
     assert "literalvalue" not in change.describe()
+
+
+def test_source_newer_than_target_repushes(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source secret updated more recently than the target is re-pushed (rotation propagates)."""
+    monkeypatch.setenv("TOKEN_SRC", "rotated-value")
+    repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=_OLD)]
+    desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
+
+    changes = SecretsManager(source_secrets={"TOKEN_SRC": _NEW}).plan(repo, desired)
+
+    assert [c.action for c in changes] == [Action.UPDATE]
+    changes[0].apply()
+    repo.create_secret.assert_called_once_with("TOKEN", "rotated-value")
+
+
+def test_source_not_newer_than_target_is_skipped(repo: MagicMock) -> None:
+    """A target at least as new as its source is left untouched — our workflow already set it."""
+    repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=_NEW)]
+    desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
+
+    # Older source, and the equal-timestamp boundary, both skip (comparison is strictly newer).
+    assert SecretsManager(source_secrets={"TOKEN_SRC": _OLD}).plan(repo, desired) == []
+    assert SecretsManager(source_secrets={"TOKEN_SRC": _NEW}).plan(repo, desired) == []
+
+
+def test_source_without_timestamp_is_skipped(repo: MagicMock) -> None:
+    """A secret whose source carries no timestamp keeps the write-only skip-if-exists default."""
+    repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=_OLD)]
+    # value_from_env not present in the source map, and an inline-value secret with no source.
+    from_env = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="MISSING_SRC")])
+    inline = SharedConfig(secrets=[Secret(name="TOKEN", value="literal")])
+
+    assert SecretsManager(source_secrets={"OTHER": _NEW}).plan(repo, from_env) == []
+    assert SecretsManager(source_secrets={"TOKEN": _NEW}).plan(repo, inline) == []
+
+
+def test_target_without_timestamp_is_skipped(repo: MagicMock) -> None:
+    """A target secret with no updated_at can't be dated, so it's left untouched, not re-pushed."""
+    repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=None)]
+    desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
+
+    assert SecretsManager(source_secrets={"TOKEN_SRC": _NEW}).plan(repo, desired) == []
+
+
+def test_absent_secret_creates_regardless_of_source(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An absent target is still created even when a (newer) source timestamp exists."""
+    monkeypatch.setenv("TOKEN_SRC", "value")
+    repo.get_secrets.return_value = []
+    desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
+
+    changes = SecretsManager(source_secrets={"TOKEN_SRC": _NEW}).plan(repo, desired)
+
+    assert [c.action for c in changes] == [Action.CREATE]
 
 
 def test_unlisted_secret_is_deleted(repo: MagicMock) -> None:

@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import pytest
 from conftest import make_secret
 
+from repo_management import reconciler
 from repo_management.changes import Action, Change
 from repo_management.config import Config, Secret, Settings, SharedConfig
 from repo_management.managers import build_managers
@@ -76,6 +79,26 @@ def test_plan_config_builds_a_plan_per_repo() -> None:
     assert [p.repo_name for p in plans] == ["o/r1", "o/r2"]
     assert all(p.in_sync for p in plans)
     assert client.get_repo.call_count == 2
+
+
+def test_plan_config_threads_source_secret_timestamps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """plan_config reads source secret timestamps once and hands them to every repo's plan."""
+    stamps = {"TOKEN_SRC": datetime(2026, 6, 1, tzinfo=UTC)}
+    fetched = MagicMock(return_value=stamps)
+    monkeypatch.setattr(reconciler, "source_secret_timestamps", fetched)
+    monkeypatch.setattr(reconciler, "get_repo", lambda _client, name: name)
+    seen: list[object] = []
+    monkeypatch.setattr(
+        reconciler,
+        "plan_repo",
+        lambda _repo, _cfg, *, source_secrets=None, **_: seen.append(source_secrets) or [],
+    )
+    config = Config(repos=["o/r1", "o/r2"], settings=Settings(description="x"))
+
+    plan_config(MagicMock(), config)
+
+    fetched.assert_called_once()
+    assert seen == [stamps, stamps]  # same map shared across both repos, fetched only once
 
 
 def test_repo_plan_in_sync() -> None:
