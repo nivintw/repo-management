@@ -73,7 +73,7 @@ query($owner:String!, $number:Int!, $cursor:String){
         nodes{
           id
           isArchived
-          fieldValues(first:20){
+          fieldValues(first:50){
             nodes{
               ... on ProjectV2ItemFieldSingleSelectValue {
                 name field{ ... on ProjectV2FieldCommon { name } }
@@ -86,11 +86,11 @@ query($owner:String!, $number:Int!, $cursor:String){
           content{
             ... on Issue {
               number title state closedAt
-              repository{ name } labels(first:20){ nodes{ name } }
+              repository{ name } labels(first:50){ nodes{ name } }
             }
             ... on PullRequest {
               number title state closedAt
-              repository{ name } labels(first:20){ nodes{ name } }
+              repository{ name } labels(first:50){ nodes{ name } }
             }
           }
         }
