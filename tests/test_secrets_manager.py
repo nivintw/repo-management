@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -154,6 +155,18 @@ def test_source_without_timestamp_is_skipped(repo: MagicMock) -> None:
 def test_target_without_timestamp_is_skipped(repo: MagicMock) -> None:
     """A target secret with no updated_at can't be dated, so it's left untouched, not re-pushed."""
     repo.get_secrets.return_value = [make_secret("TOKEN", updated_at=None)]
+    desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
+
+    assert SecretsManager(source_secrets={"TOKEN_SRC": _NEW}).plan(repo, desired) == []
+
+
+def test_container_secret_without_updated_at_attr_degrades(repo: MagicMock) -> None:
+    """A container whose secrets lack updated_at entirely reads as undatable, not AttributeError.
+
+    The SecretsContainer protocol only promises a name; plan_secrets reads updated_at via getattr
+    so a container that doesn't expose it (or a future/mock one) degrades to skip-if-exists.
+    """
+    repo.get_secrets.return_value = [SimpleNamespace(name="TOKEN")]  # no updated_at attribute
     desired = SharedConfig(secrets=[Secret(name="TOKEN", value_from_env="TOKEN_SRC")])
 
     assert SecretsManager(source_secrets={"TOKEN_SRC": _NEW}).plan(repo, desired) == []
