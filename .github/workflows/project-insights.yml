@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Roadmap Part 3 (repo-management #135): the Insights chart *config* is UI-only, but the data
+# isn't. `projects insights` queries the board and renders the same cross-repo metrics — items
+# by repository / phase / status — to an SVG committed under docs/, so the numbers are
+# versioned and shareable rather than trapped in the Projects UI.
+#
+# AUTH + SAFE-UNTIL-CONFIGURED: reads the board with the fine-grained PAT
+# (`ROADMAP_PROJECT_TOKEN`); preflight skips cleanly until it exists. The COMMIT uses the
+# default GITHUB_TOKEN (contents: write). NOTE: if a branch ruleset blocks the actions bot from
+# pushing to the default branch, either grant it a bypass or change this to open a PR instead —
+# the render step is unaffected either way.
+
+name: roadmap-insights
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadmap-insights
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Roadmap insights skipped — ROADMAP_PROJECT_TOKEN not set."
+          fi
+
+  insights:
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit the refreshed SVG
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Render the insights SVG
+        env:
+          GITHUB_TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
+        run: uv run repo-management projects insights -c config/projects.yaml -o docs/roadmap/insights.svg
+
+      - name: Commit the refreshed SVG if it changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if git diff --quiet -- docs/roadmap/insights.svg; then
+            echo "Insights unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/roadmap/insights.svg
+          git commit -m "chore: Refresh roadmap insights [skip ci]"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:${BRANCH}"

@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Roadmap Part 2 (repo-management #135): keep the board's Status field current in code instead
+# of GitHub's UI-only "Workflows" tab. `projects reconcile` derives each item's Status from its
+# issue state (closed/merged -> Done) and status:* labels, and archives long-closed items.
+#
+# COVERAGE — two triggers, one operation:
+#   - schedule: the FLEET-WIDE net. A workflow only sees its OWN repo's issue events, but the
+#     PAT can read every fleet repo, so the periodic sweep is what actually lets the built-in
+#     Workflows tab be turned off (every repo's items converge each tick). This is the piece
+#     event triggers alone can't provide for a cross-repo board.
+#   - issues events (this repo): low-latency updates for repo-management's own items. There is
+#     deliberately NO `pull_request` trigger — a merged PR that closes an issue via "Closes #N"
+#     fires an `issues: closed` event, which covers "PR merged -> Done" without running any
+#     PR-head code against the PAT (pwn-request-safe).
+# Fleet-wide EVENT latency (templating these workflows into every repo via copier-everything)
+# is a documented follow-up, not this PR — the scheduled sweep is the net until then.
+#
+# AUTH + SAFE-UNTIL-CONFIGURED: same fine-grained PAT (`ROADMAP_PROJECT_TOKEN`) and preflight
+# skip as project-status.yml.
+
+name: roadmap-reconcile
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours, off the hour
+  issues:
+    types: [closed, reopened, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the planned changes without applying"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Coalesce a burst of label events into the latest reconcile; never cancel a scheduled sweep
+# mid-flight against an event run — a serialized group with cancellation is fine here because
+# every run computes the same desired state from scratch (idempotent).
+concurrency:
+  group: roadmap-reconcile
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Roadmap reconcile skipped — ROADMAP_PROJECT_TOKEN not set."
+          fi
+
+  reconcile:
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Reconcile board Status from issue state + labels
+        env:
+          GITHUB_TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: |
+          args=(-c config/projects.yaml)
+          if [ -n "$DRY_RUN" ]; then args+=(--dry-run); else args+=(--yes); fi
+          uv run repo-management projects reconcile "${args[@]}"
