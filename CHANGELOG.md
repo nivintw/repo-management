@@ -7,6 +7,24 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.10.0](https://github.com/nivintw/repo-management/compare/v1.9.0...v1.10.0) (2026-07-09)
+
+
+### Features
+
+* **secrets:** re-push only when the source secret is newer than the target ([ad97a32](https://github.com/nivintw/repo-management/commit/ad97a32406d6f09993b136094b37c13ee7bce8c0)), closes [#141](https://github.com/nivintw/repo-management/issues/141)
+
+
+### Bug Fixes
+
+* **ci:** adopt the two-phase stranded-Release-PR query to stop the GraphQL node-limit crash ([1dd4306](https://github.com/nivintw/repo-management/commit/1dd430676f7c1a5347e963f756eb23599c4b42a2)), closes [#140](https://github.com/nivintw/repo-management/issues/140)
+* **secrets:** read target updated_at via getattr so an undatable container degrades ([165b8be](https://github.com/nivintw/repo-management/commit/165b8be7690835763c3ee5bd849103e47a48f70f))
+
+
+### Performance Improvements
+
+* **secrets:** skip the source-timestamp read when no secret is env-sourced ([156fdad](https://github.com/nivintw/repo-management/commit/156fdad62e3b33f056aa3b3704e011c3871803fb))
+
 ## [1.9.0](https://github.com/nivintw/repo-management/compare/v1.8.0...v1.9.0) (2026-07-09)
 
 
