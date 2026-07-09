@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.11.0](https://github.com/nivintw/repo-management/compare/v1.10.0...v1.11.0) (2026-07-09)
+
+
+### Features
+
+* **security:** enable the Dependabot security floor, dedup the Renovate seam ([1d6f83d](https://github.com/nivintw/repo-management/commit/1d6f83da5c18ea27f8c849da46dfc764ade5f8eb))
+
 ## [1.10.0](https://github.com/nivintw/repo-management/compare/v1.9.0...v1.10.0) (2026-07-09)
 
 
