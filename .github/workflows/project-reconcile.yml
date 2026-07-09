@@ -37,9 +37,11 @@ on:
 permissions:
   contents: read
 
-# Coalesce a burst of label events into the latest reconcile; never cancel a scheduled sweep
-# mid-flight against an event run — a serialized group with cancellation is fine here because
-# every run computes the same desired state from scratch (idempotent).
+# Coalesce a burst of runs — rapid label events, or an event landing while a scheduled sweep
+# runs — into the latest one: cancel-in-progress cancels any in-flight run in this group when a
+# newer one starts. Safe because every run recomputes the same desired state from scratch
+# (idempotent), so a cancelled run loses nothing — the newer run supersedes it and re-derives
+# the full board state anyway.
 concurrency:
   group: roadmap-reconcile
   cancel-in-progress: true
