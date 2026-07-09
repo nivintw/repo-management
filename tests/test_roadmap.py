@@ -201,6 +201,16 @@ def test_status_body_neutralizes_mentions() -> None:
     assert "@\u200bghost" in body
 
 
+def test_status_body_escapes_html_in_title_and_phase() -> None:
+    """`< > &` in a title/phase are escaped so a posted update can't inject markup."""
+    item = _item(1, state="CLOSED", closed_at="2026-07-07", phase="P1 <b>")
+    item.title = "fix a<b & c"
+    _, body = build_status_update(_board(item, last_update="2026-07-06"), TODAY)
+    assert "fix a&lt;b &amp; c" in body
+    assert "P1 &lt;b&gt;" in body
+    assert "<b>" not in body
+
+
 def test_status_body_dates_to_week_monday() -> None:
     """The header is dated to the week's Monday, not the (possibly mid-week) run date."""
     _, body = build_status_update(_board(_item(1, state="CLOSED", closed_at="2026-07-07")), TODAY)
