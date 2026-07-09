@@ -22,6 +22,16 @@
   "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"],
   "customEnvVariables": { "BASE_REF": "origin/HEAD" },
   "platformAutomerge": false,
+  "vulnerabilityAlerts": {
+    "description": [
+      "Dedup the security-remediation seam (repo-management#144): Dependabot is the fleet's",
+      "security *floor* (fast, event-driven, enabled via repo-management's security config), so",
+      "Renovate — the freshness *ceiling* — must NOT also open vulnerability-remediation PRs, or",
+      "a single advisory yields two competing PRs. Disabling it here leaves Renovate purely",
+      "proactive; the security path is Dependabot's alone."
+    ],
+    "enabled": false
+  },
   "packageRules": [
     {
       "description": [

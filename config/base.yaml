@@ -35,6 +35,19 @@ actions:
   # with its own GITHUB_TOKEN, which requires this Actions setting.
   can_approve_pull_request_reviews: true
 
+security:
+  # The Dependabot security *floor* (repo-management#144). Dependabot owns the fast, narrow,
+  # event-driven security-remediation path fleet-wide; Renovate owns proactive freshness of
+  # everything else (its `vulnerabilityAlerts` is turned off in renovate-global.json so exactly
+  # one bot opens a security PR per advisory). Enabling these is a settings-API concern the
+  # copier template can't express — it's this repo's config-as-code job.
+  #
+  # Only these two fields are set; the rest of the Security section's fields stay unset and so
+  # remain individually unmanaged (each maps to its own endpoint — unset ≠ removed here, unlike
+  # the list-authoritative sections below).
+  vulnerability_alerts: true # Dependabot vulnerability alerts
+  automated_security_fixes: true # Dependabot security updates
+
 rulesets:
   - name: main protection
     target: branch
