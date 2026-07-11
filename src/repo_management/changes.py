@@ -65,7 +65,7 @@ class Change:
 
     def describe(self) -> str:
         """Return a one-line, human-readable summary of the change (or diagnostic)."""
-        if self.error is not None:
+        if self.unresolved:
             return f"! [{self.domain}] {self.target}: {self.error}"
         before = self._render(self.before)
         after = self._render(self.after)
