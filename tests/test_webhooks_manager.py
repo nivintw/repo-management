@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -125,6 +126,31 @@ def test_webhook_with_secret_includes_secret_in_config(
         events=["push"],
         active=True,
     )
+
+
+def test_webhook_secret_is_deferred_to_apply(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A webhook secret is write-only payload, so plan must not resolve it (no crash if unset).
+
+    Like an Actions secret, the value is never diffed — the plan redacts it to "(set)" — so a
+    read-only plan succeeds with the env var unset; the write resolves it.
+    """
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    repo.get_hooks.return_value = []
+    desired = SharedConfig(
+        webhooks=[
+            Webhook(url="https://example.com", events=["push"], secret_from_env="WEBHOOK_SECRET"),
+        ],
+    )
+
+    changes = WebhooksManager().plan(repo, desired)  # must not raise despite WEBHOOK_SECRET unset
+
+    assert len(changes) == 1
+    assert cast("dict", changes[0].after)["secret"] == "(set)"  # redacted in the plan, not resolved
+    monkeypatch.setenv("WEBHOOK_SECRET", "resolved-at-write")
+    changes[0].apply()
+    assert repo.create_hook.call_args.args[1]["secret"] == "resolved-at-write"
 
 
 def test_secret_rotation_always_updates(repo: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:

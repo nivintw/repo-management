@@ -62,12 +62,14 @@ class WebhooksManager:
         )
 
     def _create(self, repo: Repository, webhook: Webhook) -> Change:
-        config = _config(webhook)
         events = list(webhook.events)
         active = webhook.active
 
+        # Build the write payload (which resolves the write-only secret) inside apply, not at
+        # plan-build time: like an Actions secret, the webhook secret is never shown (the plan
+        # redacts it to "(set)") and never diffed, so a read-only plan must not demand it.
         def apply() -> None:
-            repo.create_hook(_HOOK_NAME, config, events=events, active=active)
+            repo.create_hook(_HOOK_NAME, _config(webhook), events=events, active=active)
 
         return Change(
             domain=self.domain,
@@ -79,12 +81,12 @@ class WebhooksManager:
         )
 
     def _update(self, current: Hook, webhook: Webhook) -> Change:
-        config = _config(webhook)
         events = list(webhook.events)
         active = webhook.active
 
+        # Resolve the write-only secret inside apply (see _create) — plan never needs it.
         def apply() -> None:
-            current.edit(_HOOK_NAME, config, events=events, active=active)
+            current.edit(_HOOK_NAME, _config(webhook), events=events, active=active)
 
         return Change(
             domain=self.domain,

@@ -200,6 +200,36 @@ def test_new_environment_pushes_secrets_and_variables(repo: MagicMock) -> None:
     created_env.create_variable.assert_called_once_with("REGION", "us-east-1")
 
 
+def test_new_environment_unresolvable_variable_degrades_to_diagnostic(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Creating an environment with an unresolvable variable emits a diagnostic, not a crash.
+
+    The environment CREATE still shows (with a placeholder for the unresolved value), and a
+    separate `!` diagnostic is emitted so the plan is a hard failure — same policy the repo-level
+    and existing-environment variable paths use.
+    """
+    monkeypatch.delenv("REGION_SRC", raising=False)
+    repo.get_environments.return_value = []
+    repo.create_environment.return_value = _make_environment("prod")
+    desired = SharedConfig(
+        environments=[
+            Environment(
+                name="prod", variables=[Variable(name="REGION", value_from_env="REGION_SRC")]
+            )
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)  # must not raise
+
+    create = next(c for c in changes if c.action is Action.CREATE)
+    assert "unresolved" in cast("dict", create.after)["variables"]["REGION"]
+    diagnostic = next(c for c in changes if c.unresolved)
+    assert diagnostic.target == "environment:prod:variable:REGION"
+    with pytest.raises(ConfigError):
+        diagnostic.apply()
+
+
 def test_existing_environment_in_sync_is_noop(repo: MagicMock) -> None:
     """An existing environment already matching produces no change."""
     current = _make_environment("prod", wait_timer=30)

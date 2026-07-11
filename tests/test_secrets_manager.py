@@ -13,7 +13,7 @@ import pytest
 from conftest import make_secret
 
 from repo_management.changes import Action
-from repo_management.config import Secret, SharedConfig
+from repo_management.config import ConfigError, Secret, SharedConfig
 from repo_management.managers.secrets import SecretsManager
 
 _OLD = datetime(2026, 1, 1, tzinfo=UTC)
@@ -42,6 +42,41 @@ def test_new_secret_produces_create(repo: MagicMock) -> None:
     change.apply()
     repo.create_secret.assert_called_once_with("NEW_SECRET", "literalvalue")
     assert "literalvalue" not in change.describe()
+
+
+def test_new_secret_defers_resolution_to_apply(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A to-be-created value_from_env secret plans without its value present; apply resolves it.
+
+    A secret's value is write-only payload — never shown, never diffed — so a read-only plan must
+    not demand it. The plan succeeds with the env var unset; the write resolves it.
+    """
+    monkeypatch.delenv("SECRET_SRC", raising=False)
+    repo.get_secrets.return_value = []
+    desired = SharedConfig(secrets=[Secret(name="TOK", value_from_env="SECRET_SRC")])
+
+    changes = SecretsManager().plan(repo, desired)  # must not raise despite SECRET_SRC unset
+
+    assert len(changes) == 1
+    assert changes[0].action is Action.CREATE
+    assert changes[0].after == "(set)"
+    monkeypatch.setenv("SECRET_SRC", "resolved-at-write")
+    changes[0].apply()
+    repo.create_secret.assert_called_once_with("TOK", "resolved-at-write")
+
+
+def test_new_secret_apply_errors_when_value_truly_absent(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resolution happens at the write, so a still-absent value fails there — not at plan."""
+    monkeypatch.delenv("SECRET_SRC", raising=False)
+    repo.get_secrets.return_value = []
+    desired = SharedConfig(secrets=[Secret(name="TOK", value_from_env="SECRET_SRC")])
+
+    change = SecretsManager().plan(repo, desired)[0]  # no crash at plan
+    with pytest.raises(ConfigError):
+        change.apply()
 
 
 def test_existing_secret_is_skipped(repo: MagicMock) -> None:

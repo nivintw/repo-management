@@ -10,10 +10,10 @@
 # (it runs `plan`, never `apply`), but the token needs `administration: write` — GitHub returns
 # the `allow_*` merge settings and ruleset bypass actors ONLY to write-level admin tokens, so a
 # read-scoped token reports false drift on every repo's settings/rulesets. The other scopes stay
-# read. `plan` resolves a `value_from_env` secret only when it would create (or, with
-# --force-secrets, re-push) it — never transmitting the value — so the same secret env vars apply
-# exports are still provided. On a fork PR, secrets are absent — the preflight gate checks the
-# App key and skips the job cleanly (green, no token mint).
+# read. `plan` resolves only VARIABLE values (diff-input); secret values are write-only and
+# resolved only at apply, so plan needs no secret env vars — only the variable subset, if any.
+# On a fork PR, secrets are absent — the preflight gate checks the App key and skips the job
+# cleanly (green, no token mint).
 
 name: plan-config
 
@@ -84,17 +84,12 @@ jobs:
       - name: Plan every config (read-only) and write the diff to the job summary
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          # plan resolves a value_from_env secret only when it would WRITE it — a secret being
-          # created (absent on the target) or re-pushed with --force-secrets; secrets already
-          # present are skipped and never resolved. plan never transmits a value (only apply
-          # writes it). We still export every value_from_env secret the configs reference, since
-          # any of them may need creating on some repo — a missing one fails fast only when a
-          # write actually needs it. This block must match apply-config.yml's and the configs'
-          # env-source set (every `value_from_env` plus any webhook `secret_from_env`, i.e.
-          # fleet_env_sources) — enforced by tests/test_workflow_secrets.py (#39).
-          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
-          GIST_PAT: ${{ secrets.GIST_PAT }}
-          ROADMAP_PROJECT_TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
+          # plan resolves only VARIABLE values — they're shown in the diff and compared to decide
+          # update-vs-no-op. Secret values (Actions and webhook) are write-only payload resolved
+          # only at apply, so a read-only plan needs none of them and exports none. apply-config.yml
+          # exports the secret set (fleet_env_sources); plan exports only the variable subset
+          # (fleet_variable_env_sources), which for this repo's configs is empty. Enforced by
+          # tests/test_workflow_secrets.py (#39).
           # Render rich output as plain, wide text for the summary (no TTY in CI).
           NO_COLOR: "1"
           COLUMNS: "200"

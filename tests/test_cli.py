@@ -182,6 +182,54 @@ def test_apply_force_secrets_threads_through(
     assert seen == [False, True]
 
 
+def _diagnostic() -> Change:
+    def _raise() -> None:
+        msg = "a diagnostic must never be applied"
+        raise AssertionError(msg)
+
+    return Change("variables", Action.UPDATE, "variable:REGION", None, None, _raise, error="unset")
+
+
+def test_plan_hard_errors_on_unresolved_but_shows_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plan prints every resolvable line, then exits non-zero because a value is unresolved."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change(), _diagnostic()])],
+    )
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
+
+    assert result.exit_code == 1
+    assert "description" in result.stdout  # the resolvable change still shows
+    # The `!` diagnostic line renders with target + error (Rich eats the [domain] tag on every
+    # line, diagnostics and ordinary changes alike — a pre-existing display quirk, not this fix's).
+    assert "variable:REGION: unset" in result.stdout
+    assert "1 change(s)" in result.stdout  # the diagnostic isn't counted as a change
+    assert "unresolved value(s)" in result.stderr
+
+
+def test_apply_refuses_when_a_value_is_unresolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Apply refuses to write anything when the plan carries an unresolved value."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_diagnostic()])]
+    )
+    called: list[str] = []
+    monkeypatch.setattr(cli, "apply_plan", lambda plan: called.append(plan.repo_name))
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
+
+    assert result.exit_code == 1
+    assert "unresolved value(s)" in result.stderr
+    assert called == []  # nothing was applied
+
+
 def test_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Apply on an in-sync repo does nothing."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())

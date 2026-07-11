@@ -504,13 +504,26 @@ class SharedConfig(Strict):
         for secret in self.secrets or []:
             if secret.value_from_env is not None:
                 names.add(secret.value_from_env)
-        for variable in self.variables or []:
-            if variable.value_from_env is not None:
-                names.add(variable.value_from_env)
         for webhook in self.webhooks or []:
             if webhook.secret_from_env is not None:
                 names.add(webhook.secret_from_env)
-        return names
+        return names | self.variable_env_sources()
+
+    def variable_env_sources(self) -> set[str]:
+        """Return the env-var names read by *variables* (their ``value_from_env``) — plan's set.
+
+        A variable's value is diff-input (shown in the plan and compared to decide
+        update-vs-no-op), so ``plan`` must resolve it and therefore needs its env var exported.
+        A secret's value is write-only payload resolved only at ``apply``, and a webhook secret
+        likewise, so ``plan`` needs neither. This is the strict subset of :meth:`env_sources`
+        the plan workflow exports; apply exports the full set. (See
+        ``tests/test_workflow_secrets.py``.)
+        """
+        return {
+            variable.value_from_env
+            for variable in self.variables or []
+            if variable.value_from_env is not None
+        }
 
 
 class Config(SharedConfig):
@@ -859,6 +872,30 @@ def fleet_env_sources(config_dir: Path) -> set[str]:
     names: set[str] = set()
     for path in _applied_config_paths(config_dir):
         names |= load_config(path).env_sources()
+    return names
+
+
+def fleet_variable_env_sources(config_dir: Path) -> set[str]:
+    """Return the fleet's *variable* env-source set — the subset ``plan`` must export.
+
+    The union of :meth:`SharedConfig.variable_env_sources` across every applied config: only
+    ``value_from_env`` variables, since ``plan`` resolves variable values (diff-input) but not
+    secret values (write-only, resolved at ``apply``). apply exports :func:`fleet_env_sources`
+    (the full set); plan exports this strict subset. The authoritative plan-side set for
+    ``tests/test_workflow_secrets.py``.
+
+    Args:
+        config_dir: Directory holding the applied ``*.yml`` config files.
+
+    Returns:
+        Every env-var name sourced by a fleet variable.
+
+    Raises:
+        ConfigError: If no ``*.yml`` config files are found, or any fails to load.
+    """
+    names: set[str] = set()
+    for path in _applied_config_paths(config_dir):
+        names |= load_config(path).variable_env_sources()
     return names
 
 

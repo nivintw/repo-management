@@ -33,7 +33,11 @@ from github.EnvironmentProtectionRuleReviewer import ReviewerParams
 
 from repo_management.changes import Action, Change
 from repo_management.config import ConfigError
-from repo_management.managers._secret_variable import plan_secrets, plan_variables
+from repo_management.managers._secret_variable import (
+    plan_secrets,
+    plan_variables,
+    unresolved_variable,
+)
 
 if TYPE_CHECKING:
     from github.Environment import Environment as GhEnvironment
@@ -88,7 +92,7 @@ class EnvironmentsManager:
     ) -> list[Change]:
         reviewers = self._resolve_reviewers(repo, item.reviewers, reviewer_cache)
         if current is None:
-            return [self._create(repo, item, reviewers)]
+            return self._create(repo, item, reviewers)
 
         changes: list[Change] = []
         rule_change = self._rule_change(repo, item, current, reviewers)
@@ -239,7 +243,7 @@ class EnvironmentsManager:
 
     def _create(
         self, repo: Repository, item: Environment, reviewers: list[dict[str, Any]] | None
-    ) -> Change:
+    ) -> list[Change]:
         rules = _overlay_rules(_DEFAULT_RULES, item, reviewers)
 
         policy = item.deployment_branch_policy
@@ -265,12 +269,13 @@ class EnvironmentsManager:
         after: dict[str, Any] = dict(rules)
         if item.secrets is not None:
             after["secrets"] = sorted(secret.name for secret in item.secrets)
+        diagnostics: list[Change] = []
         if item.variables is not None:
-            after["variables"] = {variable.name: variable.resolve() for variable in item.variables}
+            after["variables"], diagnostics = self._variable_display(item)
         if patterns is not None:
             after["patterns"] = [{"name": p.name, "type": p.type} for p in patterns]
 
-        return Change(
+        create = Change(
             domain=self.domain,
             action=Action.CREATE,
             target=f"environment:{item.name}",
@@ -278,6 +283,29 @@ class EnvironmentsManager:
             after=after,
             apply=apply,
         )
+        return [create, *diagnostics]
+
+    def _variable_display(self, item: Environment) -> tuple[dict[str, str], list[Change]]:
+        """Resolve a new environment's variable values for the plan display.
+
+        Variable values are shown in the plan, so resolve them here — but degrade a
+        truly-unresolvable one to a diagnostic (a ``!`` line) rather than crashing the create of a
+        whole environment. Same policy as :func:`plan_variables` for an existing environment.
+        Returns the ``{name: value}`` display map (unresolvable values shown as a placeholder) and
+        the diagnostics for any that couldn't be resolved.
+        """
+        prefix = f"environment:{item.name}:"
+        resolved: dict[str, str] = {}
+        diagnostics: list[Change] = []
+        for variable in item.variables or []:
+            try:
+                resolved[variable.name] = variable.resolve()
+            except ConfigError as exc:
+                resolved[variable.name] = f"(unresolved: {exc})"
+                diagnostics.append(
+                    unresolved_variable(variable.name, str(exc), self.domain, prefix)
+                )
+        return resolved, diagnostics
 
     def _delete(self, repo: Repository, name: str) -> Change:
         def apply() -> None:

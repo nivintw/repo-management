@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from repo_management.changes import Action, Change
+from repo_management.config import ConfigError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -144,10 +145,13 @@ def _delete_secret(
 def _upsert_secret(
     container: SecretsContainer, secret: Secret, domain: str, target_prefix: str, *, exists: bool
 ) -> Change:
-    value = secret.resolve()
-
+    # Resolve inside apply, not here: a secret's value is pure write-payload — never shown
+    # (redacted below) and never used to decide create/update/delete (name presence + re-push
+    # policy do that). Resolving at plan-build time would make a read-only plan demand every
+    # secret value in the environment and crash on any that's absent. plan and apply run the
+    # identical diff; the value rides with the write, where it's the one thing that needs it.
     def apply() -> None:
-        container.create_secret(secret.name, value)
+        container.create_secret(secret.name, secret.resolve())
 
     return Change(
         domain=domain,
@@ -178,7 +182,17 @@ def plan_variables(
 
     for item in desired:
         current = existing.get(item.name)
-        value = item.resolve()
+        # A variable's value IS diff-input — shown in the plan and compared to decide
+        # update-vs-no-op — so it must be resolved here, unlike a secret's. But one variable
+        # whose value is truly absent (no inline value, and its source env var unset) must not
+        # abort the whole plan: emit a per-item diagnostic and carry on, so every other line
+        # (including unrelated deletes below) still shows. The CLI reports the diagnostic and
+        # exits non-zero.
+        try:
+            value = item.resolve()
+        except ConfigError as exc:
+            changes.append(unresolved_variable(item.name, str(exc), domain, target_prefix))
+            continue
         if current is None:
             changes.append(_create_variable(container, item.name, value, domain, target_prefix))
         elif current.value != value:
@@ -191,6 +205,30 @@ def plan_variables(
         if name not in wanted_names
     )
     return changes
+
+
+def unresolved_variable(name: str, message: str, domain: str, target_prefix: str = "") -> Change:
+    """Build a diagnostic :class:`Change` for a variable whose desired value can't be resolved.
+
+    Shared with :class:`~repo_management.managers.environments.EnvironmentsManager`, which also
+    resolves variable values (for a brand-new environment's display) and must degrade the same
+    way. The returned change carries an ``error`` (so the CLI reports it and exits non-zero) and
+    an ``apply`` that re-raises — it is never applied (the CLI refuses a plan with unresolved
+    values before writing anything), but fails loud if it ever were.
+    """
+
+    def apply() -> None:
+        raise ConfigError(message)
+
+    return Change(
+        domain=domain,
+        action=Action.UPDATE,  # nominal; a diagnostic renders via `error`, never as an action.
+        target=f"{target_prefix}variable:{name}",
+        before=None,
+        after=None,
+        apply=apply,
+        error=message,
+    )
 
 
 def _create_variable(

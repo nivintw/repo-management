@@ -144,3 +144,30 @@ def test_apply_plan_invokes_each_change() -> None:
     )
     apply_plan(plan)
     assert calls == ["a", "b"]
+
+
+def _diagnostic(target: str) -> Change:
+    def _raise() -> None:
+        msg = "a diagnostic must never be applied"
+        raise AssertionError(msg)
+
+    return Change("variables", Action.UPDATE, target, None, None, _raise, error="value unset")
+
+
+def test_repo_plan_partitions_actionable_and_problems() -> None:
+    """actionable/problems split real changes from unresolved-value diagnostics."""
+    good = Change("settings", Action.UPDATE, "description", "old", "new", lambda: None)
+    bad = _diagnostic("variable:REGION")
+    plan = RepoPlan("o/r", [good, bad])
+
+    assert plan.actionable == [good]
+    assert plan.problems == [bad]
+    assert not plan.in_sync  # a plan carrying a diagnostic is not "in sync"
+
+
+def test_apply_plan_skips_diagnostics() -> None:
+    """apply_plan applies actionable changes and never invokes a diagnostic's apply."""
+    calls: list[str] = []
+    good = Change("x", Action.CREATE, "a", None, None, lambda: calls.append("a"))
+    apply_plan(RepoPlan("o/r", [good, _diagnostic("variable:X")]))
+    assert calls == ["a"]
