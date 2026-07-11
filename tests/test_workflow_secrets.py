@@ -1,20 +1,26 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-"""Guard: the apply/plan workflows export exactly the configs' ``value_from_env`` secrets.
+"""Guard: the apply/plan workflows export the right ``value_from_env`` sources — and diverge.
 
-``apply``/``plan`` propagate each ``value_from_env`` secret from this repo's own Actions
-secrets into the managed repos (the GitHub API can't read a secret back, so the value must be
-supplied via the environment). GitHub Actions requires a *literal* ``${{ secrets.X }}`` per
-secret, so that env block can't be derived from the configs at runtime — which is exactly how
-it used to drift (a new managed secret needed editing the config layer AND both workflows, with
-nothing catching a missed spot).
+``apply`` propagates each ``value_from_env`` secret from this repo's own Actions secrets into
+the managed repos (the GitHub API can't read a secret back, so the value must be supplied via
+the environment). GitHub Actions requires a *literal* ``${{ secrets.X }}`` per secret, so that
+env block can't be derived from the configs at runtime — which is exactly how it used to drift
+(a new managed secret needed editing the config layer AND the workflows, with nothing catching
+a missed spot).
 
-This test closes that gap: it makes ``config/`` the single source of truth and fails CI if
-either workflow's exported secret set drifts from the configs' env-source names — every
-``value_from_env`` (secrets/variables) plus webhook ``secret_from_env``, i.e.
-:func:`~repo_management.config.fleet_env_sources`. So the literal block stays (a GHA
-invariant) but can no longer silently fall out of sync (#39).
+``plan`` and ``apply`` **legitimately diverge**: ``plan`` is read-only and resolves only
+VARIABLE values (diff-input — shown and compared to decide update-vs-no-op), while secret values
+(Actions and webhook) are write-only payload resolved only at ``apply``. So ``apply`` exports
+the full :func:`~repo_management.config.fleet_env_sources` (secrets + variables + webhook
+secrets) and ``plan`` exports only the variable subset
+(:func:`~repo_management.config.fleet_variable_env_sources`) — never secret values into the
+PR-triggered plan job.
+
+These tests make ``config/`` the single source of truth and fail CI if either workflow drifts
+from its expected set. So the literal blocks stay (a GHA invariant) but can no longer silently
+fall out of sync (#39).
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from repo_management.config import fleet_env_sources
+from repo_management.config import fleet_env_sources, fleet_variable_env_sources
 
 _ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = _ROOT / "config"
@@ -116,22 +122,44 @@ def test_secret_env_var_name_matches_its_source_secret_name(name: str) -> None:
     )
 
 
-def test_configs_declare_the_expected_value_from_env_secrets() -> None:
-    """Lock the known set so an accidental config change is visible here, not only via drift."""
+def test_configs_declare_the_expected_env_sources() -> None:
+    """Lock the known sets so an accidental config change is visible here, not only via drift.
+
+    The full set (apply) is the three secrets; the variable subset (plan) is empty — this repo's
+    configs declare no ``value_from_env`` variables, so ``plan`` needs no value env vars at all.
+    """
     assert _expected_env_sources() == {"CI_APP_PRIVATE_KEY", "GIST_PAT", "ROADMAP_PROJECT_TOKEN"}
+    assert frozenset(fleet_variable_env_sources(CONFIG_DIR)) == frozenset()
 
 
-@pytest.mark.parametrize("name", sorted(WORKFLOWS))
-def test_workflow_exports_exactly_the_config_secrets(name: str) -> None:
-    """Apply and plan must each export exactly the configs' value_from_env set — no drift.
+def test_apply_exports_exactly_the_secret_sources() -> None:
+    """Apply must export exactly the configs' full value_from_env set — no drift.
 
-    A missing name means an apply would fail to propagate (or blank) that secret on the fleet;
-    an extra one is a stale export left behind after a config secret was removed.
+    apply resolves and propagates every secret AND variable value plus webhook secrets, so its
+    CLI step exports the full :func:`fleet_env_sources`. A missing name means apply would fail to
+    propagate (or blank) that value on the fleet; an extra one is a stale export.
     """
     expected = _expected_env_sources()
-    actual = _propagated_secret_env_keys(WORKFLOWS[name])
+    actual = _propagated_secret_env_keys(WORKFLOWS["apply"])
 
     assert actual == expected, (
-        f"{WORKFLOWS[name].name} secret env exports drifted from config/ value_from_env: "
+        f"apply-config.yml secret env exports drifted from config/ value_from_env: "
         f"missing={expected - actual}, extra={actual - expected}"
+    )
+
+
+def test_plan_exports_no_secret_values() -> None:
+    """Plan must export NO secret values — they're write-only, resolved only at apply.
+
+    plan is read-only and resolves only VARIABLE values (diff-input); secret values (Actions and
+    webhook) are write-only payload resolved at apply, so exporting them into the PR-triggered
+    plan job is needless secret exposure. This is the deliberate divergence from apply. (Variable
+    ``value_from_env`` sources, if any, ride as ``${{ vars.X }}`` — non-secret and outside this
+    secrets-only guard; the fleet has none today, per the lock above.)
+    """
+    actual = _propagated_secret_env_keys(WORKFLOWS["plan"])
+
+    assert actual == set(), (
+        f"plan-config.yml must export no secret values (secrets resolve at apply, not plan); "
+        f"found stale secret exports: {actual}"
     )

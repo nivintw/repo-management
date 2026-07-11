@@ -103,6 +103,8 @@ webhooks:
     )
     # Only env-backed values appear; the inline-valued secret contributes nothing.
     assert config.env_sources() == {"TOK_ENV", "VAR_ENV", "HOOK_ENV"}
+    # variable_env_sources is the plan-side subset: variable value_from_env only (no secrets).
+    assert config.variable_env_sources() == {"VAR_ENV"}
 
 
 def test_env_sources_empty_without_env_backed_values(tmp_path: Path) -> None:

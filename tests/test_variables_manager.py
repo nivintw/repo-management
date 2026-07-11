@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from conftest import make_variable
 
 from repo_management.changes import Action
-from repo_management.config import SharedConfig, Variable
+from repo_management.config import ConfigError, SharedConfig, Variable
 from repo_management.managers.variables import VariablesManager
 
 
@@ -73,6 +74,32 @@ def test_variable_value_from_env_is_resolved(repo: MagicMock, monkeypatch) -> No
     assert changes[0].after == "ap-south-1"
     changes[0].apply()
     repo.create_variable.assert_called_once_with("REGION", "ap-south-1")
+
+
+def test_unresolvable_variable_is_a_diagnostic_not_a_crash(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A variable whose value can't be resolved becomes a diagnostic without aborting the plan.
+
+    Unlike a secret, a variable's value is diff-input, so it's resolved at plan time. But one
+    truly-absent value must not hide the rest of the plan: the stale delete still shows, and the
+    unresolvable variable is a `!` diagnostic that makes the plan a hard failure.
+    """
+    monkeypatch.delenv("VAR_SRC", raising=False)
+    stale = make_variable("STALE", "old")
+    repo.get_variables.return_value = [stale]
+    desired = SharedConfig(variables=[Variable(name="REGION", value_from_env="VAR_SRC")])
+
+    changes = VariablesManager().plan(repo, desired)  # must not raise
+
+    by_target = {change.target: change for change in changes}
+    assert by_target["variable:STALE"].action is Action.DELETE  # the rest of the plan survives
+    problem = by_target["variable:REGION"]
+    assert problem.unresolved
+    assert problem.describe().startswith("! [variables] variable:REGION:")
+    # The diagnostic is never applied (the CLI refuses first), but fails loud if it ever were.
+    with pytest.raises(ConfigError):
+        problem.apply()
 
 
 def test_unlisted_variable_is_deleted(repo: MagicMock) -> None:

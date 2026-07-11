@@ -41,6 +41,12 @@ class Change:
         after: The desired value (``None`` for a deletion).
         apply: Callable performing the write against the GitHub API.
         secret: When true, ``before``/``after`` are redacted in :meth:`describe`.
+        error: When set, this is not a change to apply but a *diagnostic* — a desired value
+            that could not be resolved (see :attr:`unresolved`). ``describe`` renders it as a
+            ``!`` line, the CLI reports it and exits non-zero, and it is never applied. Only the
+            variables path emits these; a variable's value is shown in the plan and compared to
+            decide update-vs-no-op, so an unresolvable one can't be diffed and is surfaced rather
+            than crashing the whole plan. ``action`` is nominal on a diagnostic and unused.
     """
 
     domain: str
@@ -50,9 +56,17 @@ class Change:
     after: object | None
     apply: Callable[[], None]
     secret: bool = False
+    error: str | None = None
+
+    @property
+    def unresolved(self) -> bool:
+        """Whether this is a diagnostic for an unresolvable value, not a change to apply."""
+        return self.error is not None
 
     def describe(self) -> str:
-        """Return a one-line, human-readable summary of the change."""
+        """Return a one-line, human-readable summary of the change (or diagnostic)."""
+        if self.error is not None:
+            return f"! [{self.domain}] {self.target}: {self.error}"
         before = self._render(self.before)
         after = self._render(self.after)
         if self.action is Action.CREATE:

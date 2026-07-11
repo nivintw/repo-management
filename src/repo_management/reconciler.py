@@ -34,6 +34,16 @@ class RepoPlan:
         """Whether the repository already matches the desired config."""
         return not self.changes
 
+    @property
+    def actionable(self) -> list[Change]:
+        """The changes to apply — everything but unresolved-value diagnostics."""
+        return [change for change in self.changes if not change.unresolved]
+
+    @property
+    def problems(self) -> list[Change]:
+        """The unresolved-value diagnostics — values that couldn't be resolved for the diff."""
+        return [change for change in self.changes if change.unresolved]
+
 
 def plan_repo(
     repo: Repository,
@@ -84,6 +94,10 @@ def _has_env_sourced_secret(config: Config) -> bool:
 
 
 def apply_plan(plan: RepoPlan) -> None:
-    """Apply every change in a plan, in order."""
-    for change in plan.changes:
+    """Apply every actionable change in a plan, in order.
+
+    Skips unresolved-value diagnostics (they carry no write); the CLI refuses to apply a plan
+    that has any before reaching here, so this only ever sees actionable changes in practice.
+    """
+    for change in plan.actionable:
         change.apply()

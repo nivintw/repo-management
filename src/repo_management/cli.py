@@ -215,8 +215,14 @@ def plan(
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
-    total = sum(len(item.changes) for item in plans)
+    total = sum(len(item.actionable) for item in plans)
     console.print(f"\n{total} change(s) across {len(plans)} repo(s).")
+    # A variable whose desired value can't be resolved is shown as a `!` line above rather than
+    # aborting the plan mid-build; report the count and exit non-zero so it's a hard failure.
+    problems = sum(len(item.problems) for item in plans)
+    if problems:
+        msg = f"{problems} unresolved value(s) — see the ! line(s) above."
+        raise _fail(msg)
 
 
 @app.command()
@@ -233,7 +239,13 @@ def apply(
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
-    total = sum(len(item.changes) for item in plans)
+    # Refuse to apply a plan with any unresolvable value — fail fast before writing anything,
+    # rather than resolving the rest and blowing up partway through.
+    problems = sum(len(item.problems) for item in plans)
+    if problems:
+        msg = f"{problems} unresolved value(s) — resolve them and re-run; nothing was applied."
+        raise _fail(msg)
+    total = sum(len(item.actionable) for item in plans)
     if total == 0:
         console.print("\n[green]nothing to do[/green]")
         return

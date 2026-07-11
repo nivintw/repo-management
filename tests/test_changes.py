@@ -41,6 +41,21 @@ def test_secret_values_redacted() -> None:
     assert "value" not in text
 
 
+def test_describe_diagnostic() -> None:
+    """A change carrying an error renders as a `!` diagnostic line, not create/update/delete."""
+    change = Change(
+        "variables", Action.UPDATE, "variable:REGION", None, None, _noop, error="env FOO not set"
+    )
+    assert change.unresolved is True
+    assert change.describe() == "! [variables] variable:REGION: env FOO not set"
+
+
+def test_ordinary_change_is_not_unresolved() -> None:
+    """A change with no error is not a diagnostic."""
+    change = Change("settings", Action.UPDATE, "description", "old", "new", _noop)
+    assert change.unresolved is False
+
+
 def test_apply_is_invoked() -> None:
     """The apply callable runs the stored side effect."""
     calls: list[int] = []
