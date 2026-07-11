@@ -63,6 +63,16 @@ or it lists the pending changes, one indented line per change:
 {total} change(s) across {n} repo(s).
 ```
 
+Because secret values are write-only payload — resolved only when `apply` writes them, never
+to build the diff — `plan` is a true read-only preview that needs **no secret values present**;
+it still shows every would-set / update / delete line for secrets. A **variable** value *is*
+needed to compute its diff, so one whose `value_from_env` source is unset prints as a `!` line
+and makes `plan` exit non-zero — without hiding the rest of the diff:
+
+```text
+  ! [domain] target: {reason the value couldn't be resolved}
+```
+
 !!! note
     Secret values are always redacted in output as `<redacted>`, regardless of `--force-secrets` — the redaction is unconditional on the change itself, not a function of the flag. `--force-secrets` only controls whether an already-present secret is re-planned for rotation in the first place; it never controls whether a secret's value is printed. Variable values, by contrast, are shown in plaintext, so don't put anything sensitive in a `variables:` entry — use a secret instead.
 

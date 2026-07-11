@@ -38,6 +38,11 @@ Secret values are write-only: GitHub never returns them, so apply never diffs th
 value against the declared one. By default a secret already present on the repo is left
 alone — re-pushing it every apply would be pure churn. Values are never printed in plans.
 
+Because the value is write-only payload — never shown, never diffed — a secret is resolved
+only when `apply` performs the write, not while building the diff. So `plan` shows every
+would-set / would-update / would-delete line **without needing any secret value present** in
+the environment; a missing `value_from_env` source surfaces as an error at `apply`, not `plan`.
+
 Two things override that skip-if-exists default for an existing secret:
 
 - **`--force-secrets`** (on both `plan` and `apply`) re-pushes *every* declared secret
@@ -80,4 +85,10 @@ Two things override that skip-if-exists default for an existing secret:
 
 Variable values are readable on GitHub and shown in plain text in plans. Unlike secrets, an
 existing variable is only pushed when its resolved value actually differs from what's on
-the repo.
+the repo — so a variable's value *is* resolved at `plan` time (it's needed to compute the
+diff).
+
+A variable whose `value_from_env` source is unset or empty can't be diffed, so it's reported
+as a per-item `!` error line and makes the plan exit non-zero. It does **not** abort the rest
+of the plan — every other repo, section, and resolvable variable still prints, so one missing
+value never hides the whole diff.
