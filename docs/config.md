@@ -350,12 +350,26 @@ repos:
 
 ## Environment-sourced values
 
-`value_from_env` (secrets, variables) and `secret_from_env` (webhooks) are resolved when a
-plan or apply actually runs — not when the config is loaded and validated, so schema checks
-don't require any secrets to be present in the environment.
+`value_from_env` (secrets, variables) and `secret_from_env` (webhooks) read from the
+environment — not when the config is loaded and validated, so schema checks require no secrets
+present. Each value is resolved **at the point it's consumed**, and that differs by kind
+because `plan` and `apply` differ only in writes:
+
+- **Secret values** — Actions secrets and webhook secrets — are write-only payload: never
+  shown, never diffed (create/update/delete is decided by name presence and the re-push
+  policy). So they're resolved only when `apply` performs the write. A read-only `plan` shows
+  every would-set / would-update / would-delete line **without any secret value present**, and
+  never fails on a missing one.
+- **Variable values** are shown in the plan and compared against the repo's current value to
+  decide update-vs-no-op, so they're resolved at `plan` time. A variable whose value can't be
+  resolved becomes a per-item error that still lets the rest of the plan print (see below) —
+  it never aborts the whole diff.
 
 !!! warning
-    An env var that's **unset or empty** is a hard error at resolve time, and the two are
-    treated identically on purpose: in GitHub Actions, `${{ secrets.X }}` for an unset secret
-    expands to an empty string rather than failing the expression, so a presence-only check
-    would silently propagate an empty value to every managed repo instead of failing loudly.
+    An env var that's **unset or empty** is a hard error, and the two are treated identically
+    on purpose: in GitHub Actions, `${{ secrets.X }}` for an unset secret expands to an empty
+    string rather than failing the expression, so a presence-only check would silently propagate
+    an empty value to every managed repo instead of failing loudly. **Where** that error
+    surfaces follows the resolution point above: for a **secret**, at `apply` (the write); for a
+    **variable**, at `plan` — as a `!` line that makes the plan exit non-zero while still
+    printing every resolvable change.
