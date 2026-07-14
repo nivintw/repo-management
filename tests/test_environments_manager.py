@@ -230,6 +230,35 @@ def test_new_environment_unresolvable_variable_degrades_to_diagnostic(
         diagnostic.apply()
 
 
+def test_new_environment_variable_vanishing_before_apply_is_a_clean_error(
+    repo: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A variable gone by the write (resolvable at plan) surfaces as ConfigError, not RuntimeError.
+
+    The env-create apply re-runs plan_variables against the fresh environment, which can emit a
+    diagnostic if a value vanished after plan-build (TOCTOU). Its apply() raises RuntimeError,
+    which the CLI wouldn't map to a clean exit — so the create guards it into a ConfigError.
+    """
+    monkeypatch.setenv("REGION_SRC", "us-east-1")
+    repo.get_environments.return_value = []
+    repo.create_environment.return_value = _make_environment("prod")  # get_variables() -> []
+    desired = SharedConfig(
+        environments=[
+            Environment(
+                name="prod", variables=[Variable(name="REGION", value_from_env="REGION_SRC")]
+            )
+        ]
+    )
+
+    changes = EnvironmentsManager().plan(repo, desired)  # resolves fine -> actionable create
+    create = next(c for c in changes if c.action is Action.CREATE)
+    assert not any(change.unresolved for change in changes)
+
+    monkeypatch.delenv("REGION_SRC")  # the value vanishes before the write
+    with pytest.raises(ConfigError):
+        create.apply()
+
+
 def test_existing_environment_in_sync_is_noop(repo: MagicMock) -> None:
     """An existing environment already matching produces no change."""
     current = _make_environment("prod", wait_timer=30)
