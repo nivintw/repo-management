@@ -51,11 +51,24 @@ _VAR_REF = re.compile(r"\$\{\{\s*vars\.")
 
 @functools.lru_cache(maxsize=1)
 def _expected_env_sources() -> frozenset[str]:
-    """The fleet's ``value_from_env`` set, from config.fleet_env_sources (the single source).
+    """The fleet's full env-source set, from config.fleet_env_sources (the single source).
 
-    Cached — the configs don't change within a test run, and this is read once per case.
+    The union of secret ``value_from_env`` + variable ``value_from_env`` + webhook
+    ``secret_from_env``. Cached — the configs don't change within a test run.
     """
     return frozenset(fleet_env_sources(CONFIG_DIR))
+
+
+@functools.lru_cache(maxsize=1)
+def _expected_secret_env_sources() -> frozenset[str]:
+    """The ``secrets``-context subset: the full set minus the variable ``value_from_env`` sources.
+
+    Secret and webhook-secret sources are exported as ``${{ secrets.X }}``; variable sources as
+    ``${{ vars.X }}``. So the ``secrets.``-context exports must equal the full set *without* the
+    variable subset — comparing against the full :func:`fleet_env_sources` would spuriously fail
+    the moment a config adds an env-sourced variable (exported via ``vars.``, not ``secrets.``).
+    """
+    return _expected_env_sources() - frozenset(fleet_variable_env_sources(CONFIG_DIR))
 
 
 def _propagated_env_keys(workflow: Path, ref: re.Pattern[str]) -> set[str]:
@@ -145,17 +158,18 @@ def test_configs_declare_the_expected_env_sources() -> None:
 
 
 def test_apply_exports_exactly_the_secret_sources() -> None:
-    """Apply must export exactly the configs' full value_from_env set — no drift.
+    """Apply's ``secrets``-context exports must equal the secret + webhook-secret sources.
 
-    apply resolves and propagates every secret AND variable value plus webhook secrets, so its
-    CLI step exports the full :func:`fleet_env_sources`. A missing name means apply would fail to
-    propagate (or blank) that value on the fleet; an extra one is a stale export.
+    apply propagates every value, but secret and webhook-secret sources ride as ``${{ secrets.X }}``
+    while variable sources ride as ``${{ vars.X }}`` (asserted separately). So the ``secrets.``
+    exports must equal the full set minus the variable subset — a missing name means apply would
+    fail to propagate (or blank) that value on the fleet; an extra one is a stale export.
     """
-    expected = _expected_env_sources()
+    expected = _expected_secret_env_sources()
     actual = _propagated_secret_env_keys(WORKFLOWS["apply"])
 
     assert actual == expected, (
-        f"apply-config.yml secret env exports drifted from config/ value_from_env: "
+        f"apply-config.yml secret env exports drifted from config secret/webhook sources: "
         f"missing={expected - actual}, extra={actual - expected}"
     )
 

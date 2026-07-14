@@ -87,9 +87,9 @@ jobs:
           # plan resolves only VARIABLE values — they're shown in the diff and compared to decide
           # update-vs-no-op. Secret values (Actions and webhook) are write-only payload resolved
           # only at apply, so a read-only plan needs none of them and exports none. apply-config.yml
-          # exports the secret set (fleet_env_sources); plan exports only the variable subset
-          # (fleet_variable_env_sources), which for this repo's configs is empty. Enforced by
-          # tests/test_workflow_secrets.py (#39).
+          # exports the full env-source set (fleet_env_sources: secret + variable + webhook-secret
+          # sources); plan exports only the variable subset (fleet_variable_env_sources), which for
+          # this repo's configs is empty. Enforced by tests/test_workflow_secrets.py (#39).
           # Render rich output as plain, wide text for the summary (no TTY in CI).
           NO_COLOR: "1"
           COLUMNS: "200"
