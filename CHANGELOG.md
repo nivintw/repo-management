@@ -7,6 +7,15 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.11.1](https://github.com/nivintw/repo-management/compare/v1.11.0...v1.11.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **apply:** preflight every write's payload so a missing secret aborts cleanly ([0b94273](https://github.com/nivintw/repo-management/commit/0b94273e8d5dea92c639285bb04b64287e34a5e8)), closes [#148](https://github.com/nivintw/repo-management/issues/148)
+* **environments:** map a write-time unresolved variable to ConfigError ([f6f6255](https://github.com/nivintw/repo-management/commit/f6f6255061f0ea5470a6f5356b032835e6275d97)), closes [#148](https://github.com/nivintw/repo-management/issues/148)
+* **secrets:** resolve values at consumption so plan never crashes on unset env ([bb9c4b6](https://github.com/nivintw/repo-management/commit/bb9c4b6e0225cc0f587503b11be4342aef0d46c2)), closes [#148](https://github.com/nivintw/repo-management/issues/148)
+
 ## [1.11.0](https://github.com/nivintw/repo-management/compare/v1.10.0...v1.11.0) (2026-07-09)
 
 
