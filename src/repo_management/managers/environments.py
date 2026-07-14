@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         Environment,
         Reviewer,
         SharedConfig,
+        Variable,
     )
 
 
@@ -255,8 +256,7 @@ class EnvironmentsManager:
                 for change in plan_secrets(env, item.secrets, domain=self.domain):
                     change.apply()
             if item.variables is not None:
-                for change in plan_variables(env, item.variables, domain=self.domain):
-                    change.apply()
+                _apply_env_variables(env, item.variables, self.domain)
             # create_environment set custom_branch_policies; register the declared patterns
             # against the now-real environment, the same fold-in used for secrets/variables.
             for pattern in patterns or []:
@@ -330,6 +330,20 @@ def _resolve_secret_values(item: Environment) -> None:
     """Resolve every declared secret's value (discarding it) — an environment-create preflight."""
     for secret in item.secrets or []:
         secret.resolve()
+
+
+def _apply_env_variables(env: GhEnvironment, variables: list[Variable], domain: str) -> None:
+    """Push a new environment's variables, mapping a write-time unresolved value to ConfigError.
+
+    plan_variables can emit an unresolved-value diagnostic if a value resolved at plan-build but
+    vanished before this write (a TOCTOU). A diagnostic's apply() raises RuntimeError, which the
+    CLI doesn't map to a clean exit, so surface it as ConfigError to match the CLI's handling.
+    """
+    for change in plan_variables(env, variables, domain=domain):
+        if change.unresolved:
+            msg = change.error or "unresolved variable value"
+            raise ConfigError(msg)
+        change.apply()
 
 
 def _patterns_url(repo: Repository, env_name: str) -> str:
