@@ -11,7 +11,7 @@ import pytest
 from conftest import make_variable
 
 from repo_management.changes import Action
-from repo_management.config import ConfigError, SharedConfig, Variable
+from repo_management.config import SharedConfig, Variable
 from repo_management.managers.variables import VariablesManager
 
 
@@ -98,7 +98,7 @@ def test_unresolvable_variable_is_a_diagnostic_not_a_crash(
     assert problem.unresolved
     assert problem.describe().startswith("! [variables] variable:REGION:")
     # The diagnostic is never applied (the CLI refuses first), but fails loud if it ever were.
-    with pytest.raises(ConfigError):
+    with pytest.raises(RuntimeError):
         problem.apply()
 
 

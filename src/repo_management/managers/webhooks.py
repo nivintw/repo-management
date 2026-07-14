@@ -71,6 +71,9 @@ class WebhooksManager:
         def apply() -> None:
             repo.create_hook(_HOOK_NAME, _config(webhook), events=events, active=active)
 
+        def preflight() -> None:
+            webhook.resolve_secret()
+
         return Change(
             domain=self.domain,
             action=Action.CREATE,
@@ -78,6 +81,7 @@ class WebhooksManager:
             before=None,
             after=_display(webhook),
             apply=apply,
+            preflight=preflight,
         )
 
     def _update(self, current: Hook, webhook: Webhook) -> Change:
@@ -88,6 +92,9 @@ class WebhooksManager:
         def apply() -> None:
             current.edit(_HOOK_NAME, _config(webhook), events=events, active=active)
 
+        def preflight() -> None:
+            webhook.resolve_secret()
+
         return Change(
             domain=self.domain,
             action=Action.UPDATE,
@@ -95,6 +102,7 @@ class WebhooksManager:
             before=_display_hook(current),
             after=_display(webhook),
             apply=apply,
+            preflight=preflight,
         )
 
 

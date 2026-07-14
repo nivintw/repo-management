@@ -226,7 +226,7 @@ def test_new_environment_unresolvable_variable_degrades_to_diagnostic(
     assert "unresolved" in cast("dict", create.after)["variables"]["REGION"]
     diagnostic = next(c for c in changes if c.unresolved)
     assert diagnostic.target == "environment:prod:variable:REGION"
-    with pytest.raises(ConfigError):
+    with pytest.raises(RuntimeError):
         diagnostic.apply()
 
 

@@ -45,6 +45,8 @@ WORKFLOWS = {
 _SECRET_REF = re.compile(r"\$\{\{\s*secrets\.")
 # The same, but capturing the referenced secret name (``GIST_PAT`` from the example above).
 _SECRET_REF_NAME = re.compile(r"\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}")
+# An ``env:`` value that pulls from the variables context, e.g. ``${{ vars.DEPLOY_REGION }}``.
+_VAR_REF = re.compile(r"\$\{\{\s*vars\.")
 
 
 @functools.lru_cache(maxsize=1)
@@ -56,16 +58,16 @@ def _expected_env_sources() -> frozenset[str]:
     return frozenset(fleet_env_sources(CONFIG_DIR))
 
 
-def _propagated_secret_env_keys(workflow: Path) -> set[str]:
-    """Secret-sourced env-var names on the step that runs the CLI (the propagation step).
+def _propagated_env_keys(workflow: Path, ref: re.Pattern[str]) -> set[str]:
+    """Env-var names on the step that runs the CLI whose value matches ``ref`` (secrets/vars).
 
-    apply/plan propagate each ``value_from_env`` secret by exporting it in the ``env:`` of the
+    apply/plan propagate each ``value_from_env`` source by exporting it in the ``env:`` of the
     single step that runs ``repo-management apply``/``plan``; the CLI reads it via
     ``os.environ``. We scan ONLY that step — matched by its ``run:`` invoking
     ``repo-management`` — not the whole workflow: a secret in the preflight GATE step (a
     *separate job*, e.g. the ``CI_APP_PRIVATE_KEY`` presence check) must not mask its absence
     from the propagation step, and per-job env doesn't cross jobs at runtime anyway. Reads the
-    env-var KEY (what the CLI looks up), not the secret it references. NOTE: counts ``env:``
+    env-var KEY (what the CLI looks up), not the context name it references. NOTE: counts ``env:``
     only — the mint credential reaches the mint-app-token action via ``with:`` (an action
     input), so it's correctly excluded; keep mint inputs in ``with:``, never ``env:``.
     """
@@ -79,9 +81,19 @@ def _propagated_secret_env_keys(workflow: Path) -> set[str]:
             keys.update(
                 key
                 for key, value in (step.get("env") or {}).items()
-                if isinstance(value, str) and _SECRET_REF.search(value)
+                if isinstance(value, str) and ref.search(value)
             )
     return keys
+
+
+def _propagated_secret_env_keys(workflow: Path) -> set[str]:
+    """The CLI step's ``${{ secrets.X }}``-sourced env-var names."""
+    return _propagated_env_keys(workflow, _SECRET_REF)
+
+
+def _propagated_var_env_keys(workflow: Path) -> set[str]:
+    """The CLI step's ``${{ vars.X }}``-sourced env-var names (variable value sources)."""
+    return _propagated_env_keys(workflow, _VAR_REF)
 
 
 def _propagated_secret_env_pairs(workflow: Path) -> dict[str, str]:
@@ -144,6 +156,24 @@ def test_apply_exports_exactly_the_secret_sources() -> None:
 
     assert actual == expected, (
         f"apply-config.yml secret env exports drifted from config/ value_from_env: "
+        f"missing={expected - actual}, extra={actual - expected}"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(WORKFLOWS))
+def test_workflow_exports_exactly_the_variable_sources(name: str) -> None:
+    """Both workflows must export exactly the fleet's variable value_from_env set as ${{ vars.X }}.
+
+    Variable values are diff-input — `plan` resolves them to build the diff and `apply` to write
+    them — so BOTH workflows must export their sources (as `vars.`, since variables are
+    non-secret). Empty today (no env-sourced variables), so this locks that adding one without
+    the matching `${{ vars.X }}` line in *both* workflows fails here, not only at runtime.
+    """
+    expected = frozenset(fleet_variable_env_sources(CONFIG_DIR))
+    actual = _propagated_var_env_keys(WORKFLOWS[name])
+
+    assert actual == expected, (
+        f"{WORKFLOWS[name].name} variable env exports drifted from config variable sources: "
         f"missing={expected - actual}, extra={actual - expected}"
     )
 
