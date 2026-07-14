@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from repo_management.changes import REDACTED, Action, Change
 
 
@@ -54,6 +56,23 @@ def test_ordinary_change_is_not_unresolved() -> None:
     """A change with no error is not a diagnostic."""
     change = Change("settings", Action.UPDATE, "description", "old", "new", _noop)
     assert change.unresolved is False
+
+
+def test_diagnostic_constructor() -> None:
+    """Change.diagnostic builds an inert, unresolved diagnostic that renders as a `!` line."""
+    diagnostic = Change.diagnostic("variables", "variable:REGION", "env FOO not set")
+    assert diagnostic.unresolved
+    assert (diagnostic.before, diagnostic.after, diagnostic.preflight) == (None, None, None)
+    assert diagnostic.describe() == "! [variables] variable:REGION: env FOO not set"
+    # Never applied on the happy path; fails loud if it ever is.
+    with pytest.raises(RuntimeError):
+        diagnostic.apply()
+
+
+def test_diagnostic_invariant_rejects_a_payload() -> None:
+    """A hand-built Change with an error must not also carry a before/after/preflight payload."""
+    with pytest.raises(ValueError, match="diagnostic"):
+        Change("variables", Action.UPDATE, "variable:X", "old", None, _noop, error="unset")
 
 
 def test_apply_is_invoked() -> None:

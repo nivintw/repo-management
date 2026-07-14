@@ -153,6 +153,11 @@ def _upsert_secret(
     def apply() -> None:
         container.create_secret(secret.name, secret.resolve())
 
+    # preflight resolves the value without writing, so apply can validate every secret up front
+    # and abort with nothing written if one is missing (plan still never resolves it).
+    def preflight() -> None:
+        secret.resolve()
+
     return Change(
         domain=domain,
         action=Action.UPDATE if exists else Action.CREATE,
@@ -161,6 +166,7 @@ def _upsert_secret(
         after="(set)",
         apply=apply,
         secret=True,
+        preflight=preflight,
     )
 
 
@@ -212,23 +218,9 @@ def unresolved_variable(name: str, message: str, domain: str, target_prefix: str
 
     Shared with :class:`~repo_management.managers.environments.EnvironmentsManager`, which also
     resolves variable values (for a brand-new environment's display) and must degrade the same
-    way. The returned change carries an ``error`` (so the CLI reports it and exits non-zero) and
-    an ``apply`` that re-raises — it is never applied (the CLI refuses a plan with unresolved
-    values before writing anything), but fails loud if it ever were.
+    way. Thin wrapper over :meth:`Change.diagnostic` that just builds the variable target.
     """
-
-    def apply() -> None:
-        raise ConfigError(message)
-
-    return Change(
-        domain=domain,
-        action=Action.UPDATE,  # nominal; a diagnostic renders via `error`, never as an action.
-        target=f"{target_prefix}variable:{name}",
-        before=None,
-        after=None,
-        apply=apply,
-        error=message,
-    )
+    return Change.diagnostic(domain, f"{target_prefix}variable:{name}", message)
 
 
 def _create_variable(

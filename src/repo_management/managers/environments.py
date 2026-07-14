@@ -282,6 +282,11 @@ class EnvironmentsManager:
             before=None,
             after=after,
             apply=apply,
+            # A new environment's declared secrets are all created inside apply, resolving each
+            # value at write time; preflight resolves them up front so apply aborts before
+            # create_environment if a value is missing, rather than half-creating the environment.
+            # Variables are already resolved above (failures became diagnostics), so only secrets.
+            preflight=lambda: _resolve_secret_values(item),
         )
         return [create, *diagnostics]
 
@@ -319,6 +324,12 @@ class EnvironmentsManager:
             after=None,
             apply=apply,
         )
+
+
+def _resolve_secret_values(item: Environment) -> None:
+    """Resolve every declared secret's value (discarding it) — an environment-create preflight."""
+    for secret in item.secrets or []:
+        secret.resolve()
 
 
 def _patterns_url(repo: Repository, env_name: str) -> str:

@@ -79,6 +79,29 @@ def test_new_secret_apply_errors_when_value_truly_absent(
         change.apply()
 
 
+def test_new_secret_carries_a_preflight(repo: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The create change carries a preflight that resolves the value without writing.
+
+    apply runs every preflight before the first write, so a missing secret aborts with nothing
+    written (the pre-write, all-or-nothing guarantee) even though the value resolves lazily.
+    """
+    monkeypatch.delenv("SECRET_SRC", raising=False)
+    repo.get_secrets.return_value = []
+    desired = SharedConfig(secrets=[Secret(name="TOK", value_from_env="SECRET_SRC")])
+
+    change = SecretsManager().plan(repo, desired)[0]
+    preflight = change.preflight
+    assert preflight is not None
+    with pytest.raises(ConfigError):  # value absent -> preflight fails before any write
+        preflight()
+    repo.create_secret.assert_not_called()
+    monkeypatch.setenv("SECRET_SRC", "v")
+    resolvable = SecretsManager().plan(repo, desired)[0].preflight
+    assert resolvable is not None
+    resolvable()  # resolvable -> no-op, still no write
+    repo.create_secret.assert_not_called()
+
+
 def test_existing_secret_is_skipped(repo: MagicMock) -> None:
     """A secret already present is left untouched by default — no churn, no resolve."""
     repo.get_secrets.return_value = [make_secret("EXISTING_SECRET")]

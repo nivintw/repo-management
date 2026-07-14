@@ -31,8 +31,12 @@ class RepoPlan:
 
     @property
     def in_sync(self) -> bool:
-        """Whether the repository already matches the desired config."""
-        return not self.changes
+        """Whether the repository already matches the desired config.
+
+        False if there's anything to apply *or* any unresolved value — a plan that couldn't
+        resolve a value isn't "in sync", we just couldn't compute its diff.
+        """
+        return not self.actionable and not self.problems
 
     @property
     def actionable(self) -> list[Change]:

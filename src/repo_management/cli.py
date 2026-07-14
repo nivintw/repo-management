@@ -115,11 +115,18 @@ def _api_errors() -> Iterator[None]:
 
 
 def _print_changes(title: str, changes: list[Change]) -> None:
-    """Print a plan: an in-sync line, or a header plus one line per change."""
+    """Print a plan: an in-sync line, or a header plus one line per change (and diagnostic)."""
     if not changes:
         console.print(f"[green]✓[/green] [bold]{title}[/bold]: in sync")
         return
-    console.print(f"[bold]{title}[/bold] — {len(changes)} change(s):")
+    # Count real changes and unresolved-value diagnostics separately — a diagnostic is a `!`
+    # problem line, not a change, so folding it into the change count would mislead.
+    actionable = sum(1 for change in changes if not change.unresolved)
+    problems = sum(1 for change in changes if change.unresolved)
+    header = f"{actionable} change(s)"
+    if problems:
+        header += f", {problems} unresolved"
+    console.print(f"[bold]{title}[/bold] — {header}:")
     for change in changes:
         console.print(f"  {change.describe()}")
 
@@ -166,6 +173,22 @@ def _plans(config: Config, token: str | None, *, force_secrets: bool = False) ->
 
 def _print_plan(plan: RepoPlan) -> None:
     _print_changes(plan.repo_name, plan.changes)
+
+
+def _preflight(plans: list[RepoPlan]) -> None:
+    """Resolve every write's payload (secret values) before any write, so a missing one aborts.
+
+    Secret values resolve lazily at the write, so a missing one wouldn't surface until mid-apply;
+    running every change's ``preflight`` up front restores apply's pre-write, all-or-nothing
+    guarantee. ``plan`` never calls this — secrets are write-only, resolved only when applying.
+    """
+    try:
+        for plan in plans:
+            for change in plan.actionable:
+                if change.preflight is not None:
+                    change.preflight()
+    except ConfigError as exc:
+        raise _fail(str(exc)) from exc
 
 
 @app.command()
@@ -249,6 +272,7 @@ def apply(
     if total == 0:
         console.print("\n[green]nothing to do[/green]")
         return
+    _preflight(plans)
     if not yes and not typer.confirm(f"\nApply {total} change(s)?"):
         msg = "aborted"
         raise _fail(msg)
@@ -257,6 +281,11 @@ def apply(
             apply_plan(repo_plan)
         except GithubException as exc:
             msg = f"applying {repo_plan.repo_name}: {exc.data or exc}"
+            raise _fail(msg) from exc
+        except ConfigError as exc:
+            # A value that preflight resolved could vanish before the write (env unset mid-run);
+            # surface it as a clean error, never an uncaught traceback.
+            msg = f"applying {repo_plan.repo_name}: {exc}"
             raise _fail(msg) from exc
     console.print(f"\n[green]✓ applied {total} change(s)[/green]")
 

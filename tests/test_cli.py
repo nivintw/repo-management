@@ -230,6 +230,45 @@ def test_apply_refuses_when_a_value_is_unresolved(
     assert called == []  # nothing was applied
 
 
+def test_apply_preflight_refuses_missing_secret_with_zero_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A secret whose value can't be resolved aborts apply before any write (preflight pass).
+
+    Secret values resolve lazily at the write, so they never become plan-time diagnostics; the
+    preflight pass is what restores apply's pre-write, all-or-nothing guarantee for them.
+    """
+
+    def _bad_preflight() -> None:
+        msg = "environment variable 'TOK_SRC' is not set or is empty"
+        raise ConfigError(msg)
+
+    applied: list[str] = []
+    change = Change(
+        "secrets",
+        Action.CREATE,
+        "secret:TOK",
+        None,
+        "(set)",
+        lambda: applied.append("TOK"),
+        secret=True,
+        preflight=_bad_preflight,
+    )
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [change])]
+    )
+    ran: list[str] = []
+    monkeypatch.setattr(cli, "apply_plan", lambda plan: ran.append(plan.repo_name))
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
+
+    assert result.exit_code == 1
+    assert applied == []  # the write closure never ran
+    assert ran == []  # apply_plan never reached — aborted before the write loop
+    assert "TOK_SRC" in result.stderr
+
+
 def test_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Apply on an in-sync repo does nothing."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
