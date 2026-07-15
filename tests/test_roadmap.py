@@ -89,16 +89,32 @@ def _board(
 class FakeGQL:
     """Records mutations; replays queued board-fetch responses for `fetch_board`."""
 
-    def __init__(self, *pages: dict[str, Any]) -> None:
-        """Seed the ordered board-fetch page responses (empty for mutation-only use)."""
+    def __init__(self, *pages: dict[str, Any], boards: list[dict[str, Any]] | None = None) -> None:
+        """Seed the ordered board-fetch page responses (empty for mutation-only use).
+
+        ``boards`` seeds the owner's boards for a ``title``-addressed config's lookup; a
+        number-addressed config never issues that query.
+        """
         self._pages = list(pages)
+        self._boards = boards or []
         self.mutations: list[Any] = []
+        self.lookups = 0
 
     def query(self, document: str, /, **_variables: object) -> dict[str, Any]:
-        """Record a mutation input, or pop the next queued board-fetch page."""
+        """Record a mutation input, answer a board lookup, or pop the next board-fetch page."""
         if "mutation" in document:
             self.mutations.append(_variables["input"])
             return {}
+        if "projectsV2(first:" in document:
+            self.lookups += 1
+            return {
+                "user": {
+                    "projectsV2": {
+                        "nodes": self._boards,
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    }
+                }
+            }
         return self._pages.pop(0)
 
 
@@ -378,6 +394,14 @@ def _config() -> ProjectsConfig:
     )
 
 
+def _titled_config() -> ProjectsConfig:
+    return ProjectsConfig(
+        owner="nivintw",
+        title="Fleet Roadmap",
+        fields=[ProjectField(name="Status", options=[ProjectFieldOption(name="Todo")])],
+    )
+
+
 def test_fetch_board_parses_and_paginates() -> None:
     """fetch_board walks pages, parses items/fields, and skips content-less nodes."""
     gql = FakeGQL(
@@ -396,6 +420,37 @@ def test_fetch_board_parses_and_paginates() -> None:
     assert board.items[0].status == "Todo"
     assert board.items[0].target == "2026-07-01"
     assert board.items[0].labels == ["status:ready"]
+
+
+def test_fetch_board_resolves_a_titled_board_once_across_pages() -> None:
+    """A title-addressed board is resolved ONCE, not re-looked-up for every page of items.
+
+    Pins the hoist of require_number out of the pagination loop: inside it, each extra page
+    would re-list every board the owner has.
+    """
+    gql = FakeGQL(
+        _page([_node(1, item_id="I1")], cursor="c"),
+        _page([_node(2, item_id="I2")]),
+        boards=[{"number": 2, "title": "Fleet Roadmap"}],
+    )
+    board = fetch_board(gql, _titled_config())
+
+    assert [item.number for item in board.items] == [1, 2]
+    assert gql.lookups == 1  # not once per page
+
+
+def test_fetch_board_on_a_missing_titled_board_raises() -> None:
+    """The automations only read a board — a title that doesn't exist yet is an error here."""
+    gql = FakeGQL(boards=[])
+    with pytest.raises(ProjectNotFoundError, match="create it with 'projects apply'"):
+        fetch_board(gql, _titled_config())
+
+
+def test_fetch_board_number_addressed_never_lists_boards() -> None:
+    """A number needs no lookup — the number IS the address."""
+    gql = FakeGQL(_page([_node(1, item_id="I1")]))
+    fetch_board(gql, _config())
+    assert gql.lookups == 0
 
 
 def test_fetch_board_missing_project_raises() -> None:

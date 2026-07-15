@@ -133,6 +133,13 @@ def _print_changes(title: str, changes: list[Change]) -> None:
 
 def _apply_changes(changes: list[Change], *, yes: bool) -> None:
     """Confirm (unless ``yes``), apply each change, and report — or note nothing to do."""
+    # Refuse a plan carrying an unresolvable value, before writing anything — the same gate
+    # the per-repo `apply` holds. A diagnostic's own apply() raises RuntimeError, so without
+    # this the confirm prompt would count it as a change and blow up partway through.
+    problems = [change for change in changes if change.unresolved]
+    if problems:
+        msg = f"{len(problems)} unresolved value(s) — resolve them and re-run; nothing was applied."
+        raise _fail(msg)
     if not changes:
         console.print("\n[green]nothing to do[/green]")
         return
@@ -330,10 +337,16 @@ def projects_plan(
     config: _ProjectsConfigOpt = Path("config/projects.yaml"),
     token: _TokenOpt = None,
 ) -> None:
-    """Show the changes needed to reconcile the board's field schema (no writes)."""
+    """Show the changes needed to reconcile the board (no writes)."""
     desired, changes = _project_changes(config, token)
     _print_changes(desired.label, changes)
-    console.print(f"\n{len(changes)} change(s).")
+    problems = [change for change in changes if change.unresolved]
+    console.print(f"\n{len(changes) - len(problems)} change(s).")
+    # Exit non-zero on an unresolvable value, as the per-repo `plan` does — otherwise a board
+    # that can never reach desired state still reports success.
+    if problems:
+        msg = f"{len(problems)} unresolved value(s) — see the ! line(s) above."
+        raise _fail(msg)
 
 
 @projects_app.command("apply")
@@ -343,10 +356,13 @@ def projects_apply(
     *,
     yes: _YesOpt = False,
 ) -> None:
-    """Apply the board field-schema changes to GitHub."""
+    """Apply the board changes to GitHub, creating the board first if it doesn't exist."""
     desired, changes = _project_changes(config, token)
     _print_changes(desired.label, changes)
-    _apply_changes(changes, yes=yes)
+    # Inside _api_errors because a board create resolves GitHub state *during* apply — unlike
+    # a field mutation, its closure can raise ProjectError, which would otherwise traceback.
+    with _api_errors():
+        _apply_changes(changes, yes=yes)
 
 
 # The roadmap automations (status / reconcile / insights) all read the board once, sharing

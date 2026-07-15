@@ -648,10 +648,16 @@ class ProjectsConfig(Strict):
     @field_validator("title")
     @classmethod
     def _title_non_empty(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
+        if value is None:
+            return None
+        # Canonicalize, don't just check: the title is matched against the live board by exact
+        # equality, so storing " Roadmap" unstripped would address a board no lookup can find
+        # — and every apply would create another one rather than adopting its own.
+        title = value.strip()
+        if not title:
             msg = "a board 'title' must be non-empty"
             raise ValueError(msg)
-        return value
+        return title
 
     @model_validator(mode="after")
     def _addressed_exactly_once(self) -> ProjectsConfig:

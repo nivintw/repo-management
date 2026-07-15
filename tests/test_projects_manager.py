@@ -11,10 +11,11 @@ from typing import Any, Literal, cast
 import pytest
 
 from repo_management.changes import Action
-from repo_management.config import ProjectField, ProjectFieldOption, ProjectsConfig
+from repo_management.config import ConfigError, ProjectField, ProjectFieldOption, ProjectsConfig
 from repo_management.managers.projects import (
     AmbiguousProjectError,
     ProjectNotFoundError,
+    ProjectSchemaError,
     ProjectsManager,
 )
 
@@ -37,6 +38,20 @@ def _single_select(name: str, options: list[dict[str, Any]]) -> dict[str, Any]:
         "dataType": "SINGLE_SELECT",
         "options": options,
     }
+
+
+def _new_board_fields() -> list[dict[str, Any]]:
+    """The fields GitHub seeds a brand-new board with.
+
+    Only Status is a single-select this manager can reconcile; the rest are built-ins whose
+    data types have no `data_type` counterpart in config, so declaring one is unresolvable.
+    """
+    return [
+        _single_select("Status", [_option("Todo"), _option("In Progress"), _option("Done")]),
+        _plain_field("Title", "TITLE"),
+        _plain_field("Assignees", "ASSIGNEES"),
+        _plain_field("Labels", "LABELS"),
+    ]
 
 
 def _plain_field(name: str, data_type: str) -> dict[str, Any]:
@@ -64,6 +79,7 @@ class FakeGQL:
         root: str = "user",
         boards: Sequence[dict[str, Any]] | None = (),
         owner_id: str | None = OWNER_ID,
+        created_title: str | None = None,
         page_size: int = 100,
     ) -> None:
         """Seed the world the fake answers from.
@@ -78,6 +94,8 @@ class FakeGQL:
         self._root = root
         self._boards = None if boards is None else list(boards)
         self._owner_id = owner_id
+        # What GitHub stores as the new board's title; defaults to whatever was asked for.
+        self._created_title = created_title
         self._page_size = page_size
         self.mutations: list[Any] = []
         self.created: list[Any] = []
@@ -109,17 +127,29 @@ class FakeGQL:
                 else {"id": PROJECT_ID, "fields": {"nodes": self._fields}}
             )
             return {self._root: {"projectV2": project}}
-        self.documents.append("owner-id")
-        return {self._root: None if self._owner_id is None else {"id": self._owner_id}}
+        if "{ id }" in document:
+            self.documents.append("owner-id")
+            return {self._root: None if self._owner_id is None else {"id": self._owner_id}}
+        # No catch-all: an unrecognized document must fail, not quietly get an owner-id answer.
+        msg = f"FakeGQL got an unrecognized document: {document!r}"
+        raise AssertionError(msg)
+
+    def seed_board(self, number: int, title: str) -> None:
+        """Make a board appear out of band — stands in for another actor creating one."""
+        if self._boards is not None:
+            self._boards.append({"number": number, "title": title})
 
     def _create_board(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.created.append(payload)
+        title = self._created_title if self._created_title is not None else payload["title"]
         # The board is findable by title from here on; its fields are whatever the fake
         # was seeded with, standing in for what GitHub seeds a new board with.
-        if self._boards is not None:
-            self._boards.append({"number": NEW_NUMBER, "title": payload["title"]})
-        board = {"id": PROJECT_ID, "number": NEW_NUMBER, "title": payload["title"]}
-        return {"createProjectV2": {"projectV2": board}}
+        self.seed_board(NEW_NUMBER, title)
+        return {
+            "createProjectV2": {
+                "projectV2": {"id": PROJECT_ID, "number": NEW_NUMBER, "title": title}
+            }
+        }
 
     # The field mutations write back into the seeded world, not just the mutation log, so a
     # re-plan after an apply sees what the apply did — that's what makes idempotency testable.
@@ -290,12 +320,20 @@ def test_recolored_option_triggers_update_and_keeps_id() -> None:
     ]
 
 
-def test_field_type_mismatch_warns_and_skips() -> None:
-    """A field present with a different data type is left unmanaged with a warning."""
+def test_field_type_mismatch_is_an_unresolved_diagnostic() -> None:
+    """A field present with a different data type blocks the run rather than being skipped.
+
+    GitHub has no field-type mutation, so this can never be reconciled. It used to warn and
+    drop the field, which let `plan` go on to report "in sync" over a board that would never
+    converge; a diagnostic makes the plan say so and exit non-zero.
+    """
     gql = FakeGQL([_plain_field("Status", "TEXT")])
-    with pytest.warns(UserWarning, match="field-type mutation"):
-        changes = ProjectsManager(gql).plan(_config(_status("Todo", "Done")))
-    assert changes == []
+    changes = ProjectsManager(gql).plan(_config(_status("Todo", "Done")))
+
+    assert len(changes) == 1
+    assert changes[0].unresolved
+    assert changes[0].target == "field:Status"
+    assert "field-type mutation" in (changes[0].error or "")
     assert gql.mutations == []
 
 
@@ -353,15 +391,19 @@ def test_title_addressed_missing_board_is_created() -> None:
 
 def test_create_then_populates_declared_fields() -> None:
     """Creating a board also creates the fields it declares, against the new board's id."""
-    gql = FakeGQL([], boards=[])
+    gql = FakeGQL(_new_board_fields(), boards=[])
     changes = ProjectsManager(gql).plan(
         _titled(_status("Todo"), ProjectField(name="Target", data_type="date"))
     )
 
     changes[0].apply()
     assert len(gql.created) == 1
-    assert [mutation["name"] for mutation in gql.mutations] == ["Status", "Target"]
-    assert all(mutation["projectId"] == PROJECT_ID for mutation in gql.mutations)
+    # Status already exists on the new board (GitHub seeds it), so it is reconciled in place;
+    # only the genuinely-new Target is created — against the new board's id.
+    created = [m for m in gql.mutations if "projectId" in m]
+    assert [mutation["name"] for mutation in created] == ["Target"]
+    assert all(mutation["projectId"] == PROJECT_ID for mutation in created)
+    assert [m["fieldId"] for m in gql.mutations if "fieldId" in m] == ["fld_Status"]
 
 
 def test_created_board_reconciles_the_builtin_status() -> None:
@@ -370,7 +412,7 @@ def test_created_board_reconciles_the_builtin_status() -> None:
     GitHub seeds every new board with its own Status single-select, so a declared Status has
     to reconcile that field — blind-creating it would collide.
     """
-    gql = FakeGQL([_single_select("Status", [_option("Todo"), _option("In Progress")])], boards=[])
+    gql = FakeGQL(_new_board_fields(), boards=[])
     changes = ProjectsManager(gql).plan(_titled(_status("Todo", "Done")))
     changes[0].apply()
 
@@ -385,12 +427,26 @@ def test_created_board_reconciles_the_builtin_status() -> None:
 
 def test_create_is_idempotent() -> None:
     """Re-planning after a create finds the board by title instead of creating a duplicate."""
-    gql = FakeGQL([], boards=[])
+    gql = FakeGQL(_new_board_fields(), boards=[])
     manager = ProjectsManager(gql)
     manager.plan(_titled(_status("Todo")))[0].apply()
 
     assert manager.plan(_titled(_status("Todo"))) == []
     assert len(gql.created) == 1
+
+
+def test_create_blocks_on_a_builtin_field_it_cannot_reconcile() -> None:
+    """Declaring a GitHub built-in with an incompatible type fails the apply, not silently.
+
+    A new board is seeded with built-ins (Labels, Assignees, ...) whose types have no config
+    counterpart, and they only become visible once the board exists — so this can't surface
+    at plan time. It must still not report success over a board that never converged.
+    """
+    gql = FakeGQL(_new_board_fields(), boards=[])
+    changes = ProjectsManager(gql).plan(_titled(ProjectField(name="Labels", data_type="text")))
+
+    with pytest.raises(ConfigError, match="field-type mutation"):
+        changes[0].apply()
 
 
 def test_ambiguous_title_raises() -> None:
@@ -437,7 +493,7 @@ def test_number_addressed_missing_board_is_never_created() -> None:
 
 def test_create_on_unresolvable_owner_raises() -> None:
     """An owner that stops resolving between plan and apply raises instead of creating."""
-    gql = FakeGQL([], boards=[], owner_id=None)
+    gql = FakeGQL(_new_board_fields(), boards=[], owner_id=None)
     changes = ProjectsManager(gql).plan(_titled(_status("Todo")))
 
     with pytest.raises(ProjectNotFoundError, match="can't resolve user 'nivintw'"):
@@ -445,17 +501,45 @@ def test_create_on_unresolvable_owner_raises() -> None:
     assert gql.created == []
 
 
-def test_create_addresses_the_new_board_by_the_returned_number() -> None:
-    """The create's own response supplies the number — no second title lookup after it."""
-    gql = FakeGQL([], boards=[])
+def test_create_never_re_lists_after_the_mutation() -> None:
+    """The create's own response supplies the number — no title lookup after the mutation.
+
+    The apply *does* re-list once before creating (see the TOCTOU test below); what it must
+    never do is re-list *after* the create to rediscover a number GitHub just handed back.
+    """
+    gql = FakeGQL(_new_board_fields(), boards=[])
     ProjectsManager(gql).plan(_titled(_status("Todo")))[0].apply()
 
-    # One listing at plan time; the apply must not re-list to rediscover what it was told.
-    assert gql.documents.count("list-boards") == 1
-    assert gql.documents == [
-        "list-boards",
-        "owner-id",
-        "create-board",
-        "fetch-board",
-        "create-field",
-    ]
+    after_create = gql.documents[gql.documents.index("create-board") :]
+    # Status is reconciled (update), not created — GitHub seeds a new board with its own.
+    assert after_create == ["create-board", "fetch-board", "update-field"]
+
+
+def test_apply_adopts_a_board_that_appeared_since_the_plan() -> None:
+    """A board created between plan and apply is adopted, not duplicated.
+
+    GitHub does not enforce unique titles, so a blind create here would leave two same-titled
+    boards — which wedges every later run on AmbiguousProjectError.
+    """
+    gql = FakeGQL([_single_select("Status", [_option("Todo")])], boards=[])
+    changes = ProjectsManager(gql).plan(_titled(_status("Todo")))
+    assert changes[0].action is Action.CREATE
+
+    gql.seed_board(2, "Fleet Roadmap")  # someone else gets there first
+    changes[0].apply()
+
+    assert gql.created == []
+    assert "create-board" not in gql.documents
+
+
+def test_created_board_with_an_unusable_title_raises() -> None:
+    """A board GitHub stored under a different title fails loudly, not silently forever.
+
+    Every later run finds the board by exact title, so a stored title that doesn't match
+    would make each run create yet another board.
+    """
+    gql = FakeGQL(_new_board_fields(), boards=[], created_title="Fleet Roadmap (1)")
+    changes = ProjectsManager(gql).plan(_titled(_status("Todo")))
+
+    with pytest.raises(ProjectSchemaError, match="stored its title as"):
+        changes[0].apply()

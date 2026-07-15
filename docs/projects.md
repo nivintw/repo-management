@@ -60,7 +60,12 @@ fields:
 | `title` | The board's exact title. Adopts a matching board, or **creates** it. Mutually exclusive with `number`. |
 | `fields` | The custom fields to manage (at least one). |
 
-Each **field** has a `name` and a `data_type` — `single_select`, `date`, `text`, or `number`. Only a `single_select` field carries `options` (and it must have at least one); the others must omit them. A field the manager doesn't recognize on the board is created; a field already present with a *different* `data_type` is left untouched with a warning (GitHub has no field-type mutation).
+Each **field** has a `name` and a `data_type` — `single_select`, `date`, `text`, or `number`. Only a `single_select` field carries `options` (and it must have at least one); the others must omit them. A field the manager doesn't recognize on the board is created.
+
+A field already present with a *different* `data_type` **can't be reconciled at all** — GitHub exposes no field-type mutation — so it's reported as an unresolved value (a `!` line) and **blocks the run**: `plan` exits non-zero and `apply` writes nothing. Rename or recreate the field by hand, or drop it from config. This is deliberately loud rather than a skipped field, because the alternative is `plan` reporting `✓ in sync` forever over a board that can never reach its declared state.
+
+!!! warning "GitHub's built-in fields have types you can't declare"
+    A board comes with built-ins — `Title`, `Assignees`, `Labels`, `Milestone`, `Repository` — whose types have no `data_type` counterpart here. Declaring one of those names hits the mismatch above. `Status` is the exception: it's an ordinary `single_select`, which is exactly why it's reconcilable (see [One status field](#one-status-field)). On a **newly created** board these built-ins only become visible once the board exists, so that mismatch surfaces during `apply` rather than in the plan — the board is created, then the run fails with the `!` reason.
 
 Each single-select **option** has a `name`, a `color` (one of `GRAY`, `BLUE`, `GREEN`, `YELLOW`, `ORANGE`, `RED`, `PINK`, `PURPLE`; default `GRAY`), and an optional `description`. Options are **ordered** — that's their display order — and matched against the live board **by name**, so a same-named option keeps its id and the board items already assigned to it.
 
