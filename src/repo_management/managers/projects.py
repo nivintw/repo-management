@@ -12,7 +12,9 @@ of the per-repo loop handing it a repository.
 Scope is the board's **schema** — its custom fields and, for single-selects, their options.
 A field declared in config is created if absent; a single-select's options are reconciled to
 match (create / recolor / reorder / remove). A field already present with a *different* data
-type is left alone with a warning, because GitHub exposes no field-type mutation. Board
+type can't be reconciled at all — GitHub exposes no field-type mutation — so it becomes an
+unresolved-value **diagnostic** that blocks the run, rather than something skipped with a
+warning while the CLI goes on to report "in sync" over a board that never converged. Board
 membership and per-item field values are deliberately not managed here (see
 ``docs/projects.md``) — they belong to planning/automation tooling.
 
@@ -34,10 +36,10 @@ field plus a drift-prone custom one.
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Any
 
 from repo_management.changes import Action, Change
+from repo_management.config import ConfigError
 
 if TYPE_CHECKING:
     from repo_management.config import ProjectField, ProjectsConfig
@@ -215,7 +217,12 @@ def query_project(
     """
     project = _query_owner(gql, config, query, number=number, **variables).get("projectV2")
     if project is None:
-        msg = f"Projects v2 board {config.owner}/#{number} not found — {_ACCESS_HINT}"
+        # Name `number` in the hint: this message's likeliest cause is a wrong number in a
+        # number-addressed config, which the shared owner-level hint doesn't mention.
+        msg = (
+            f"Projects v2 board {config.owner}/#{number} not found — check the number, and "
+            f"{_ACCESS_HINT}"
+        )
         raise ProjectNotFoundError(msg)
     return project
 
@@ -247,11 +254,18 @@ class ProjectsManager:
             if current is None:
                 changes.append(self._create(project["id"], field))
             elif current["data_type"] != _FIELD_TYPE[field.data_type]:
-                warnings.warn(
-                    f"field {field.name!r} exists as {current['data_type']} but config "
-                    f"declares {_FIELD_TYPE[field.data_type]}; GitHub has no field-type "
-                    "mutation, so this field is left unmanaged (rename or recreate by hand)",
-                    stacklevel=2,
+                # A diagnostic, not a warning: GitHub has no field-type mutation, so this is a
+                # declared value that can't be resolved — exactly what `!` lines are for. A
+                # warning let `plan` go on to report "in sync" and `apply` to exit 0 over a
+                # board that never reached desired state, which is the lie worth failing on.
+                changes.append(
+                    Change.diagnostic(
+                        self.domain,
+                        f"field:{field.name}",
+                        f"exists as {current['data_type']} but config declares "
+                        f"{_FIELD_TYPE[field.data_type]}; GitHub has no field-type mutation, "
+                        "so rename or recreate the field by hand",
+                    )
                 )
             elif field.data_type == "single_select":
                 change = self._reconcile_options(current, field)
@@ -261,18 +275,25 @@ class ProjectsManager:
 
     def _create_board(self, desired: ProjectsConfig) -> Change:
         def apply() -> None:
-            owner = _query_owner(self._gql, desired, _OWNER_ID_QUERY)
-            if not owner.get("id"):
-                msg = f"can't resolve {desired.owner_type} {desired.owner!r} — {_ACCESS_HINT}"
-                raise ProjectNotFoundError(msg)
-            created = self._gql.query(
-                _CREATE_PROJECT, input={"ownerId": owner["id"], "title": desired.title}
-            )["createProjectV2"]["projectV2"]
+            # Re-resolve before creating. The plan's "absent" is arbitrarily stale by the time
+            # a human answers the confirm prompt, and GitHub does not enforce unique titles —
+            # so a board that appeared in that window would get a duplicate, and two boards
+            # sharing a title wedge *every* later run on AmbiguousProjectError. Adopt instead.
+            number = resolve_number(self._gql, desired)
+            if number is None:
+                number = self._create_and_number(desired)
             # Re-read rather than create every declared field blind: GitHub seeds a new board
             # with its own Status single-select, so a declared Status must reconcile that one.
-            # Address it by the number the create just returned: re-resolving by title here
+            # Address it by the number just resolved or returned — re-resolving by title here
             # would re-list every board the owner has to learn what we were just told.
-            for change in self._field_changes(self._fetch(desired, created["number"]), desired):
+            for change in self._field_changes(self._fetch(desired, number), desired):
+                # A field GitHub seeds with an incompatible type (Labels, Assignees, …) only
+                # becomes visible once the board exists, so this diagnostic can't surface at
+                # plan time. A diagnostic's own apply() raises RuntimeError, which the CLI
+                # doesn't map to a clean exit — surface it as ConfigError, as environments does.
+                if change.unresolved:
+                    msg = change.error or "unresolved field"
+                    raise ConfigError(msg)
                 change.apply()
 
         return Change(
@@ -290,6 +311,27 @@ class ProjectsManager:
             },
             apply=apply,
         )
+
+    def _create_and_number(self, desired: ProjectsConfig) -> int:
+        """Create the declared board and return the number GitHub assigned it."""
+        owner = _query_owner(self._gql, desired, _OWNER_ID_QUERY)
+        if not owner.get("id"):
+            msg = f"can't resolve {desired.owner_type} {desired.owner!r} — {_ACCESS_HINT}"
+            raise ProjectNotFoundError(msg)
+        created = self._gql.query(
+            _CREATE_PROJECT, input={"ownerId": owner["id"], "title": desired.title}
+        )["createProjectV2"]["projectV2"]
+        # Every later run finds this board by matching `title` exactly. If GitHub stored
+        # something else, that lookup can never match and each run would create yet another
+        # board — so fail here rather than silently building a pile of duplicates.
+        if created["title"] != desired.title:
+            msg = (
+                f"created board #{created['number']} but GitHub stored its title as "
+                f"{created['title']!r}, not the declared {desired.title!r} — a later run "
+                "could not find it by title; rename it in GitHub or address it by 'number'"
+            )
+            raise ProjectSchemaError(msg)
+        return int(created["number"])
 
     def _fetch(self, desired: ProjectsConfig, number: int) -> dict[str, Any]:
         project = query_project(self._gql, desired, _PROJECT_QUERY, number)
@@ -392,3 +434,7 @@ class ProjectNotFoundError(ProjectError):
 
 class AmbiguousProjectError(ProjectError):
     """Raised when a ``title``-addressed config matches more than one board."""
+
+
+class ProjectSchemaError(ProjectError):
+    """Raised when a created board can't be addressed by the title that was declared for it."""
