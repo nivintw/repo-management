@@ -7,6 +7,20 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.12.0](https://github.com/nivintw/repo-management/compare/v1.11.1...v1.12.0) (2026-07-15)
+
+
+### Features
+
+* **projects:** create a title-addressed board when it doesn't exist ([cf1a066](https://github.com/nivintw/repo-management/commit/cf1a0669a872f1dc34a1d1e69df512f14c8bd5d2)), closes [#151](https://github.com/nivintw/repo-management/issues/151)
+
+
+### Bug Fixes
+
+* **projects:** fail loudly where a board can't reach its declared state ([9c6d06f](https://github.com/nivintw/repo-management/commit/9c6d06fdb05527a99e7b6c3af8c4f9a778c34c05)), closes [#151](https://github.com/nivintw/repo-management/issues/151)
+* **projects:** gate a create's field writes before the first one lands ([687624b](https://github.com/nivintw/repo-management/commit/687624b22dfb2178574f7619c60e3f501b98d2e6)), closes [#151](https://github.com/nivintw/repo-management/issues/151)
+* **projects:** ignore closed boards, and stop reading names as markup ([4e97174](https://github.com/nivintw/repo-management/commit/4e971743fd9366a33133e1e00767206fa9b4a1ba)), closes [#151](https://github.com/nivintw/repo-management/issues/151)
+
 ## [1.11.1](https://github.com/nivintw/repo-management/compare/v1.11.0...v1.11.1) (2026-07-14)
 
 
