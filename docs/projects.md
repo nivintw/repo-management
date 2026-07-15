@@ -9,7 +9,7 @@ SPDX-License-Identifier: MIT
 
 Two things are managed, at two different altitudes:
 
-- **The board's field schema** — its custom fields and their single-select options — declared in a config file and reconciled with `projects plan` / `projects apply`, exactly like a repo section (create-if-absent, update-if-differs, a plan you confirm before it writes).
+- **The board itself and its field schema** — the board's custom fields and their single-select options — declared in a config file and reconciled with `projects plan` / `projects apply`, exactly like a repo section (create-if-absent, update-if-differs, a plan you confirm before it writes). A board you address by [`title`](#addressing-the-board) is created if it doesn't exist yet.
 - **The board's behavior** — a weekly status update, keeping each item's `Status` current, and a committed insights chart — driven by the `projects status` / `reconcile` / `insights` commands, wired to schedules and events by three workflows. This is the part GitHub's UI-only **Workflows** and **Insights** tabs can't be codified into.
 
 What is *not* managed: **board membership** (which issues are on the board) and **per-issue field values** (which item is in which phase, its priority, its dates) churn as issues open and close, so they're owned by planning/automation tooling, not this declarative schema. And **view configuration** (layout, grouping, sort, filter) is genuinely UI-only — the Projects v2 API exposes no mutation for it — so it stays a documented manual step.
@@ -27,12 +27,12 @@ For a **user-owned** board (the common case), that means a **classic PAT with th
 
 ## Config file
 
-The board config is a standalone file — no `repos:`, no `extends:` — loaded directly by the `projects` commands (default `config/projects.yaml`). It declares the board's coordinates and its field schema:
+The board config is a standalone file — no `repos:`, no `extends:` — loaded directly by the `projects` commands (default `config/projects.yaml`). It declares how to reach the board and its field schema:
 
 ```yaml
 owner: your-login
 owner_type: user # or `organization`
-number: 1 # the board number, from its URL (…/projects/<number>)
+number: 1 # or `title:` — see "Addressing the board" below
 
 fields:
   - name: Status
@@ -56,7 +56,8 @@ fields:
 | --- | --- |
 | `owner` | The board owner's login. |
 | `owner_type` | `user` (default) or `organization` — selects the GraphQL query root. |
-| `number` | The board's number, from its URL. |
+| `number` | The board's number, from its URL. Adopts an existing board. Mutually exclusive with `title`. |
+| `title` | The board's exact title. Adopts a matching board, or **creates** it. Mutually exclusive with `number`. |
 | `fields` | The custom fields to manage (at least one). |
 
 Each **field** has a `name` and a `data_type` — `single_select`, `date`, `text`, or `number`. Only a `single_select` field carries `options` (and it must have at least one); the others must omit them. A field the manager doesn't recognize on the board is created; a field already present with a *different* `data_type` is left untouched with a warning (GitHub has no field-type mutation).
@@ -65,6 +66,35 @@ Each single-select **option** has a `name`, a `color` (one of `GRAY`, `BLUE`, `G
 
 !!! warning "Declared options are authoritative"
     Within a single-select field you declare, the `options` list is the complete desired set: an option present on the board but absent from the list is **removed**, which drops it from every item that had it. A `plan` surfaces that as a destructive change before you apply — read it before confirming. A field you *don't* declare is left entirely alone.
+
+### Addressing the board
+
+A board is addressed by **exactly one** of `number` or `title` — declaring both, or neither, is a config error. The choice isn't cosmetic: it selects what an `apply` is allowed to do.
+
+=== "`number` — adopt"
+
+    ```yaml
+    owner: your-login
+    number: 1 # from the board's URL: …/projects/1
+    ```
+
+    GitHub assigns a board's number **when the board is created**, so a number always names a board that already exists. A number that doesn't resolve is an error — never an invitation to create something. Reach for this when you want the config pinned to one specific board and nothing else.
+
+=== "`title` — converge"
+
+    ```yaml
+    owner: your-login
+    title: Fleet Roadmap
+    ```
+
+    Finds the board with this exact title among the owner's boards and adopts it — or **creates it** if there isn't one. This is the only way to declare a board that doesn't exist yet, precisely because you can't know its number in advance. Running `apply` twice is safe: the second run finds the board it made rather than making another.
+
+`title` is an **address, not a managed attribute**. Renaming the board in GitHub's UI doesn't rename it in config — it means the declared board is *gone*, and the next `apply` creates a new one alongside it. Pin with `number` when that matters. Renaming an existing board isn't something this tool does.
+
+If two of the owner's boards share the declared title, `plan` and `apply` both fail naming the numbers they found, rather than picking one — silently managing the wrong board is worse than refusing to guess.
+
+!!! note "What creating a board applies"
+    Creating a board is a **single change** in the plan, because the field mutations need a board id that doesn't exist until the board does. Its plan line therefore spells out every field it will write — the whole preview lives in that one line. GitHub seeds every new board with its own `Status` single-select, so a declared `Status` **reconciles** that built-in field rather than adding a second one.
 
 ### One status field
 
@@ -89,7 +119,7 @@ All six live under `repo-management projects`:
 repo-management projects validate -c CONFIG
 ```
 
-Validates the board config without contacting GitHub. Prints `✓ {config} is valid ({n} field(s) on {owner}/#{number})`.
+Validates the board config without contacting GitHub — including that the board is addressed by exactly one of `number` or `title`. Prints `✓ {config} is valid ({n} field(s) on {board})`, where `{board}` is `{owner}/#{number}` or `{owner}/'{title}'` depending on how you addressed it.
 
 ### plan
 
@@ -97,7 +127,7 @@ Validates the board config without contacting GitHub. Prints `✓ {config} is va
 repo-management projects plan -c CONFIG [--token TOKEN]
 ```
 
-Read-only. Prints the field/option changes needed to reconcile the board's schema, in the same `+`/`~`/`-` format as the per-repo [`plan`](cli.md#plan), or `✓ {owner}/#{number}: in sync`.
+Read-only. Prints the changes needed to reconcile the board, in the same `+`/`~`/`-` format as the per-repo [`plan`](cli.md#plan), or `✓ {board}: in sync`. For a `title`-addressed board that doesn't exist yet, that's a single `+ [projects] board:{title}` line listing every field the apply would create.
 
 ### apply
 
@@ -105,7 +135,7 @@ Read-only. Prints the field/option changes needed to reconcile the board's schem
 repo-management projects apply -c CONFIG [--token TOKEN] [--yes]
 ```
 
-Applies the schema diff. Prints the plan, then (unless `--yes`) prompts before writing. Declining exits with `error: aborted`.
+Applies the plan. Prints it, then (unless `--yes`) prompts before writing. Declining exits with `error: aborted`. This is the only command that creates a board — every other one reads a board that already exists, and fails if a `title`-addressed board is missing.
 
 ### status
 
