@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 from repo_management.changes import Action, Change
-from repo_management.managers.projects import query_project
+from repo_management.managers.projects import query_project, require_number
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -177,16 +177,21 @@ def fetch_board(gql: GraphQL, config: ProjectsConfig) -> Board:
     """Read the whole board — metadata, Status field, and every item — via GraphQL.
 
     Raises:
-        ProjectNotFoundError: If the board can't be read (bad owner/number, or the token
-            lacks the ``project`` scope).
+        ProjectNotFoundError: If the board can't be read (bad owner/number, a
+            ``title``-addressed board that doesn't exist yet, or a token lacking the
+            ``project`` scope). The automations only ever *read* a board; creating one is
+            ``projects apply``'s job.
     """
     meta: dict[str, Any] = {}
     phase_order: list[str] = []
     status_field: StatusFieldInfo | None = None
     items: list[BoardItem] = []
     cursor: str | None = None
+    # Resolve once, outside the loop: a title-addressed board would otherwise re-run the
+    # title lookup for every page of items.
+    number = require_number(gql, config)
     while True:
-        project = query_project(gql, config, _BOARD_QUERY, cursor=cursor)
+        project = query_project(gql, config, _BOARD_QUERY, number=number, cursor=cursor)
         if not meta:
             meta = project
             phase_order, status_field = _parse_fields(project["fields"]["nodes"])

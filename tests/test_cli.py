@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from repo_management import cli
 from repo_management.changes import Action, Change
 from repo_management.config import Config, ConfigError
+from repo_management.managers.projects import AmbiguousProjectError, ProjectNotFoundError
 from repo_management.reconciler import RepoPlan
 from repo_management.roadmap import BoardItem, StatusFieldInfo
 
@@ -370,6 +371,9 @@ def test_main_invokes_app(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- projects sub-app -------------------------------------------------------------------
 
 PROJECTS = "owner: nivintw\nnumber: 2\nfields:\n  - name: Target\n    data_type: date\n"
+TITLED_PROJECTS = (
+    "owner: nivintw\ntitle: Fleet Roadmap\nfields:\n  - name: Target\n    data_type: date\n"
+)
 
 
 def write_projects(tmp_path: Path, text: str = PROJECTS) -> Path:
@@ -464,9 +468,21 @@ def test_projects_apply_aborts_without_confirmation(
 
 def test_projects_plan_board_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A board the token can't read exits non-zero with the error surfaced."""
-    _stub_manager(monkeypatch, cli.ProjectNotFoundError("board not found"))
+    _stub_manager(monkeypatch, ProjectNotFoundError("board not found"))
     result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
     assert result.exit_code == 1
+    assert "board not found" in result.output
+
+
+def test_projects_plan_ambiguous_title(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A title matching several boards exits non-zero rather than managing an arbitrary one."""
+    _stub_manager(monkeypatch, AmbiguousProjectError("2 boards titled 'Roadmap'"))
+    result = runner.invoke(
+        cli.app,
+        ["projects", "plan", "-c", str(write_projects(tmp_path, TITLED_PROJECTS))],
+    )
+    assert result.exit_code == 1
+    assert "2 boards titled" in result.output
 
 
 # --- projects roadmap automations (status / reconcile / insights) -----------------------
@@ -671,7 +687,7 @@ def test_projects_status_board_not_found(tmp_path: Path, monkeypatch: pytest.Mon
 
     def _raise(_gql: object, _cfg: object) -> cli.Board:
         msg = "board not found"
-        raise cli.ProjectNotFoundError(msg)
+        raise ProjectNotFoundError(msg)
 
     monkeypatch.setattr(cli, "fetch_board", _raise)
     result = runner.invoke(cli.app, ["projects", "status", "-c", str(write_projects(tmp_path))])

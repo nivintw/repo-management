@@ -26,7 +26,7 @@ from repo_management.config import (
     load_projects_config,
 )
 from repo_management.graphql import GraphQLClient
-from repo_management.managers.projects import ProjectNotFoundError, ProjectsManager
+from repo_management.managers.projects import ProjectError, ProjectsManager
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config
 from repo_management.roadmap import (
     Board,
@@ -107,7 +107,7 @@ def _api_errors() -> Iterator[None]:
     """Map the expected API/config/IO failures to a clean ``error:`` exit, never a traceback."""
     try:
         yield
-    except (ConfigError, ProjectNotFoundError, OSError) as exc:
+    except (ConfigError, ProjectError, OSError) as exc:
         raise _fail(str(exc)) from exc
     except GithubException as exc:
         msg = f"GitHub API error: {exc.data or exc}"
@@ -321,8 +321,7 @@ def projects_validate(config: _ProjectsConfigOpt = Path("config/projects.yaml"))
     """Validate the projects board config without contacting GitHub."""
     loaded = _load_projects(config)
     console.print(
-        f"[green]✓[/green] {config} is valid ({len(loaded.fields)} field(s) on "
-        f"{loaded.owner}/#{loaded.number})"
+        f"[green]✓[/green] {config} is valid ({len(loaded.fields)} field(s) on {loaded.label})"
     )
 
 
@@ -333,7 +332,7 @@ def projects_plan(
 ) -> None:
     """Show the changes needed to reconcile the board's field schema (no writes)."""
     desired, changes = _project_changes(config, token)
-    _print_changes(f"{desired.owner}/#{desired.number}", changes)
+    _print_changes(desired.label, changes)
     console.print(f"\n{len(changes)} change(s).")
 
 
@@ -346,7 +345,7 @@ def projects_apply(
 ) -> None:
     """Apply the board field-schema changes to GitHub."""
     desired, changes = _project_changes(config, token)
-    _print_changes(f"{desired.owner}/#{desired.number}", changes)
+    _print_changes(desired.label, changes)
     _apply_changes(changes, yes=yes)
 
 
