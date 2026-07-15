@@ -40,6 +40,11 @@ def _single_select(name: str, options: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _board(number: int, title: str, *, closed: bool = False) -> dict[str, Any]:
+    """One node of the owner's projectsV2 listing."""
+    return {"number": number, "title": title, "closed": closed}
+
+
 def _new_board_fields() -> list[dict[str, Any]]:
     """The fields GitHub seeds a brand-new board with.
 
@@ -104,8 +109,6 @@ class FakeGQL:
 
     def query(self, document: str, /, **variables: object) -> dict[str, Any]:
         """Answer whichever document this is, recording it and any mutation's input."""
-        # Order matters: "createProjectV2Field" contains "createProjectV2" as a substring, so
-        # the field mutations have to be matched before the board create.
         payload = cast("dict[str, Any]", variables.get("input"))
         if "createProjectV2Field" in document:
             self.documents.append("create-field")
@@ -113,6 +116,7 @@ class FakeGQL:
         if "updateProjectV2Field" in document:
             self.documents.append("update-field")
             return self._update_field(payload)
+        # Matched with its "(" so it can't also match createProjectV2Field(...).
         if "createProjectV2(" in document:
             self.documents.append("create-board")
             return self._create_board(payload)
@@ -134,10 +138,10 @@ class FakeGQL:
         msg = f"FakeGQL got an unrecognized document: {document!r}"
         raise AssertionError(msg)
 
-    def seed_board(self, number: int, title: str) -> None:
+    def seed_board(self, number: int, title: str, *, closed: bool = False) -> None:
         """Make a board appear out of band — stands in for another actor creating one."""
         if self._boards is not None:
-            self._boards.append({"number": number, "title": title})
+            self._boards.append({"number": number, "title": title, "closed": closed})
 
     def _create_board(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.created.append(payload)
@@ -363,7 +367,7 @@ def test_title_addressed_existing_board_reconciles() -> None:
     """A board found by title reconciles its fields — it is adopted, not re-created."""
     gql = FakeGQL(
         [_single_select("Status", [_option("Todo")])],
-        boards=[{"number": 2, "title": "Fleet Roadmap"}],
+        boards=[_board(2, "Fleet Roadmap")],
     )
     changes = ProjectsManager(gql).plan(_titled(_status("Todo", "Done")))
 
@@ -373,7 +377,7 @@ def test_title_addressed_existing_board_reconciles() -> None:
 
 def test_title_addressed_missing_board_is_created() -> None:
     """A declared board absent from the owner's boards plans as a single create."""
-    gql = FakeGQL([], boards=[{"number": 2, "title": "Something Else"}])
+    gql = FakeGQL([], boards=[_board(2, "Something Else")])
     changes = ProjectsManager(gql).plan(_titled(_status("Todo", "Done")))
 
     assert len(changes) == 1
@@ -454,8 +458,8 @@ def test_ambiguous_title_raises() -> None:
     gql = FakeGQL(
         [],
         boards=[
-            {"number": 2, "title": "Fleet Roadmap"},
-            {"number": 9, "title": "Fleet Roadmap"},
+            _board(2, "Fleet Roadmap"),
+            _board(9, "Fleet Roadmap"),
         ],
     )
     with pytest.raises(AmbiguousProjectError, match=r"2 Projects v2 boards titled .*#2, #9"):
@@ -467,9 +471,9 @@ def test_title_lookup_paginates() -> None:
     gql = FakeGQL(
         [_single_select("Status", [_option("Todo")])],
         boards=[
-            {"number": 1, "title": "One"},
-            {"number": 2, "title": "Two"},
-            {"number": 3, "title": "Fleet Roadmap"},
+            _board(1, "One"),
+            _board(2, "Two"),
+            _board(3, "Fleet Roadmap"),
         ],
         page_size=1,
     )
@@ -543,3 +547,30 @@ def test_created_board_with_an_unusable_title_raises() -> None:
 
     with pytest.raises(ProjectSchemaError, match="stored its title as"):
         changes[0].apply()
+
+
+def test_closed_boards_are_invisible_to_a_title_lookup() -> None:
+    """A closed board is never adopted by title — it would be reconciled but never used."""
+    gql = FakeGQL(_new_board_fields(), boards=[_board(2, "Fleet Roadmap", closed=True)])
+    changes = ProjectsManager(gql).plan(_titled(_status("Todo", "In Progress", "Done")))
+
+    assert changes[0].action is Action.CREATE
+    assert changes[0].target == "board:Fleet Roadmap"
+
+
+def test_a_closed_board_does_not_make_a_title_ambiguous() -> None:
+    """An abandoned same-titled board must not deadlock the config on AmbiguousProjectError."""
+    gql = FakeGQL(
+        _new_board_fields(),
+        boards=[_board(2, "Fleet Roadmap", closed=True), _board(7, "Fleet Roadmap")],
+    )
+    # Resolves to the one open board (#7) rather than raising over the closed one.
+    manager = ProjectsManager(gql)
+    assert manager.plan(_titled(_status("Todo", "In Progress", "Done"))) == []
+    assert manager.number == 7
+
+
+def test_a_closed_board_is_still_reachable_by_number() -> None:
+    """`number` does no lookup, so it remains the escape hatch for a closed board."""
+    gql = FakeGQL(_new_board_fields(), boards=[_board(2, "Fleet Roadmap", closed=True)])
+    assert ProjectsManager(gql).plan(_config(_status("Todo", "In Progress", "Done"))) == []

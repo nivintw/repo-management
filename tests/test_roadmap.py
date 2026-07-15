@@ -431,7 +431,7 @@ def test_fetch_board_resolves_a_titled_board_once_across_pages() -> None:
     gql = FakeGQL(
         _page([_node(1, item_id="I1")], cursor="c"),
         _page([_node(2, item_id="I2")]),
-        boards=[{"number": 2, "title": "Fleet Roadmap"}],
+        boards=[{"number": 2, "title": "Fleet Roadmap", "closed": False}],
     )
     board = fetch_board(gql, _titled_config())
 
