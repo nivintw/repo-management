@@ -22,7 +22,23 @@
 
 owner: your-login
 owner_type: user # or `organization`
-number: 1 # the board's number, from its URL (…/projects/<number>)
+
+# Address the board by EXACTLY ONE of `number` or `title` — the choice picks the semantics.
+#
+#   number: 1        # ADOPT the board at …/projects/<number>. GitHub assigns the number when a
+#                    # board is created, so a number always names a board that already exists;
+#                    # one that doesn't resolve is an error, never a prompt to create it.
+#
+#   title: My Board  # CONVERGE on the board with this exact title: adopt it if it exists,
+#                    # CREATE it if it doesn't. This is the only way to declare a board that
+#                    # does not exist yet — its number can't be known in advance. Two boards
+#                    # sharing the title is an error (address the intended one by `number`).
+#
+# `title` is an ADDRESS, not a managed attribute: renaming the board in GitHub's UI reads as
+# "the declared board is gone", and the next apply creates a new one. Pin with `number` if that
+# matters. Creating a board also reconciles the `fields` below in the same step — including the
+# `Status` field GitHub seeds every new board with.
+title: My Board
 
 fields:
   # A single-select field. `options` are ordered (that's their display order) and matched
