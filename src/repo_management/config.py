@@ -607,7 +607,7 @@ class ProjectField(Strict):
 
 
 class ProjectsConfig(Strict):
-    """A GitHub Projects v2 board to manage: its owner, number, and custom-field schema.
+    """A GitHub Projects v2 board to manage: how to address it, and its custom-field schema.
 
     Deliberately models the board's **schema only** — the custom fields and their
     single-select options. Board *membership* (which issues are items) and per-item field
@@ -615,11 +615,26 @@ class ProjectsConfig(Strict):
     they churn as issues open and close; see ``docs/projects.md``. Built-in fields
     (Status excepted, since it's a normal single-select) and any field not declared here are
     left unmanaged.
+
+    The board is addressed by **exactly one** of ``number`` or ``title``, and the choice
+    selects the semantics:
+
+    - ``number`` **adopts** that exact board. GitHub assigns a number when a board is created,
+      so a number always names a board that already exists; a number that doesn't resolve is
+      an error, never an invitation to create one.
+    - ``title`` **converges** on a board with that title, creating it when absent. This is the
+      only way to declare a board that doesn't exist yet, precisely because its number can't
+      be known in advance.
+
+    ``title`` is an *address*, not a managed attribute: renaming a board out from under a
+    title-addressed config reads as "the declared board is gone", and the next apply creates a
+    new one. Pin with ``number`` when that matters.
     """
 
     owner: str
     owner_type: Literal["user", "organization"] = "user"
-    number: int
+    number: int | None = None
+    title: str | None = None
     fields: list[ProjectField] = Field(min_length=1)
 
     @field_validator("owner")
@@ -630,6 +645,24 @@ class ProjectsConfig(Strict):
             raise ValueError(msg)
         return value
 
+    @field_validator("title")
+    @classmethod
+    def _title_non_empty(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            msg = "a board 'title' must be non-empty"
+            raise ValueError(msg)
+        return value
+
+    @model_validator(mode="after")
+    def _addressed_exactly_once(self) -> ProjectsConfig:
+        if (self.number is None) == (self.title is None):
+            msg = (
+                "a board is addressed by exactly one of 'number' (adopt an existing board) "
+                "or 'title' (converge on a board by name, creating it if absent)"
+            )
+            raise ValueError(msg)
+        return self
+
     @model_validator(mode="after")
     def _field_names_unique(self) -> ProjectsConfig:
         names = [field.name for field in self.fields]
@@ -637,6 +670,13 @@ class ProjectsConfig(Strict):
             msg = "duplicate field names in 'fields'"
             raise ValueError(msg)
         return self
+
+    @property
+    def label(self) -> str:
+        """A short display label for the board: ``owner/#2`` or ``owner/'Some Title'``."""
+        if self.number is not None:
+            return f"{self.owner}/#{self.number}"
+        return f"{self.owner}/{self.title!r}"
 
 
 def _require_env(name: str) -> str:
