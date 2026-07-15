@@ -305,14 +305,20 @@ class ProjectsManager:
             # with its own Status single-select, so a declared Status must reconcile that one.
             # Address it by the number just resolved or returned — re-resolving by title here
             # would re-list every board the owner has to learn what we were just told.
-            for change in self._field_changes(self._fetch(desired, number), desired):
-                # A field GitHub seeds with an incompatible type (Labels, Assignees, …) only
-                # becomes visible once the board exists, so this diagnostic can't surface at
-                # plan time. A diagnostic's own apply() raises RuntimeError, which the CLI
-                # doesn't map to a clean exit — surface it as ConfigError, as environments does.
-                if change.unresolved:
-                    msg = change.error or "unresolved field"
-                    raise ConfigError(msg)
+            changes = self._field_changes(self._fetch(desired, number), desired)
+            # Gate on unresolved values before the first field write, not inside the loop —
+            # otherwise an earlier field lands and a later one aborts the run, leaving the
+            # board half-reconciled. Same fail-fast the CLI holds over a whole plan. (A field
+            # GitHub seeds with an incompatible type only becomes visible once the board
+            # exists, so this can't surface at plan time; and a diagnostic's own apply()
+            # raises RuntimeError, which the CLI doesn't map to a clean exit — so surface it
+            # as ConfigError, exactly as environments' create-then-populate does.)
+            blocked = [change for change in changes if change.unresolved]
+            if blocked:
+                detail = "; ".join(f"{change.target} {change.error}" for change in blocked)
+                msg = f"board #{number} exists, but its schema can't be reconciled — {detail}"
+                raise ConfigError(msg)
+            for change in changes:
                 try:
                     change.apply()
                 except GithubException as exc:
@@ -320,7 +326,7 @@ class ProjectsManager:
                     # this the CLI would report a failed *field* write as the board create
                     # failing — and never say the board now exists.
                     msg = (
-                        f"created board #{number}, but applying {change.target} failed: "
+                        f"board #{number} exists, but applying {change.target} failed: "
                         f"{exc.data or exc} (re-run to finish reconciling it)"
                     )
                     raise ProjectSchemaError(msg) from exc
