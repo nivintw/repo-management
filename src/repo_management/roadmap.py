@@ -191,7 +191,7 @@ def fetch_board(gql: GraphQL, config: ProjectsConfig) -> Board:
     # title lookup for every page of items.
     number = require_number(gql, config)
     while True:
-        project = query_project(gql, config, _BOARD_QUERY, number=number, cursor=cursor)
+        project = query_project(gql, config, _BOARD_QUERY, number, cursor=cursor)
         if not meta:
             meta = project
             phase_order, status_field = _parse_fields(project["fields"]["nodes"])

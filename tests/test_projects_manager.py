@@ -39,16 +39,6 @@ def _single_select(name: str, options: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _written_option(payload: dict[str, Any]) -> dict[str, Any]:
-    """The option node GitHub would store for one option of a field-mutation payload.
-
-    A kept option carries its existing ``id`` through the payload; a new one is assigned one.
-    """
-    return _option(payload["name"], payload["color"], payload["description"]) | {
-        "id": payload.get("id", f"opt_{payload['name']}")
-    }
-
-
 def _plain_field(name: str, data_type: str) -> dict[str, Any]:
     # A non-single-select field's node has no `options` selection (mirrors the real query).
     return {
@@ -74,54 +64,60 @@ class FakeGQL:
         root: str = "user",
         boards: Sequence[dict[str, Any]] | None = (),
         owner_id: str | None = OWNER_ID,
-        created_fields: list[dict[str, Any]] | None = None,
         page_size: int = 100,
     ) -> None:
         """Seed the world the fake answers from.
 
-        ``fields`` are the addressed board's field nodes (``None`` => board not found);
+        ``fields`` are the board's field nodes — ``None`` => board not found, and for a
+        title-create they are what the *new* board comes with (GitHub seeds its own Status);
         ``boards`` the owner's boards for a title lookup (``None`` => can't list them);
-        ``created_fields`` what a *newly created* board comes with (GitHub seeds its own
-        Status); ``page_size`` forces the title lookup to paginate.
+        ``owner_id`` the owner's node id (``None`` => owner not resolvable);
+        ``page_size`` forces the title lookup to paginate.
         """
         self._fields = fields
         self._root = root
         self._boards = None if boards is None else list(boards)
         self._owner_id = owner_id
-        self._created_fields = created_fields
         self._page_size = page_size
         self.mutations: list[Any] = []
         self.created: list[Any] = []
+        # Every document in call order, so a test can assert what was *not* re-fetched.
+        self.documents: list[str] = []
 
     def query(self, document: str, /, **variables: object) -> dict[str, Any]:
-        """Answer whichever document this is, recording any mutation's input."""
+        """Answer whichever document this is, recording it and any mutation's input."""
         # Order matters: "createProjectV2Field" contains "createProjectV2" as a substring, so
         # the field mutations have to be matched before the board create.
         payload = cast("dict[str, Any]", variables.get("input"))
         if "createProjectV2Field" in document:
+            self.documents.append("create-field")
             return self._create_field(payload)
         if "updateProjectV2Field" in document:
+            self.documents.append("update-field")
             return self._update_field(payload)
         if "createProjectV2(" in document:
+            self.documents.append("create-board")
             return self._create_board(payload)
         if "projectsV2(first:" in document:
+            self.documents.append("list-boards")
             return self._list(variables.get("cursor"))
         if "projectV2(number:" in document:
+            self.documents.append("fetch-board")
             project = (
                 None
                 if self._fields is None
                 else {"id": PROJECT_ID, "fields": {"nodes": self._fields}}
             )
             return {self._root: {"projectV2": project}}
+        self.documents.append("owner-id")
         return {self._root: None if self._owner_id is None else {"id": self._owner_id}}
 
     def _create_board(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.created.append(payload)
-        # The board exists from here on: findable by title, and readable with whatever
-        # GitHub seeds it with.
+        # The board is findable by title from here on; its fields are whatever the fake
+        # was seeded with, standing in for what GitHub seeds a new board with.
         if self._boards is not None:
             self._boards.append({"number": NEW_NUMBER, "title": payload["title"]})
-        self._fields = list(self._created_fields or [])
         board = {"id": PROJECT_ID, "number": NEW_NUMBER, "title": payload["title"]}
         return {"createProjectV2": {"projectV2": board}}
 
@@ -133,7 +129,9 @@ class FakeGQL:
         node = (
             _plain_field(payload["name"], payload["dataType"])
             if options is None
-            else _single_select(payload["name"], [_written_option(o) for o in options])
+            else _single_select(
+                payload["name"], [_option(o["name"], o["color"], o["description"]) for o in options]
+            )
         )
         if self._fields is not None:
             self._fields.append(node)
@@ -143,7 +141,10 @@ class FakeGQL:
         self.mutations.append(payload)
         for node in self._fields or []:
             if node["id"] == payload["fieldId"]:
-                node["options"] = [_written_option(o) for o in payload["singleSelectOptions"]]
+                node["options"] = [
+                    _option(o["name"], o["color"], o["description"])
+                    for o in payload["singleSelectOptions"]
+                ]
         return {}
 
     def _list(self, cursor: object) -> dict[str, Any]:
@@ -334,7 +335,7 @@ def test_title_addressed_existing_board_reconciles() -> None:
 
 def test_title_addressed_missing_board_is_created() -> None:
     """A declared board absent from the owner's boards plans as a single create."""
-    gql = FakeGQL(None, boards=[{"number": 2, "title": "Something Else"}])
+    gql = FakeGQL([], boards=[{"number": 2, "title": "Something Else"}])
     changes = ProjectsManager(gql).plan(_titled(_status("Todo", "Done")))
 
     assert len(changes) == 1
@@ -343,7 +344,7 @@ def test_title_addressed_missing_board_is_created() -> None:
     assert changes[0].after == {
         "owner": "nivintw",
         "title": "Fleet Roadmap",
-        "fields": ["Status"],
+        "fields": {"Status": {"data_type": "single_select", "options": ["Todo", "Done"]}},
     }
 
     changes[0].apply()
@@ -352,7 +353,7 @@ def test_title_addressed_missing_board_is_created() -> None:
 
 def test_create_then_populates_declared_fields() -> None:
     """Creating a board also creates the fields it declares, against the new board's id."""
-    gql = FakeGQL(None, boards=[])
+    gql = FakeGQL([], boards=[])
     changes = ProjectsManager(gql).plan(
         _titled(_status("Todo"), ProjectField(name="Target", data_type="date"))
     )
@@ -369,11 +370,7 @@ def test_created_board_reconciles_the_builtin_status() -> None:
     GitHub seeds every new board with its own Status single-select, so a declared Status has
     to reconcile that field — blind-creating it would collide.
     """
-    gql = FakeGQL(
-        None,
-        boards=[],
-        created_fields=[_single_select("Status", [_option("Todo"), _option("In Progress")])],
-    )
+    gql = FakeGQL([_single_select("Status", [_option("Todo"), _option("In Progress")])], boards=[])
     changes = ProjectsManager(gql).plan(_titled(_status("Todo", "Done")))
     changes[0].apply()
 
@@ -388,7 +385,7 @@ def test_created_board_reconciles_the_builtin_status() -> None:
 
 def test_create_is_idempotent() -> None:
     """Re-planning after a create finds the board by title instead of creating a duplicate."""
-    gql = FakeGQL(None, boards=[])
+    gql = FakeGQL([], boards=[])
     manager = ProjectsManager(gql)
     manager.plan(_titled(_status("Todo")))[0].apply()
 
@@ -399,7 +396,7 @@ def test_create_is_idempotent() -> None:
 def test_ambiguous_title_raises() -> None:
     """A title matching several boards raises rather than silently managing one of them."""
     gql = FakeGQL(
-        None,
+        [],
         boards=[
             {"number": 2, "title": "Fleet Roadmap"},
             {"number": 9, "title": "Fleet Roadmap"},
@@ -425,7 +422,7 @@ def test_title_lookup_paginates() -> None:
 
 def test_unlistable_owner_raises() -> None:
     """A token that can't list the owner's boards raises rather than creating a duplicate."""
-    gql = FakeGQL(None, boards=None)
+    gql = FakeGQL([], boards=None)
     with pytest.raises(ProjectNotFoundError, match="can't list Projects v2 boards"):
         ProjectsManager(gql).plan(_titled(_status("Todo")))
 
@@ -436,3 +433,29 @@ def test_number_addressed_missing_board_is_never_created() -> None:
     with pytest.raises(ProjectNotFoundError, match="not found"):
         ProjectsManager(gql).plan(_config(_status("Todo")))
     assert gql.created == []
+
+
+def test_create_on_unresolvable_owner_raises() -> None:
+    """An owner that stops resolving between plan and apply raises instead of creating."""
+    gql = FakeGQL([], boards=[], owner_id=None)
+    changes = ProjectsManager(gql).plan(_titled(_status("Todo")))
+
+    with pytest.raises(ProjectNotFoundError, match="can't resolve user 'nivintw'"):
+        changes[0].apply()
+    assert gql.created == []
+
+
+def test_create_addresses_the_new_board_by_the_returned_number() -> None:
+    """The create's own response supplies the number — no second title lookup after it."""
+    gql = FakeGQL([], boards=[])
+    ProjectsManager(gql).plan(_titled(_status("Todo")))[0].apply()
+
+    # One listing at plan time; the apply must not re-list to rediscover what it was told.
+    assert gql.documents.count("list-boards") == 1
+    assert gql.documents == [
+        "list-boards",
+        "owner-id",
+        "create-board",
+        "fetch-board",
+        "create-field",
+    ]
