@@ -181,6 +181,7 @@ def fetch_board(gql: GraphQL, config: ProjectsConfig) -> Board:
             ``title``-addressed board that doesn't exist yet, or a token lacking the
             ``project`` scope). The automations only ever *read* a board; creating one is
             ``projects apply``'s job.
+        AmbiguousProjectError: If several open boards share a declared ``title``.
     """
     meta: dict[str, Any] = {}
     phase_order: list[str] = []

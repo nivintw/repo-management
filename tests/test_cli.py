@@ -383,13 +383,22 @@ def write_projects(tmp_path: Path, text: str = PROJECTS) -> Path:
     return path
 
 
-def _stub_manager(monkeypatch: pytest.MonkeyPatch, plan_result: list[Change] | Exception) -> None:
-    """Wire the projects CLI onto a fake manager whose `plan` returns/raises `plan_result`."""
+def _stub_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    plan_result: list[Change] | Exception,
+    *,
+    number: int | None = None,
+) -> None:
+    """Wire the projects CLI onto a fake manager whose `plan` returns/raises `plan_result`.
+
+    ``number`` is the board number the fake plan "resolved", as the real manager records it.
+    """
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(cli, "GraphQLClient", lambda _client: object())
 
     class _Manager:
-        def __init__(self, _gql: object) -> None: ...
+        def __init__(self, _gql: object) -> None:
+            self.number = number
 
         def plan(self, _desired: object) -> list[Change]:
             if isinstance(plan_result, Exception):
@@ -745,3 +754,51 @@ class _FixedDatetime(dt.datetime):
     @classmethod
     def now(cls, tz: dt.tzinfo | None = None) -> _FixedDatetime:
         return cls(2026, 7, 8, tzinfo=tz)
+
+
+def test_projects_plan_names_the_number_a_title_resolved_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A title-addressed plan names the concrete board, so a destructive apply is checkable."""
+    _stub_manager(monkeypatch, [_change()], number=47)
+    result = runner.invoke(
+        cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path, TITLED_PROJECTS))]
+    )
+    assert result.exit_code == 0
+    assert "nivintw/'Fleet Roadmap' (#47)" in result.output
+
+
+def test_projects_plan_number_addressed_label_is_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A number is already in the label — don't render it twice."""
+    _stub_manager(monkeypatch, [_change()], number=2)
+    result = runner.invoke(cli.app, ["projects", "plan", "-c", str(write_projects(tmp_path))])
+    assert "nivintw/#2" in result.output
+    assert "(#2)" not in result.output
+
+
+def test_projects_validate_does_not_read_a_title_as_console_markup(tmp_path: Path) -> None:
+    """A bracketed title renders literally rather than being eaten (or crashing) as markup."""
+    config = write_projects(
+        tmp_path,
+        'owner: nivintw\ntitle: "[wip] Roadmap"\nfields:\n  - name: T\n    data_type: date\n',
+    )
+    result = runner.invoke(cli.app, ["projects", "validate", "-c", str(config)])
+    assert result.exit_code == 0
+    assert "[wip] Roadmap" in result.output
+
+
+def test_projects_plan_survives_an_unbalanced_markup_tag_in_a_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unbalanced tag in a title must not abort the command with a Rich MarkupError."""
+    _stub_manager(monkeypatch, [], number=3)
+    config = write_projects(
+        tmp_path,
+        'owner: nivintw\ntitle: "Roadmap [/]"\nfields:\n  - name: T\n    data_type: date\n',
+    )
+    result = runner.invoke(cli.app, ["projects", "plan", "-c", str(config)])
+    assert result.exit_code == 0
+    assert result.exception is None
+    assert "Roadmap [/]" in result.output

@@ -92,11 +92,15 @@ A board is addressed by **exactly one** of `number` or `title` — declaring bot
     title: Fleet Roadmap
     ```
 
-    Finds the board with this exact title among the owner's boards and adopts it — or **creates it** if there isn't one. This is the only way to declare a board that doesn't exist yet, precisely because you can't know its number in advance. Running `apply` twice is safe: the second run finds the board it made rather than making another.
+    Finds the board with this exact title among the owner's **open** boards and adopts it — or **creates it** if there isn't one. This is the only way to declare a board that doesn't exist yet, precisely because you can't know its number in advance. Running `apply` twice is safe: the second run finds the board it made rather than making another.
+
+    **Closed boards are invisible here.** A closed board is never adopted by title (reconciling fields onto a board nobody uses isn't what you meant), and an abandoned same-titled board can't make the title ambiguous. Address a closed board by `number` if you really want to manage it.
 
 `title` is an **address, not a managed attribute**. Renaming the board in GitHub's UI doesn't rename it in config — it means the declared board is *gone*, and the next `apply` creates a new one alongside it. Pin with `number` when that matters. Renaming an existing board isn't something this tool does.
 
-If two of the owner's boards share the declared title, `plan` and `apply` both fail naming the numbers they found, rather than picking one — silently managing the wrong board is worse than refusing to guess.
+If two of the owner's **open** boards share the declared title, `plan` and `apply` both fail naming the numbers they found, rather than picking one — silently managing the wrong board is worse than refusing to guess.
+
+A `title`-addressed `plan` names the board it resolved to — `nivintw/'Fleet Roadmap' (#2)` — so you can check *which* board an apply is about to write to before confirming it.
 
 !!! note "What creating a board applies"
     Creating a board is a **single change** in the plan, because the field mutations need a board id that doesn't exist until the board does. Its plan line therefore spells out every field it will write — the whole preview lives in that one line. GitHub seeds every new board with its own `Status` single-select, so a declared `Status` **reconciles** that built-in field rather than adding a second one.

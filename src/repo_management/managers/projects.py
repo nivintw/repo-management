@@ -18,9 +18,10 @@ warning while the CLI goes on to report "in sync" over a board that never conver
 membership and per-item field values are deliberately not managed here (see
 ``docs/projects.md``) — they belong to planning/automation tooling.
 
-A ``title``-addressed board that doesn't exist yet is **created**, then its schema reconciled
-(a ``number``-addressed one is only ever adopted — see :class:`~repo_management.config.
-ProjectsConfig`). Creation is one :class:`~repo_management.changes.Change` whose ``apply``
+A ``title``-addressed board that doesn't exist yet is **created**, then its schema reconciled;
+a ``number``-addressed one is only ever adopted (see
+:class:`~repo_management.config.ProjectsConfig`).
+Creation is one :class:`~repo_management.changes.Change` whose ``apply``
 both creates the board and reconciles its fields, because the field mutations need a
 ``projectId`` that doesn't exist until the board does — the same create-then-populate shape
 :class:`~repo_management.managers.environments.EnvironmentsManager` uses. That closure
@@ -37,6 +38,8 @@ field plus a drift-prone custom one.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+
+from github import GithubException
 
 from repo_management.changes import Action, Change
 from repo_management.config import ConfigError
@@ -89,11 +92,14 @@ mutation($input: UpdateProjectV2FieldInput!){
 }
 """
 
+# `closed` is selected so a title lookup can ignore closed boards. Neither `user.projectsV2`
+# nor `organization.projectsV2` takes a `filterBy` argument (only `query`, whose search
+# semantics are fuzzy), so the filter is applied client-side against this field.
 _LIST_PROJECTS_QUERY = """
 query($owner:String!, $cursor:String){
   %(root)s(login:$owner){
     projectsV2(first:100, after:$cursor){
-      nodes{ number title }
+      nodes{ number title closed }
       pageInfo{ hasNextPage endCursor }
     }
   }
@@ -148,11 +154,17 @@ def resolve_number(gql: GraphQL, config: ProjectsConfig) -> int | None:
 
     A ``number``-addressed config resolves to itself without a lookup — the number *is* the
     address, and whether it names a live board is :func:`query_project`'s to discover. A
-    ``title``-addressed one is searched for among the owner's boards by exact title.
+    ``title``-addressed one is searched for among the owner's **open** boards by exact title.
+
+    Closed boards are invisible to that search, deliberately: adopting one would reconcile
+    fields onto — and post status updates to — a board nobody is using, and an abandoned
+    same-titled board would otherwise deadlock the config on ``AmbiguousProjectError``
+    forever. A closed board can still be managed by addressing it with ``number``, which
+    does no lookup at all.
 
     Raises:
-        AmbiguousProjectError: If more than one board carries the declared title — the config
-            names two boards, so picking one would silently manage the wrong board.
+        AmbiguousProjectError: If more than one open board carries the declared title — the
+            config names two boards, so picking one would silently manage the wrong board.
         ProjectNotFoundError: If the owner's boards can't be listed at all.
     """
     if config.number is not None:
@@ -167,7 +179,9 @@ def resolve_number(gql: GraphQL, config: ProjectsConfig) -> int | None:
             msg = f"can't list Projects v2 boards for {config.owner!r} — {_ACCESS_HINT}"
             raise ProjectNotFoundError(msg)
         matches.extend(
-            node["number"] for node in connection["nodes"] if node and node["title"] == config.title
+            node["number"]
+            for node in connection["nodes"]
+            if node and not node["closed"] and node["title"] == config.title
         )
         page = connection["pageInfo"]
         if not page["hasNextPage"]:
@@ -190,6 +204,8 @@ def require_number(gql: GraphQL, config: ProjectsConfig) -> int:
     Raises:
         ProjectNotFoundError: If a ``title``-addressed board doesn't exist. Only
             ``projects apply`` creates a board; every other caller reads one.
+        AmbiguousProjectError: Propagated from :func:`resolve_number` when several open
+            boards share the declared title.
     """
     number = resolve_number(gql, config)
     if number is None:
@@ -235,6 +251,9 @@ class ProjectsManager:
     def __init__(self, gql: GraphQL) -> None:
         """Build the manager on a GraphQL client scoped to the target board's owner."""
         self._gql = gql
+        # The board number the last plan() resolved — None when a title-addressed board
+        # doesn't exist yet. Read by the CLI so a plan can name the board it resolved to.
+        self.number: int | None = None
 
     def plan(self, desired: ProjectsConfig) -> list[Change]:
         """Return the changes needed to bring the board into desired state.
@@ -242,10 +261,10 @@ class ProjectsManager:
         A ``title``-addressed board that doesn't exist yet plans as a single create; anything
         else plans per-field against the live board.
         """
-        number = resolve_number(self._gql, desired)
-        if number is None:
+        self.number = resolve_number(self._gql, desired)
+        if self.number is None:
             return [self._create_board(desired)]
-        return self._field_changes(self._fetch(desired, number), desired)
+        return self._field_changes(self._fetch(desired, self.number), desired)
 
     def _field_changes(self, project: dict[str, Any], desired: ProjectsConfig) -> list[Change]:
         changes: list[Change] = []
@@ -294,7 +313,17 @@ class ProjectsManager:
                 if change.unresolved:
                     msg = change.error or "unresolved field"
                     raise ConfigError(msg)
-                change.apply()
+                try:
+                    change.apply()
+                except GithubException as exc:
+                    # This closure is N+1 writes under one board-level target, so without
+                    # this the CLI would report a failed *field* write as the board create
+                    # failing — and never say the board now exists.
+                    msg = (
+                        f"created board #{number}, but applying {change.target} failed: "
+                        f"{exc.data or exc} (re-run to finish reconciling it)"
+                    )
+                    raise ProjectSchemaError(msg) from exc
 
         return Change(
             domain=self.domain,

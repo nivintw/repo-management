@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from github import GithubException
 from rich.console import Console
+from rich.markup import escape
 
 from repo_management.client import get_client
 from repo_management.config import (
@@ -115,7 +116,14 @@ def _api_errors() -> Iterator[None]:
 
 
 def _print_changes(title: str, changes: list[Change]) -> None:
-    """Print a plan: an in-sync line, or a header plus one line per change (and diagnostic)."""
+    """Print a plan: an in-sync line, or a header plus one line per change (and diagnostic).
+
+    Escapes the title and every change line: they carry names this tool doesn't control — a
+    board's title, a field's, an option's — and Rich reads a `[...]` in one as console markup,
+    which would silently swallow part of the name on the plan a user confirms, or abort the
+    command outright on an unbalanced tag.
+    """
+    title = escape(title)
     if not changes:
         console.print(f"[green]✓[/green] [bold]{title}[/bold]: in sync")
         return
@@ -128,7 +136,7 @@ def _print_changes(title: str, changes: list[Change]) -> None:
         header += f", {problems} unresolved"
     console.print(f"[bold]{title}[/bold] — {header}:")
     for change in changes:
-        console.print(f"  {change.describe()}")
+        console.print(f"  {escape(change.describe())}")
 
 
 def _apply_changes(changes: list[Change], *, yes: bool) -> None:
@@ -316,11 +324,26 @@ def _load_projects(config: Path) -> ProjectsConfig:
         raise _fail(str(exc)) from exc
 
 
-def _project_changes(config: Path, token: str | None) -> tuple[ProjectsConfig, list[Change]]:
+def _project_changes(config: Path, token: str | None) -> tuple[str, list[Change]]:
+    """Return the board's display label and the changes needed to reconcile it."""
     desired = _load_projects(config)
     with _api_errors():
         manager = ProjectsManager(GraphQLClient(get_client(token)))
-        return desired, manager.plan(desired)
+        changes = manager.plan(desired)
+        return _board_label(desired, manager.number), changes
+
+
+def _board_label(desired: ProjectsConfig, number: int | None) -> str:
+    """The board's label, naming the concrete number a ``title`` resolved to.
+
+    A title alone doesn't say *which* board a write lands on — and an option removal drops
+    that option from every item that had it — so a plan a user confirms should name the board
+    it actually resolved to. A number-addressed config already reads as `owner/#N`, and a
+    board that doesn't exist yet has no number to name.
+    """
+    if desired.number is not None or number is None:
+        return desired.label
+    return f"{desired.label} (#{number})"
 
 
 @projects_app.command("validate")
@@ -328,7 +351,8 @@ def projects_validate(config: _ProjectsConfigOpt = Path("config/projects.yaml"))
     """Validate the projects board config without contacting GitHub."""
     loaded = _load_projects(config)
     console.print(
-        f"[green]✓[/green] {config} is valid ({len(loaded.fields)} field(s) on {loaded.label})"
+        f"[green]✓[/green] {escape(str(config))} is valid "
+        f"({len(loaded.fields)} field(s) on {escape(loaded.label)})"
     )
 
 
@@ -338,8 +362,8 @@ def projects_plan(
     token: _TokenOpt = None,
 ) -> None:
     """Show the changes needed to reconcile the board (no writes)."""
-    desired, changes = _project_changes(config, token)
-    _print_changes(desired.label, changes)
+    label, changes = _project_changes(config, token)
+    _print_changes(label, changes)
     problems = [change for change in changes if change.unresolved]
     console.print(f"\n{len(changes) - len(problems)} change(s).")
     # Exit non-zero on an unresolvable value, as the per-repo `plan` does — otherwise a board
@@ -357,8 +381,8 @@ def projects_apply(
     yes: _YesOpt = False,
 ) -> None:
     """Apply the board changes to GitHub, creating the board first if it doesn't exist."""
-    desired, changes = _project_changes(config, token)
-    _print_changes(desired.label, changes)
+    label, changes = _project_changes(config, token)
+    _print_changes(label, changes)
     # Inside _api_errors because a board create resolves GitHub state *during* apply — unlike
     # a field mutation, its closure can raise ProjectError, which would otherwise traceback.
     with _api_errors():
