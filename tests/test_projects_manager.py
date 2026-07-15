@@ -574,3 +574,23 @@ def test_a_closed_board_is_still_reachable_by_number() -> None:
     """`number` does no lookup, so it remains the escape hatch for a closed board."""
     gql = FakeGQL(_new_board_fields(), boards=[_board(2, "Fleet Roadmap", closed=True)])
     assert ProjectsManager(gql).plan(_config(_status("Todo", "In Progress", "Done"))) == []
+
+
+def test_create_writes_no_field_when_a_later_one_is_unresolvable() -> None:
+    """An unresolvable field aborts before ANY field write — never a half-reconciled board.
+
+    Ordering matters: `Target` is writable and declared first, `Labels` is unresolvable and
+    declared second. Checking inside the apply loop would land Target and then fail.
+    """
+    gql = FakeGQL(_new_board_fields(), boards=[])
+    changes = ProjectsManager(gql).plan(
+        _titled(
+            ProjectField(name="Target", data_type="date"),
+            ProjectField(name="Labels", data_type="text"),
+        )
+    )
+
+    with pytest.raises(ConfigError, match="can't be reconciled"):
+        changes[0].apply()
+    assert gql.mutations == []  # the board exists, but not one field was written
+    assert len(gql.created) == 1
