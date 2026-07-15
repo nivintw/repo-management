@@ -119,9 +119,26 @@ _ACCESS_HINT = (
 )
 
 
-def _root(config: ProjectsConfig) -> str:
-    """The GraphQL query root for the board's owner: ``user`` or ``organization``."""
-    return "user" if config.owner_type == "user" else "organization"
+def _field_summary(field: ProjectField) -> dict[str, Any]:
+    """A field's desired state for display in a plan: its type, plus any option names."""
+    summary: dict[str, Any] = {"data_type": field.data_type}
+    if field.options is not None:
+        summary["options"] = [option.name for option in field.options]
+    return summary
+
+
+def _query_owner(
+    gql: GraphQL, config: ProjectsConfig, document: str, /, **variables: object
+) -> dict[str, Any]:
+    """Run an owner-rooted query and return the owner node — ``{}`` when it isn't readable.
+
+    Every board query hangs off ``user(login:)`` or ``organization(login:)``, so this owns the
+    three steps each of them would otherwise repeat: pick the root from ``owner_type``, render
+    it into the document, and null-guard the owner before a caller reaches into it.
+    """
+    root = "user" if config.owner_type == "user" else "organization"
+    data = gql.query(document % {"root": root}, owner=config.owner, **variables)
+    return data.get(root) or {}
 
 
 def resolve_number(gql: GraphQL, config: ProjectsConfig) -> int | None:
@@ -139,12 +156,11 @@ def resolve_number(gql: GraphQL, config: ProjectsConfig) -> int | None:
     if config.number is not None:
         return config.number
 
-    root = _root(config)
     matches: list[int] = []
     cursor: str | None = None
     while True:
-        data = gql.query(_LIST_PROJECTS_QUERY % {"root": root}, owner=config.owner, cursor=cursor)
-        connection = (data.get(root) or {}).get("projectsV2")
+        owner = _query_owner(gql, config, _LIST_PROJECTS_QUERY, cursor=cursor)
+        connection = owner.get("projectsV2")
         if connection is None:
             msg = f"can't list Projects v2 boards for {config.owner!r} — {_ACCESS_HINT}"
             raise ProjectNotFoundError(msg)
@@ -184,30 +200,20 @@ def require_number(gql: GraphQL, config: ProjectsConfig) -> int:
 
 
 def query_project(
-    gql: GraphQL,
-    config: ProjectsConfig,
-    query: str,
-    /,
-    number: int | None = None,
-    **variables: object,
+    gql: GraphQL, config: ProjectsConfig, query: str, number: int, /, **variables: object
 ) -> dict[str, Any]:
-    """Run a projectV2 query for the configured board and return its node.
+    """Run a projectV2 query against an already-resolved board number and return its node.
 
-    Resolves the query root from ``owner_type`` (``user`` vs ``organization``), always passes
-    ``owner``/``number``, and forwards any extra ``variables`` (e.g. a pagination ``cursor``).
-    Shared by the schema manager and the roadmap automations so the root selection and the
-    not-found message live in one place. Pass ``number`` to reuse an already-resolved one and
-    skip the title lookup — worth it in a pagination loop, which would otherwise re-resolve
-    the same title once per page.
+    Purely an executor: ``number`` is required precisely so resolving stays the caller's
+    explicit step. Letting this resolve a missing one invites a caller to re-run the title
+    lookup where it already knows the answer — once per page of a pagination loop, or right
+    after a create that just returned the number.
 
     Raises:
         ProjectNotFoundError: If the board can't be read (bad coordinates, or a token without
             the ``project`` scope).
     """
-    root = _root(config)
-    number = require_number(gql, config) if number is None else number
-    data = gql.query(query % {"root": root}, owner=config.owner, number=number, **variables)
-    project = (data.get(root) or {}).get("projectV2")
+    project = _query_owner(gql, config, query, number=number, **variables).get("projectV2")
     if project is None:
         msg = f"Projects v2 board {config.owner}/#{number} not found — {_ACCESS_HINT}"
         raise ProjectNotFoundError(msg)
@@ -255,16 +261,18 @@ class ProjectsManager:
 
     def _create_board(self, desired: ProjectsConfig) -> Change:
         def apply() -> None:
-            root = _root(desired)
-            data = self._gql.query(_OWNER_ID_QUERY % {"root": root}, owner=desired.owner)
-            owner = data.get(root) or {}
+            owner = _query_owner(self._gql, desired, _OWNER_ID_QUERY)
             if not owner.get("id"):
                 msg = f"can't resolve {desired.owner_type} {desired.owner!r} — {_ACCESS_HINT}"
                 raise ProjectNotFoundError(msg)
-            self._gql.query(_CREATE_PROJECT, input={"ownerId": owner["id"], "title": desired.title})
+            created = self._gql.query(
+                _CREATE_PROJECT, input={"ownerId": owner["id"], "title": desired.title}
+            )["createProjectV2"]["projectV2"]
             # Re-read rather than create every declared field blind: GitHub seeds a new board
             # with its own Status single-select, so a declared Status must reconcile that one.
-            for change in self._field_changes(self._fetch(desired), desired):
+            # Address it by the number the create just returned: re-resolving by title here
+            # would re-list every board the owner has to learn what we were just told.
+            for change in self._field_changes(self._fetch(desired, created["number"]), desired):
                 change.apply()
 
         return Change(
@@ -272,16 +280,19 @@ class ProjectsManager:
             action=Action.CREATE,
             target=f"board:{desired.title}",
             before=None,
+            # Spell out every field the apply will write. A create folds the whole field
+            # reconcile into this one Change, so its payload is the only preview a plan can
+            # show — listing bare field names would undersell what an apply actually does.
             after={
                 "owner": desired.owner,
                 "title": desired.title,
-                "fields": [field.name for field in desired.fields],
+                "fields": {field.name: _field_summary(field) for field in desired.fields},
             },
             apply=apply,
         )
 
-    def _fetch(self, desired: ProjectsConfig, number: int | None = None) -> dict[str, Any]:
-        project = query_project(self._gql, desired, _PROJECT_QUERY, number=number)
+    def _fetch(self, desired: ProjectsConfig, number: int) -> dict[str, Any]:
+        project = query_project(self._gql, desired, _PROJECT_QUERY, number)
         fields: dict[str, dict[str, Any]] = {}
         for node in project["fields"]["nodes"]:
             if not node:  # non-field union members serialize as {}
@@ -299,14 +310,12 @@ class ProjectsManager:
             "dataType": _FIELD_TYPE[field.data_type],
             "name": field.name,
         }
-        after: dict[str, Any] = {"data_type": field.data_type}
         if field.data_type == "single_select":
             assert field.options is not None  # noqa: S101 — guaranteed by ProjectField validator
             field_input["singleSelectOptions"] = [
                 {"name": o.name, "color": o.color, "description": o.description}
                 for o in field.options
             ]
-            after["options"] = [o.name for o in field.options]
 
         def apply() -> None:
             self._gql.query(_CREATE_FIELD, input=field_input)
@@ -316,7 +325,7 @@ class ProjectsManager:
             action=Action.CREATE,
             target=f"field:{field.name}",
             before=None,
-            after=after,
+            after=_field_summary(field),
             apply=apply,
         )
 
