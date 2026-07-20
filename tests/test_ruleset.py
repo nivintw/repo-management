@@ -259,22 +259,79 @@ def test_push_ruleset_rejects_ref_name_condition() -> None:
 
 
 def test_bypass_actor_deploy_key_rejects_actor_id() -> None:
-    """A DeployKey bypass actor must not carry an actor_id."""
-    with pytest.raises(ValidationError, match="'DeployKey' bypass actor must not set 'actor_id'"):
+    """A DeployKey bypass actor must not carry an actor_id (nor a slug)."""
+    with pytest.raises(ValidationError, match="'DeployKey' bypass actor takes neither"):
         BypassActor(actor_type="DeployKey", actor_id=5)
 
 
+def test_bypass_actor_deploy_key_rejects_actor_slug() -> None:
+    """A DeployKey bypass actor has no slug to resolve either."""
+    with pytest.raises(ValidationError, match="'DeployKey' bypass actor takes neither"):
+        BypassActor(actor_type="DeployKey", actor_slug="some-key")
+
+
 @pytest.mark.parametrize("actor_type", ["Integration", "RepositoryRole", "Team"])
-def test_bypass_actor_requires_actor_id(actor_type: str) -> None:
-    """Integration/RepositoryRole/Team each require a concrete actor_id."""
-    with pytest.raises(ValidationError, match="requires 'actor_id'"):
+def test_bypass_actor_requires_id_or_slug(actor_type: str) -> None:
+    """Integration/RepositoryRole/Team each require an actor_id or an actor_slug."""
+    with pytest.raises(ValidationError, match="requires exactly one of 'actor_id' or 'actor_slug'"):
         BypassActor.model_validate({"actor_type": actor_type})
+
+
+@pytest.mark.parametrize("actor_type", ["Integration", "RepositoryRole", "Team"])
+def test_bypass_actor_rejects_both_id_and_slug(actor_type: str) -> None:
+    """Setting both an id and a slug is ambiguous and rejected."""
+    with pytest.raises(ValidationError, match="requires exactly one of 'actor_id' or 'actor_slug'"):
+        BypassActor.model_validate({"actor_type": actor_type, "actor_id": 5, "actor_slug": "x"})
+
+
+def test_bypass_actor_slug_resolves_to_actor_id() -> None:
+    """A slug is resolved to actor_id at render time and never sent to GitHub as a slug."""
+    actor = BypassActor(actor_type="Integration", actor_slug="my-ci-app")
+    calls: list[tuple[str, str]] = []
+
+    def resolve(actor_type: str, slug: str) -> int:
+        calls.append((actor_type, slug))
+        return 42
+
+    assert actor.to_api(resolve) == {
+        "actor_type": "Integration",
+        "bypass_mode": "always",
+        "actor_id": 42,
+    }
+    assert calls == [("Integration", "my-ci-app")]
+
+
+def test_bypass_actor_slug_without_resolver_raises() -> None:
+    """Rendering a slug-bearing actor with no resolver is a loud error, not a dropped bypass."""
+    actor = BypassActor(actor_type="Team", actor_slug="platform")
+    with pytest.raises(ValueError, match="needs a resolver"):
+        actor.to_api()
+
+
+def test_bypass_actor_literal_id_ignores_resolver() -> None:
+    """An actor with a literal actor_id renders it directly, never calling the resolver."""
+
+    def resolve(_actor_type: str, _slug: str) -> int:  # pragma: no cover - must not be called
+        msg = "resolver must not be called for a literal actor_id"
+        raise AssertionError(msg)
+
+    assert BypassActor(actor_type="Team", actor_id=5).to_api(resolve) == {
+        "actor_type": "Team",
+        "bypass_mode": "always",
+        "actor_id": 5,
+    }
 
 
 def test_bypass_actor_org_admin_ignores_actor_id() -> None:
     """OrganizationAdmin ignores actor_id: both an absent and a present id load."""
     assert BypassActor(actor_type="OrganizationAdmin").actor_id is None
     assert BypassActor(actor_type="OrganizationAdmin", actor_id=1).actor_id == 1
+
+
+def test_bypass_actor_org_admin_rejects_slug() -> None:
+    """OrganizationAdmin has no slug to resolve."""
+    with pytest.raises(ValidationError, match="'OrganizationAdmin' bypass actor does not take"):
+        BypassActor(actor_type="OrganizationAdmin", actor_slug="admins")
 
 
 def test_conditions_default() -> None:

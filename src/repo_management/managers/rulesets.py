@@ -15,7 +15,10 @@ deleted through the repo.
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
+
+from github import GithubException
 
 from repo_management.changes import Action, Change
 
@@ -39,9 +42,10 @@ class RulesetsManager:
             return []
 
         existing = {item["name"]: item["id"] for item in self._list(repo)}
+        resolve_slug = _BypassActorResolver(repo)
         changes: list[Change] = []
         for ruleset in desired.rulesets:
-            body = ruleset.to_api()
+            body = ruleset.to_api(resolve_slug)
             ruleset_id = existing.get(ruleset.name)
             if ruleset_id is None:
                 changes.append(self._create(repo, ruleset.name, body))
@@ -131,6 +135,83 @@ class RulesetsManager:
             after=None,
             apply=apply,
         )
+
+
+class _BypassActorResolver:
+    """Resolve a bypass actor's ``actor_slug`` to the numeric ``actor_id`` GitHub expects.
+
+    Humans configure bypass actors by a name they know — an App slug, a team slug, a custom
+    repository-role name — never the opaque numeric id GitHub stores. This looks that id up via
+    the API at plan time. Results are cached per ``(actor_type, slug)`` so a slug repeated across
+    rulesets (or across a plan then apply of the same body) costs a single request, and a slug
+    that doesn't resolve raises loudly rather than silently dropping the bypass entry.
+    """
+
+    def __init__(self, repo: Repository) -> None:
+        self._repo = repo
+        self._cache: dict[tuple[str, str], int] = {}
+
+    def __call__(self, actor_type: str, slug: str) -> int:
+        key = (actor_type, slug)
+        if key not in self._cache:
+            self._cache[key] = self._resolve(actor_type, slug)
+        return self._cache[key]
+
+    def _resolve(self, actor_type: str, slug: str) -> int:
+        if actor_type == "Integration":
+            return self._app_id(slug)
+        if actor_type == "Team":
+            return self._team_id(slug)
+        if actor_type == "RepositoryRole":
+            return self._role_id(slug)
+        # Only the id-requiring types reach here (BypassActor validation forbids a slug on
+        # OrganizationAdmin/DeployKey), so an unknown type is a programming error, not user input.
+        msg = f"bypass actor_type {actor_type!r} does not support slug resolution"
+        raise ValueError(msg)
+
+    @property
+    def _org(self) -> str:
+        return self._repo.owner.login
+
+    def _app_id(self, slug: str) -> int:
+        # Public App metadata; the slug is the one in the App's public URL.
+        data = self._get(f"/apps/{slug}", missing=f"no GitHub App found for slug {slug!r}")
+        return int(data["id"])
+
+    def _team_id(self, slug: str) -> int:
+        data = self._get(
+            f"/orgs/{self._org}/teams/{slug}",
+            missing=f"no team {slug!r} in organization {self._org!r}",
+        )
+        return int(data["id"])
+
+    def _role_id(self, slug: str) -> int:
+        # Only custom repository roles are addressable by name via the API; GitHub's built-in
+        # base roles (read/triage/write/maintain/admin) have no name→id endpoint, so those must
+        # still be given as a literal actor_id.
+        data = self._get(
+            f"/orgs/{self._org}/custom-repository-roles",
+            missing=f"cannot list custom repository roles for organization {self._org!r}",
+        )
+        roles = data.get("custom_roles", [])
+        for role in roles:
+            if role.get("name", "").lower() == slug.lower():
+                return int(role["id"])
+        names = sorted(role.get("name", "") for role in roles)
+        msg = (
+            f"no custom repository role named {slug!r} in organization {self._org!r} "
+            f"(found: {names}). Built-in base roles have no slug — use a numeric actor_id."
+        )
+        raise ValueError(msg)
+
+    def _get(self, path: str, *, missing: str) -> dict[str, Any]:
+        try:
+            _, data = self._repo.requester.requestJsonAndCheck("GET", path)
+        except GithubException as exc:
+            if exc.status == HTTPStatus.NOT_FOUND:
+                raise ValueError(missing) from exc
+            raise
+        return data
 
 
 def _summary(api: dict[str, Any]) -> dict[str, Any]:
