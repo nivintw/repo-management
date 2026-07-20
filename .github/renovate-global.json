@@ -35,9 +35,9 @@
   "packageRules": [
     {
       "description": [
-        "Fleet-wide automerge for non-major updates; majors stay human-reviewed, and a",
-        "repo's own renovate.json packageRules can override. platformAutomerge is OFF",
-        "deliberately: the runner authenticates as the CI App, which holds bypass_mode:",
+        "Fleet-wide automerge for minor updates (majors and patches have their own rules",
+        "below); a repo's own renovate.json packageRules can override. platformAutomerge is",
+        "OFF deliberately: the runner authenticates as the CI App, which holds bypass_mode:",
         "always on the fleet's required-checks ruleset, so GitHub-native auto-merge would",
         "treat its PRs as immediately mergeable and the ruleset gate could not be trusted.",
         "With platform automerge off, Renovate itself merges only after it observes the",
@@ -53,6 +53,24 @@
     },
     {
       "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": [
+        "Fleet-wide automerge for MAJOR updates too — a deliberate, risk-accepted policy: the",
+        "maintainer wants majors to land automatically once CI proves them green, trading the",
+        "human pre-merge gate for the same CI gate every other update type rides. It is safe",
+        "only because the merge is genuinely CI-gated: platformAutomerge stays OFF (see the",
+        "minor rule), so Renovate merges a major PR only after it observes the branch checks",
+        "green, and a repo with no CI workflow never satisfies that (fail closed). The 3-day",
+        "minimumReleaseAge still applies as a community-vetting window; the two sensitive",
+        "release-privilege actions below override it to 14 days, majors included, since their",
+        "packageNames rule is ordered after this one and only widens the wait.",
+        "A repo's own renovate.json packageRules can still override this to restore a manual",
+        "major gate where a given repo wants one."
+      ],
+      "matchUpdateTypes": ["major"],
       "automerge": true,
       "minimumReleaseAge": "3 days"
     },
