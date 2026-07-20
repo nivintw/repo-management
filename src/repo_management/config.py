@@ -484,6 +484,10 @@ class SharedConfig(Strict):
     collaborators: list[Collaborator] | None = None
     teams: list[TeamAccess] | None = None
     codeowners: list[CodeownersEntry] | None = None
+    # The comment placed at the top of a managed CODEOWNERS file, as plain text (rendered with a
+    # leading "# "). Unset falls back to the manager's default; only rendered when `codeowners`
+    # writes a file, so it has no effect when `codeowners` is unset or authoritative-empty.
+    codeowners_header: str | None = None
     webhooks: list[Webhook] | None = None
     secrets: list[Secret] | None = None
     variables: list[Variable] | None = None
