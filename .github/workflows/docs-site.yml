@@ -43,8 +43,8 @@ jobs:
       pages: write
       id-token: write
     # WARNING — do NOT bump this pin past the last MkDocs revision of docs.yml until THIS repo's
-    # own docs site is migrated to Astro/Starlight. docs.yml was migrated MkDocs → Astro (issue
-    # #158); the Astro workflow runs `pnpm install --frozen-lockfile && pnpm build` and needs a
+    # own docs site is migrated to Astro/Starlight. docs.yml was migrated MkDocs → Astro in #158;
+    # the Astro workflow runs `pnpm install --frozen-lockfile && pnpm build` and needs a
     # package.json + pnpm-lock.yaml + astro.config.mjs that this repo does not yet have (its site
     # is still docs/*.md + mkdocs.yml). Bumping to the Astro docs.yml before that migration would
     # break this repo's docs deploy. The SHA below is the last MkDocs revision on purpose; the
