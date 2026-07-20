@@ -7,6 +7,18 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.13.0](https://github.com/nivintw/repo-management/compare/v1.12.0...v1.13.0) (2026-07-20)
+
+
+### Features
+
+* **docs:** migrate reusable docs workflow to Astro/Starlight ([87373d9](https://github.com/nivintw/repo-management/commit/87373d97c2ff3108a27a38860886c6e4861ec315)), closes [#158](https://github.com/nivintw/repo-management/issues/158)
+
+
+### Bug Fixes
+
+* **ci:** pin docs workflow Node to full semver (22.12.0) ([8eb8bb9](https://github.com/nivintw/repo-management/commit/8eb8bb9e36cd01ccc1a3183e847321d26512c7bb))
+
 ## [1.12.0](https://github.com/nivintw/repo-management/compare/v1.11.1...v1.12.0) (2026-07-15)
 
 
