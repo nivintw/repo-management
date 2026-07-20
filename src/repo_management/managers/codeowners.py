@@ -44,7 +44,10 @@ class CodeownersManager:
         if desired.codeowners is None:
             return []
 
-        wanted = _render(desired.codeowners, desired.codeowners_header or _DEFAULT_HEADER)
+        # `is None` (not truthiness): an explicit empty string is honored as an empty comment,
+        # only an unset header falls back to the default.
+        header = _DEFAULT_HEADER if desired.codeowners_header is None else desired.codeowners_header
+        wanted = _render(desired.codeowners, header)
         current = self._get(repo)
 
         if wanted is None:  # authoritative-absent (empty list)

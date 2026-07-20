@@ -143,13 +143,17 @@ class _BypassActorResolver:
     Humans configure bypass actors by a name they know — an App slug, a team slug, a custom
     repository-role name — never the opaque numeric id GitHub stores. This looks that id up via
     the API at plan time. Results are cached per ``(actor_type, slug)`` so a slug repeated across
-    rulesets (or across a plan then apply of the same body) costs a single request, and a slug
-    that doesn't resolve raises loudly rather than silently dropping the bypass entry.
+    rulesets costs a single request, and the org's custom-role list is fetched at most once no
+    matter how many role slugs a plan references. A slug that doesn't resolve raises loudly
+    rather than silently dropping the bypass entry.
     """
 
     def __init__(self, repo: Repository) -> None:
         self._repo = repo
         self._cache: dict[tuple[str, str], int] = {}
+        # The org's custom repository roles (name -> id), fetched lazily and memoized: one list
+        # request answers every RepositoryRole slug in a plan.
+        self._custom_roles: dict[str, int] | None = None
 
     def __call__(self, actor_type: str, slug: str) -> int:
         key = (actor_type, slug)
@@ -159,9 +163,15 @@ class _BypassActorResolver:
 
     def _resolve(self, actor_type: str, slug: str) -> int:
         if actor_type == "Integration":
-            return self._app_id(slug)
+            # Public App metadata; the slug is the one in the App's public URL.
+            return self._lookup_id(
+                f"/apps/{slug}", missing=f"no GitHub App found for slug {slug!r}"
+            )
         if actor_type == "Team":
-            return self._team_id(slug)
+            return self._lookup_id(
+                f"/orgs/{self._org}/teams/{slug}",
+                missing=f"no team {slug!r} in organization {self._org!r}",
+            )
         if actor_type == "RepositoryRole":
             return self._role_id(slug)
         # Only the id-requiring types reach here (BypassActor validation forbids a slug on
@@ -173,34 +183,29 @@ class _BypassActorResolver:
     def _org(self) -> str:
         return self._repo.owner.login
 
-    def _app_id(self, slug: str) -> int:
-        # Public App metadata; the slug is the one in the App's public URL.
-        data = self._get(f"/apps/{slug}", missing=f"no GitHub App found for slug {slug!r}")
-        return int(data["id"])
-
-    def _team_id(self, slug: str) -> int:
-        data = self._get(
-            f"/orgs/{self._org}/teams/{slug}",
-            missing=f"no team {slug!r} in organization {self._org!r}",
-        )
-        return int(data["id"])
+    def _lookup_id(self, path: str, *, missing: str) -> int:
+        """GET a single object by its slug endpoint and return its numeric ``id``."""
+        return int(self._get(path, missing=missing)["id"])
 
     def _role_id(self, slug: str) -> int:
         # Only custom repository roles are addressable by name via the API; GitHub's built-in
         # base roles (read/triage/write/maintain/admin) have no name→id endpoint, so those must
         # still be given as a literal actor_id.
-        data = self._get(
-            f"/orgs/{self._org}/custom-repository-roles",
-            missing=f"cannot list custom repository roles for organization {self._org!r}",
-        )
-        roles = data.get("custom_roles", [])
-        for role in roles:
-            if role.get("name", "").lower() == slug.lower():
-                return int(role["id"])
-        names = sorted(role.get("name", "") for role in roles)
+        if self._custom_roles is None:
+            data = self._get(
+                f"/orgs/{self._org}/custom-repository-roles",
+                missing=f"cannot list custom repository roles for organization {self._org!r}",
+            )
+            self._custom_roles = {
+                role.get("name", ""): int(role["id"]) for role in data.get("custom_roles", [])
+            }
+        for name, role_id in self._custom_roles.items():
+            if name.lower() == slug.lower():
+                return role_id
         msg = (
             f"no custom repository role named {slug!r} in organization {self._org!r} "
-            f"(found: {names}). Built-in base roles have no slug — use a numeric actor_id."
+            f"(found: {sorted(self._custom_roles)}). "
+            "Built-in base roles have no slug — use a numeric actor_id."
         )
         raise ValueError(msg)
 
