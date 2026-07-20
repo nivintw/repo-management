@@ -42,4 +42,11 @@ jobs:
       contents: read
       pages: write
       id-token: write
+    # WARNING — do NOT bump this pin past the last MkDocs revision of docs.yml until THIS repo's
+    # own docs site is migrated to Astro/Starlight. docs.yml was migrated MkDocs → Astro (issue
+    # #158); the Astro workflow runs `pnpm install --frozen-lockfile && pnpm build` and needs a
+    # package.json + pnpm-lock.yaml + astro.config.mjs that this repo does not yet have (its site
+    # is still docs/*.md + mkdocs.yml). Bumping to the Astro docs.yml before that migration would
+    # break this repo's docs deploy. The SHA below is the last MkDocs revision on purpose; the
+    # migration of this repo's own site (issue #161) is what unpins it.
     uses: nivintw/repo-management/.github/workflows/docs.yml@53814792ac9f28bf400470f82a506d4ee34e138b # main

@@ -1,13 +1,26 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-# Reusable (on: workflow_call) build-and-deploy for MkDocs Material docs sites. Every fleet
+# Reusable (on: workflow_call) build-and-deploy for Astro + Starlight docs sites. Every fleet
 # repo's own docs workflow becomes a thin caller — this hosts the build/deploy logic once so
 # it isn't duplicated across repos.
 #
-# mkdocs + mkdocs-material are pinned HERE, not passed in as caller inputs — that keeps
-# non-Python fleet repos (dotfiles, the Ansible repos) from needing a fake Python dependency
-# just to build docs. One Renovate-tracked pin here covers the whole fleet.
+# WHAT IS PINNED WHERE (the "single fleet source" split):
+#   - Node + pnpm are pinned HERE (NODE_VERSION / PNPM_VERSION below), Renovate-tracked, so the
+#     whole fleet moves the toolchain in one PR — the same one-place-pin the MkDocs version of
+#     this workflow gave for mkdocs/mkdocs-material.
+#   - astro + @astrojs/starlight (and any per-site deps) are pinned in EACH caller repo's
+#     committed package.json + pnpm-lock.yaml, installed verbatim by `pnpm install
+#     --frozen-lockfile`. That's a deliberate consequence of using a committed lockfile: the
+#     framework version travels with the site's own dependency graph, authored identically
+#     across the fleet by the generate-docs skill.
+#
+# CALLER CONTRACT:
+#   - The caller repo checkout must contain, under `docs-dir`, a package.json (with a `build`
+#     script that runs `astro build`) and a committed pnpm-lock.yaml.
+#   - The caller's package.json must NOT set a `packageManager` field: pnpm is pinned here via
+#     PNPM_VERSION, and pnpm/action-setup errors loudly ("Multiple versions of pnpm specified")
+#     if both are present. One pnpm source, and it's this file.
 #
 # CALLERS MUST grant `permissions: {contents: read, pages: write, id-token: write}` on the
 # job that has `uses:` this workflow. Declaring ANY `permissions:` block on that job forces
@@ -20,9 +33,9 @@
 # every time copier-everything's own docs.yml changes, because that upstream file is a
 # per-repo `push`-triggered caller stub, while this file is the hub's `workflow_call`
 # reusable workflow — a structurally different trigger this repo intentionally never
-# adopts. Resolved the same way at v1.11.0 and v1.11.1: keep the `workflow_call` trigger
-# above as-is and discard the incoming `push`/`paths` block entirely (a caller-side fix,
-# e.g. an `overrides/**` path, belongs in docs-site.yml instead — check it's already there).
+# adopts. Resolved the same way at every past update: keep the `workflow_call` trigger above
+# as-is and discard the incoming `push`/`paths` block entirely (a caller-side fix, e.g. an
+# `overrides/**` path, belongs in docs-site.yml instead — check it's already there).
 
 name: docs
 
@@ -30,16 +43,11 @@ on:
   workflow_call:
     inputs:
       docs-dir:
-        description: Directory containing mkdocs.yml, relative to the repo root.
+        description: >-
+          Directory containing the Astro/Starlight project (its package.json,
+          pnpm-lock.yaml, and astro.config.mjs), relative to the repo root.
         type: string
         default: "."
-      extra-packages:
-        description: >-
-          Extra PyPI packages the caller's mkdocs.yml needs beyond mkdocs-material (e.g.
-          mkdocs-awesome-pages-plugin), space-separated. Each is added as its own `--with`
-          to the pinned uvx invocation below.
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -56,71 +64,50 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      # renovate: datasource=node-version depName=node
+      NODE_VERSION: "22"
+      # renovate: datasource=npm depName=pnpm
+      PNPM_VERSION: "11.7.0"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-          # Full history: mkdocs-git-revision-date-localized-plugin derives each page's
-          # "last updated" date from git log — a shallow clone yields wrong/identical
-          # dates on every page.
+          # Full history: Starlight's `lastUpdated` derives each page's "last updated" date
+          # from git log — a shallow clone yields wrong/identical dates. Mirrors the MkDocs
+          # workflow's fetch-depth:0 for the git-revision-date plugin it replaces.
           fetch-depth: 0
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
-      - name: Set up uv
-        # No dependency cache: this job builds the artifact that gets deployed to Pages, so
-        # a poisoned cache would taint the deploy (zizmor cache-poisoning) — same reasoning
-        # as this repo's publish.yml. setup-uv caches by default, so disable explicitly.
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
-          enable-cache: false
+          version: ${{ env.PNPM_VERSION }}
 
-      - name: Install native deps for Material's social-cards plugin
-        # cairosvg (which the plugin uses to rasterize the generated card) loads these via
-        # ctypes at runtime, not import time, so a build only fails once the plugin actually
-        # renders a card. Installed unconditionally, same as mkdocs/mkdocs-material below and
-        # for the same reason (see the top-of-file rationale): every fleet repo's mkdocs.yml
-        # renders from one shared copier-everything template, so this and the dates plugin's
-        # fetch-depth above are fleet-wide defaults, not a per-caller opt-in like
-        # extra-packages — there's no real caller variation to gate behind an input.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev zlib1g-dev
+      - name: Set up Node
+        # No dependency cache: this job builds the artifact that gets deployed to Pages, so a
+        # poisoned cache would taint the deploy (zizmor cache-poisoning) — same reasoning as
+        # this repo's publish.yml and the MkDocs workflow this replaces. setup-node only caches
+        # when `cache:` is set, so simply omitting it leaves caching off.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
-      - name: Build site (uvx, pinned mkdocs + mkdocs-material)
+      - name: Install dependencies (frozen lockfile)
         working-directory: ${{ inputs.docs-dir }}
-        env:
-          # renovate: datasource=pypi depName=mkdocs
-          MKDOCS_VERSION: "1.6.1"
-          # renovate: datasource=pypi depName=mkdocs-material
-          MKDOCS_MATERIAL_VERSION: "9.7.6"
-          # renovate: datasource=pypi depName=mkdocs-git-revision-date-localized-plugin
-          GIT_REVISION_DATE_VERSION: "1.5.3"
-          # renovate: datasource=pypi depName=mkdocs-llmstxt
-          LLMSTXT_VERSION: "0.5.0"
-          EXTRA_PACKAGES: ${{ inputs.extra-packages }}
-        run: |
-          extra_with=()
-          for pkg in $EXTRA_PACKAGES; do
-            extra_with+=(--with "$pkg")
-          done
-          # [imaging] extra pulls in cairosvg + Pillow, the Python side of the social-cards
-          # plugin — the apt step above only installs the native libs they dlopen via ctypes.
-          # mkdocs-git-revision-date-localized-plugin and mkdocs-llmstxt are also fleet-wide
-          # defaults (nivintw/repo-management#94, #97) — every fleet repo's mkdocs.yml enables
-          # both plugins unconditionally, same reasoning as imaging above — pinned and
-          # Renovate-tracked the same way, so neither can float to an unreviewed version.
-          uvx --from "mkdocs==${MKDOCS_VERSION}" --with "mkdocs-material[imaging]==${MKDOCS_MATERIAL_VERSION}" \
-            --with "mkdocs-git-revision-date-localized-plugin==${GIT_REVISION_DATE_VERSION}" \
-            --with "mkdocs-llmstxt==${LLMSTXT_VERSION}" \
-            "${extra_with[@]}" mkdocs build --strict --site-dir site
+        run: pnpm install --frozen-lockfile
+
+      - name: Build site (pnpm build → astro build → dist/)
+        working-directory: ${{ inputs.docs-dir }}
+        # `astro build` hard-fails on broken internal links, replacing `mkdocs build --strict`.
+        run: pnpm build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: ${{ inputs.docs-dir }}/site
+          path: ${{ inputs.docs-dir }}/dist
 
       - name: Deploy to GitHub Pages
         id: deployment
