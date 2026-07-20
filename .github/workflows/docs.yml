@@ -66,7 +66,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       # renovate: datasource=node-version depName=node
-      NODE_VERSION: "22"
+      # Full semver so Renovate is the ONLY thing that moves it — a bare "22" would silently
+      # float to the latest 22.x on every run, defeating the "one Renovate PR moves the fleet"
+      # pin. Node 22 is the conservative Active-LTS floor Astro supports; Renovate advances it.
+      NODE_VERSION: "22.12.0"
       # renovate: datasource=npm depName=pnpm
       PNPM_VERSION: "11.7.0"
     steps:
