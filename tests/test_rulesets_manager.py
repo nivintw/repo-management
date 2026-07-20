@@ -13,10 +13,28 @@ from github import GithubException
 
 from repo_management.changes import Action
 from repo_management.config import SharedConfig
-from repo_management.managers.rulesets import RulesetsManager, _satisfied
+from repo_management.managers.rulesets import RulesetsManager, _BypassActorResolver, _satisfied
 from repo_management.ruleset import Ruleset
 
 URL = "https://api.github.com/repos/o/r"
+
+
+def make_resolver_repo(routes: dict[str, Any], org: str = "o") -> MagicMock:
+    """A mock repo whose requester answers ``_BypassActorResolver`` lookups by exact path.
+
+    ``routes`` maps a request path (``/apps/x``, ``/orgs/o/teams/t``, …) to the JSON body to
+    return; an unrouted path raises a 404 GithubException, mirroring the real API.
+    """
+    repo = MagicMock()
+    repo.owner.login = org
+
+    def request(verb: str, url: str, **_kwargs: object) -> tuple[dict, Any]:
+        if verb == "GET" and url in routes:
+            return ({}, routes[url])
+        raise GithubException(404, {"message": "Not Found"}, None)
+
+    repo.requester.requestJsonAndCheck.side_effect = request
+    return repo
 
 
 def make_repo(list_data: list[dict[str, Any]], get_data: dict[str, Any] | None = None) -> MagicMock:
@@ -328,6 +346,89 @@ def test_github_error_propagates() -> None:
 
     with pytest.raises(GithubException):
         RulesetsManager().plan(repo, SharedConfig(rulesets=[ruleset()]))
+
+
+def test_resolver_resolves_app_slug() -> None:
+    """An Integration slug resolves via the public /apps/{slug} endpoint."""
+    repo = make_resolver_repo({"/apps/my-ci-app": {"id": 12345, "slug": "my-ci-app"}})
+    assert _BypassActorResolver(repo)("Integration", "my-ci-app") == 12345
+
+
+def test_resolver_resolves_team_slug() -> None:
+    """A Team slug resolves via /orgs/{org}/teams/{slug}, scoped to the repo's org."""
+    repo = make_resolver_repo({"/orgs/o/teams/platform": {"id": 99, "slug": "platform"}})
+    assert _BypassActorResolver(repo)("Team", "platform") == 99
+
+
+def test_resolver_resolves_custom_repository_role_by_name() -> None:
+    """A RepositoryRole slug matches a custom role by name, case-insensitively."""
+    repo = make_resolver_repo(
+        {"/orgs/o/custom-repository-roles": {"custom_roles": [{"id": 7, "name": "Security"}]}}
+    )
+    assert _BypassActorResolver(repo)("RepositoryRole", "security") == 7
+
+
+def test_resolver_unknown_role_raises_with_available_names() -> None:
+    """A RepositoryRole slug that matches no custom role fails loudly, listing what exists."""
+    repo = make_resolver_repo(
+        {"/orgs/o/custom-repository-roles": {"custom_roles": [{"id": 7, "name": "Security"}]}}
+    )
+    with pytest.raises(ValueError, match=r"no custom repository role named 'writer'.*Security"):
+        _BypassActorResolver(repo)("RepositoryRole", "writer")
+
+
+def test_resolver_missing_app_raises_clear_error() -> None:
+    """A 404 (unknown slug) becomes a clear ValueError, never a swallowed/dropped bypass."""
+    repo = make_resolver_repo({})  # every path 404s
+    with pytest.raises(ValueError, match="no GitHub App found for slug 'ghost'"):
+        _BypassActorResolver(repo)("Integration", "ghost")
+
+
+def test_resolver_caches_repeated_lookups() -> None:
+    """The same (actor_type, slug) is resolved once, then served from cache."""
+    repo = make_resolver_repo({"/apps/app": {"id": 1}})
+    resolve = _BypassActorResolver(repo)
+    assert resolve("Integration", "app") == 1
+    assert resolve("Integration", "app") == 1
+    assert repo.requester.requestJsonAndCheck.call_count == 1
+
+
+def test_resolver_non_404_error_propagates() -> None:
+    """A non-404 API error is not masked as a resolution failure."""
+    repo = MagicMock()
+    repo.owner.login = "o"
+    repo.requester.requestJsonAndCheck.side_effect = GithubException(500, {}, None)
+    with pytest.raises(GithubException):
+        _BypassActorResolver(repo)("Team", "platform")
+
+
+def test_plan_resolves_bypass_actor_slug_into_body() -> None:
+    """End-to-end: a desired ruleset's actor_slug is resolved into the created ruleset body."""
+    desired = ruleset(bypass_actors=[{"actor_type": "Integration", "actor_slug": "my-ci-app"}])
+    repo = make_repo([])  # no existing rulesets -> a CREATE
+    repo.owner.login = "o"
+    routes = {"/apps/my-ci-app": {"id": 456}}
+
+    def request(verb: str, url: str, **_kwargs: object) -> tuple[dict, Any]:
+        if verb == "GET" and url in routes:
+            return ({}, routes[url])
+        if verb == "GET" and url.split("?", maxsplit=1)[0] == f"{URL}/rulesets":
+            return ({}, [])
+        return ({}, {})
+
+    repo.requester.requestJsonAndCheck.side_effect = request
+
+    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
+    changes[0].apply()
+
+    posted = next(
+        call.kwargs["input"]
+        for call in repo.requester.requestJsonAndCheck.call_args_list
+        if call.args[0] == "POST"
+    )
+    assert posted["bypass_actors"] == [
+        {"actor_type": "Integration", "bypass_mode": "always", "actor_id": 456}
+    ]
 
 
 def test_satisfied_branches() -> None:

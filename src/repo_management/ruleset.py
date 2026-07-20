@@ -22,6 +22,7 @@ invalid target/rule pairing fails fast rather than 422-ing at apply.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -249,12 +250,19 @@ Rule = Annotated[
 ]
 
 
-# Bypass-actor types that require a concrete numeric ``actor_id`` (an App id, role id, or
-# team id respectively). ``OrganizationAdmin`` ignores ``actor_id`` and ``DeployKey`` forbids
-# it — both handled explicitly below. Partition confirmed against GitHub's rulesets REST docs:
-# "Required for Integration, RepositoryRole, Team, and User actor types. If actor_type is
-# OrganizationAdmin, actor_id is ignored. If actor_type is DeployKey, this should be null."
+# Bypass-actor types that require a concrete numeric ``actor_id`` — an App id, role id, or team
+# id respectively — which may be given literally (``actor_id``) or resolved from a human-readable
+# ``actor_slug``. ``OrganizationAdmin`` ignores ``actor_id`` and ``DeployKey`` forbids it (neither
+# has a slug to resolve), both handled explicitly below. Partition confirmed against GitHub's
+# rulesets REST docs: "Required for Integration, RepositoryRole, Team, and User actor types. If
+# actor_type is OrganizationAdmin, actor_id is ignored. If actor_type is DeployKey, this should
+# be null."
 _ACTOR_ID_REQUIRED = frozenset({"Integration", "RepositoryRole", "Team"})
+
+# Resolves a bypass actor's (actor_type, slug) to the numeric actor_id GitHub's API expects.
+# The rulesets manager supplies one backed by live API lookups; ``to_api`` calls it only for an
+# actor that carries an ``actor_slug``.
+BypassActorIdResolver = Callable[[str, str], int]
 
 
 class BypassActor(_ApiModel):
@@ -264,23 +272,51 @@ class BypassActor(_ApiModel):
     each need a concrete id, ``DeployKey`` must not carry one, and ``OrganizationAdmin`` ignores
     it (any value or none is accepted). The combinations GitHub's API rejects are rejected here
     at load rather than left to 422 at apply.
+
+    An id-requiring actor may instead be named by ``actor_slug`` — an App slug, team slug, or
+    (custom) repository-role name — which is resolved to its ``actor_id`` at plan time, so a human
+    never has to hand-write an opaque numeric id. Exactly one of ``actor_id``/``actor_slug`` is
+    set for those types; the slug never reaches GitHub (``to_api`` resolves it away).
     """
 
     actor_type: Literal["Integration", "OrganizationAdmin", "RepositoryRole", "Team", "DeployKey"]
     actor_id: int | None = None
+    actor_slug: str | None = None
     bypass_mode: Literal["always", "pull_request"] = "always"
 
     @model_validator(mode="after")
     def _actor_id_matches_type(self) -> BypassActor:
         if self.actor_type == "DeployKey":
-            if self.actor_id is not None:
-                msg = "a 'DeployKey' bypass actor must not set 'actor_id'"
+            if self.actor_id is not None or self.actor_slug is not None:
+                msg = "a 'DeployKey' bypass actor takes neither 'actor_id' nor 'actor_slug'"
                 raise ValueError(msg)
-        elif self.actor_type in _ACTOR_ID_REQUIRED and self.actor_id is None:
-            # OrganizationAdmin ignores actor_id, so it falls through with no constraint.
-            msg = f"a {self.actor_type!r} bypass actor requires 'actor_id'"
+        elif self.actor_type == "OrganizationAdmin":
+            # OrganizationAdmin ignores actor_id and has no slug to resolve.
+            if self.actor_slug is not None:
+                msg = "an 'OrganizationAdmin' bypass actor does not take 'actor_slug'"
+                raise ValueError(msg)
+        elif (self.actor_id is None) == (self.actor_slug is None):
+            # Integration/RepositoryRole/Team: exactly one of actor_id / actor_slug.
+            msg = (
+                f"a {self.actor_type!r} bypass actor requires exactly one of "
+                "'actor_id' or 'actor_slug'"
+            )
             raise ValueError(msg)
         return self
+
+    def to_api(self, resolve_slug: BypassActorIdResolver | None = None) -> dict[str, Any]:
+        """Render to the API shape, resolving ``actor_slug`` to a concrete ``actor_id``.
+
+        ``actor_slug`` is never sent to GitHub: when set, it's replaced by the ``actor_id`` the
+        resolver returns. A resolver is required iff this actor carries a slug.
+        """
+        data = self.model_dump(by_alias=True, exclude_none=True, exclude={"actor_slug"})
+        if self.actor_slug is not None:
+            if resolve_slug is None:
+                msg = f"resolving bypass actor slug {self.actor_slug!r} needs a resolver"
+                raise ValueError(msg)
+            data["actor_id"] = resolve_slug(self.actor_type, self.actor_slug)
+        return data
 
 
 class RefNameCondition(Strict):
@@ -333,8 +369,13 @@ class Ruleset(Strict):
                 raise ValueError(msg)
         return self
 
-    def to_api(self) -> dict[str, Any]:
-        """Render the whole ruleset into a GitHub REST API request body."""
+    def to_api(self, resolve_slug: BypassActorIdResolver | None = None) -> dict[str, Any]:
+        """Render the whole ruleset into a GitHub REST API request body.
+
+        ``resolve_slug`` is threaded to each bypass actor to turn an ``actor_slug`` into its
+        numeric ``actor_id`` (see :meth:`BypassActor.to_api`); it's only invoked for actors that
+        carry a slug.
+        """
         # A push ruleset carries no ref_name conditions (validated above), so it renders an
         # empty conditions object rather than the branch/tag include/exclude shape.
         conditions = {} if self.target == "push" else self.conditions.to_api()
@@ -342,7 +383,7 @@ class Ruleset(Strict):
             "name": self.name,
             "target": self.target,
             "enforcement": self.enforcement,
-            "bypass_actors": [actor.to_api() for actor in self.bypass_actors],
+            "bypass_actors": [actor.to_api(resolve_slug) for actor in self.bypass_actors],
             "conditions": conditions,
             "rules": [rule.to_api() for rule in self.rules],
         }

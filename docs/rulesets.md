@@ -60,14 +60,14 @@ rulesets:
       - type: deletion
     bypass_actors:
       - actor_type: RepositoryRole
-        actor_id: 5   # Repository Admins
+        actor_id: 5   # Repository Admins (a built-in base role — no slug, use its id)
         bypass_mode: always
       - actor_type: Integration
-        actor_id: 123456
+        actor_slug: my-release-app   # resolved to the App's id at plan time
         bypass_mode: always
 ```
 
-The `bypass_actors` entries are what let the automated process (here, a GitHub App) still create/move/delete the tag while everyone else is blocked by the three rules above. Give admins a bypass too, not just the automation: without one, a broken App installation or key locks every repo owner out of their own tags until the ruleset itself is edited.
+The `bypass_actors` entries are what let the automated process (here, a GitHub App) still create/move/delete the tag while everyone else is blocked by the three rules above. Naming the App by `actor_slug` beats hand-copying its numeric id; see [Bypass actors](#bypass-actors) for which types resolve by slug. Give admins a bypass too, not just the automation: without one, a broken App installation or key locks every repo owner out of their own tags until the ruleset itself is edited.
 
 ## Push rulesets
 
@@ -120,14 +120,28 @@ conditions:
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `actor_type` | `Integration` \| `OrganizationAdmin` \| `RepositoryRole` \| `Team` \| `DeployKey` | required | |
-| `actor_id` | int | unset | Required for `Integration`, `RepositoryRole`, and `Team`; must be omitted for `DeployKey`; ignored for `OrganizationAdmin` (set it or not — no effect) |
+| `actor_id` | int | unset | The numeric id. Required for `Integration`, `RepositoryRole`, and `Team` **unless** `actor_slug` is set; must be omitted for `DeployKey`; ignored for `OrganizationAdmin` |
+| `actor_slug` | string | unset | A human-readable name resolved to `actor_id` at plan time — an App slug (`Integration`), a team slug (`Team`), or a **custom** repository-role name (`RepositoryRole`). Set exactly one of `actor_id`/`actor_slug` for those types |
 | `bypass_mode` | `always` \| `pull_request` | `always` | |
+
+!!! tip "Name a bypass actor by slug, not a hidden id"
+    You rarely know an App's or team's numeric id off-hand. Give `actor_slug` instead and the
+    tool looks the id up via the GitHub API when it plans:
+
+    - `Integration` → the App's slug (`GET /apps/{slug}`)
+    - `Team` → the team's slug within the repo's org (`GET /orgs/{org}/teams/{slug}`)
+    - `RepositoryRole` → a **custom** repository role's name (matched case-insensitively). GitHub's
+      built-in base roles (read/triage/write/maintain/admin) have no name→id endpoint, so those
+      still need a literal `actor_id`.
+
+    A slug that doesn't resolve fails the plan loudly — it's never silently dropped.
 
 !!! note
     The `actor_type`/`actor_id` coherence is validated at config load, following GitHub's own
     rule: "Required for Integration, RepositoryRole, Team, and User actor types. If actor_type
     is OrganizationAdmin, actor_id is ignored. If actor_type is DeployKey, this should be null."
-    This model does not include the `User` actor type.
+    Supplying `actor_slug` satisfies the "required" half without a literal id. This model does
+    not include the `User` actor type.
 
 ## Rule types
 
