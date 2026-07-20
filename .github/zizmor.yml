@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Require every workflow `uses:` to be pinned to a full commit SHA, not a mutable tag.
+#
+# A tag like `@v7` is mutable: the action's author can re-point it at new code, so the hash
+# behind an unchanged-looking pin changes underfoot — surprise (and sometimes malicious)
+# behavior, and the false CI failures that motivated this. A 40-char commit SHA is immutable,
+# so a pin only ever moves via a reviewed, Renovate-driven digest bump.
+#
+# zizmor's current default *already* treats any tag pin as an unpinned-uses finding, so this
+# block does not change today's behavior — it pins the `hash-pin` policy explicitly so a future
+# zizmor default relaxation can't silently weaken the fleet's supply-chain floor. A
+# tool-independent backstop lives in tests/test_workflow_pins.py (runs in the unit gate, needs
+# no zizmor). Local `uses: ./…` actions are exempt automatically (they aren't remote refs).
+#
+# Enforced both offline (the prek zizmor hook) and online (ci.yml's dedicated zizmor step).
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin
