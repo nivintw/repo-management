@@ -73,6 +73,29 @@ def test_renovate_vulnerability_alerts_disabled_dedups_the_security_seam() -> No
     assert _config()["vulnerabilityAlerts"]["enabled"] is False
 
 
+def test_major_updates_automerge() -> None:
+    """Major updates automerge fleet-wide — a deliberate, risk-accepted policy, locked here.
+
+    Auto-merging majors is intentionally aggressive: it trades the human pre-merge gate for the
+    CI gate every other update type already rides. Because it looks risky, a later well-meaning
+    edit could quietly delete or flip it back to human-reviewed. Pin it so that reversal can't
+    happen silently — the merge stays genuinely CI-gated via platformAutomerge=false (asserted
+    below), which is what makes automerging majors safe rather than reckless.
+    """
+    config = _config()
+    assert config["platformAutomerge"] is False, (
+        "automerging majors is only safe while platformAutomerge is off, so Renovate merges "
+        "solely on observed-green checks rather than the CI App's ruleset bypass rights"
+    )
+    major_rules = [
+        rule for rule in config["packageRules"] if "major" in (rule.get("matchUpdateTypes") or [])
+    ]
+    assert major_rules, "no packageRule matches 'major' updates"
+    assert all(rule.get("automerge") is True for rule in major_rules), (
+        "a rule matching 'major' updates must set automerge:true (risk-accepted policy)"
+    )
+
+
 def test_refresh_script_consumes_base_ref() -> None:
     """Cross-check the other half of the contract: the script actually reads BASE_REF.
 
