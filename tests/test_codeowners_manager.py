@@ -14,7 +14,7 @@ from repo_management.changes import Action
 from repo_management.config import CodeownersEntry, SharedConfig
 from repo_management.managers.codeowners import _PATH, CodeownersManager
 
-_HEADER = "# Managed by repo-management — do not edit by hand."
+_HEADER = "# managed by nivintw/repo-management; use caution before editing manually"
 
 
 def _content_file(text: str, sha: str = "abc123") -> MagicMock:
@@ -47,6 +47,36 @@ def test_absent_file_is_created(repo: MagicMock) -> None:
     args = repo.create_file.call_args.args
     assert args[0] == _PATH
     assert args[2] == f"{_HEADER}\n* @a @b\n"
+
+
+def test_custom_header_is_rendered(repo: MagicMock) -> None:
+    """A configured codeowners_header replaces the default, rendered as a '# '-prefixed line."""
+    repo.get_contents.side_effect = GithubException(404, {"message": "Not Found"})
+    desired = SharedConfig(
+        codeowners=[CodeownersEntry(pattern="*", owners=["@a"])],
+        codeowners_header="owned by platform-team; edit via config",
+    )
+
+    changes = CodeownersManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    assert changes[0].after == "# owned by platform-team; edit via config\n* @a\n"
+
+
+def test_custom_header_change_updates_existing_file(repo: MagicMock) -> None:
+    """Changing only the header (entries unchanged) is drift that yields an UPDATE."""
+    repo.get_contents.return_value = _content_file(f"{_HEADER}\n* @a\n", sha="sha-h")
+    desired = SharedConfig(
+        codeowners=[CodeownersEntry(pattern="*", owners=["@a"])],
+        codeowners_header="new header text",
+    )
+
+    changes = CodeownersManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    assert changes[0].action is Action.UPDATE
+    changes[0].apply()
+    assert repo.update_file.call_args.args[2] == "# new header text\n* @a\n"
 
 
 def test_matching_file_is_noop(repo: MagicMock) -> None:

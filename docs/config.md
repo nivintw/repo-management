@@ -207,19 +207,27 @@ teams:
 ## CODEOWNERS
 
 Manages the single `.github/CODEOWNERS` file via the Contents API, matched by `pattern`. The
-rendered file carries a "Managed by repo-management" header.
+rendered file carries a header comment on the first line — by default
+`# managed by nivintw/repo-management; use caution before editing manually`, overridable with
+`codeowners_header`.
 
 Authoritative: declaring `codeowners:` makes the file exactly the rendered entries;
 `codeowners: []` is the authoritative "no owners" state and *deletes* the file if present;
 omitting the section leaves CODEOWNERS unmanaged. Owners are passed through verbatim (GitHub
 validates them).
 
+`codeowners_header` sits alongside `codeowners` (not inside an entry): it's the header comment
+text, given without a leading `#` (rendered as a `# `-prefixed line). It only appears when
+`codeowners` writes a file, so it's inert when the section is unset or authoritative-empty.
+
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `pattern` | string | **required** | Match key; a path pattern like `*` or `/docs/` |
 | `owners` | list[string] | **required** (≥1) | `@user`, `@org/team`, or email |
+| `codeowners_header` | string | `managed by nivintw/repo-management; use caution before editing manually` | Top-of-file comment text (top-level, sibling to `codeowners`); rendered with a leading `# ` |
 
 ```yaml
+codeowners_header: "owned by @acme/platform; edit via repo-management config, not by hand"
 codeowners:
   - pattern: "*"
     owners: ["@acme/platform"]

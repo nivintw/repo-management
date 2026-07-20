@@ -27,7 +27,10 @@ if TYPE_CHECKING:
 # The canonical path GitHub reads CODEOWNERS from (it also checks the repo root and docs/, but
 # .github/ is the conventional home and the single path this manager owns).
 _PATH = ".github/CODEOWNERS"
-_HEADER = "# Managed by repo-management — do not edit by hand."
+# The comment prepended to a managed CODEOWNERS file when the config sets no `codeowners_header`.
+# Consumers override it via `codeowners_header`; the value is the comment text and is rendered
+# with a leading "# ".
+_DEFAULT_HEADER = "managed by nivintw/repo-management; use caution before editing manually"
 _MESSAGE = "chore: Reconcile CODEOWNERS via repo-management"
 
 
@@ -41,7 +44,7 @@ class CodeownersManager:
         if desired.codeowners is None:
             return []
 
-        wanted = _render(desired.codeowners)
+        wanted = _render(desired.codeowners, desired.codeowners_header or _DEFAULT_HEADER)
         current = self._get(repo)
 
         if wanted is None:  # authoritative-absent (empty list)
@@ -106,9 +109,13 @@ class CodeownersManager:
         )
 
 
-def _render(entries: list[CodeownersEntry]) -> str | None:
-    """Render entries to a CODEOWNERS file body, or ``None`` for an authoritative-empty set."""
+def _render(entries: list[CodeownersEntry], header: str) -> str | None:
+    """Render entries to a CODEOWNERS file body, or ``None`` for an authoritative-empty set.
+
+    ``header`` is the comment text; it is emitted as a single ``# ``-prefixed line above the
+    entries.
+    """
     if not entries:
         return None
-    lines = [_HEADER, *(f"{entry.pattern} {' '.join(entry.owners)}" for entry in entries)]
+    lines = [f"# {header}", *(f"{entry.pattern} {' '.join(entry.owners)}" for entry in entries)]
     return "\n".join(lines) + "\n"
