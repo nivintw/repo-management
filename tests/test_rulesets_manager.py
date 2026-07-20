@@ -384,6 +384,21 @@ def test_resolver_missing_app_raises_clear_error() -> None:
         _BypassActorResolver(repo)("Integration", "ghost")
 
 
+def test_resolver_fetches_custom_role_list_once_for_distinct_slugs() -> None:
+    """Two distinct RepositoryRole slugs share a single custom-roles list request."""
+    repo = make_resolver_repo(
+        {
+            "/orgs/o/custom-repository-roles": {
+                "custom_roles": [{"id": 7, "name": "Security"}, {"id": 8, "name": "Release"}]
+            }
+        }
+    )
+    resolve = _BypassActorResolver(repo)
+    assert resolve("RepositoryRole", "Security") == 7
+    assert resolve("RepositoryRole", "Release") == 8
+    assert repo.requester.requestJsonAndCheck.call_count == 1
+
+
 def test_resolver_caches_repeated_lookups() -> None:
     """The same (actor_type, slug) is resolved once, then served from cache."""
     repo = make_resolver_repo({"/apps/app": {"id": 1}})

@@ -310,7 +310,9 @@ class BypassActor(_ApiModel):
         ``actor_slug`` is never sent to GitHub: when set, it's replaced by the ``actor_id`` the
         resolver returns. A resolver is required iff this actor carries a slug.
         """
-        data = self.model_dump(by_alias=True, exclude_none=True, exclude={"actor_slug"})
+        # Reuse the base render, then swap our config-only actor_slug for the resolved actor_id.
+        data = super().to_api()
+        data.pop("actor_slug", None)
         if self.actor_slug is not None:
             if resolve_slug is None:
                 msg = f"resolving bypass actor slug {self.actor_slug!r} needs a resolver"

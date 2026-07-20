@@ -79,6 +79,19 @@ def test_custom_header_change_updates_existing_file(repo: MagicMock) -> None:
     assert repo.update_file.call_args.args[2] == "# new header text\n* @a\n"
 
 
+def test_empty_string_header_is_honored_not_defaulted(repo: MagicMock) -> None:
+    """An explicit empty header renders a bare '#' line rather than falling back to the default."""
+    repo.get_contents.side_effect = GithubException(404, {"message": "Not Found"})
+    desired = SharedConfig(
+        codeowners=[CodeownersEntry(pattern="*", owners=["@a"])],
+        codeowners_header="",
+    )
+
+    changes = CodeownersManager().plan(repo, desired)
+
+    assert changes[0].after == "# \n* @a\n"
+
+
 def test_matching_file_is_noop(repo: MagicMock) -> None:
     """A live file already matching the rendered content yields no change."""
     repo.get_contents.return_value = _content_file(f"{_HEADER}\n*.py @team\n")
