@@ -96,6 +96,27 @@ def test_major_updates_automerge() -> None:
     )
 
 
+def test_minor_updates_automerge_including_pre_1_0() -> None:
+    """0.x minor updates automerge too — the '!/^0/' pre-1.0 exclusion is deliberately absent.
+
+    Renovate's docs recommend excluding pre-1.0 versions from minor automerge (they can break at
+    any time per SemVer). This fleet rejects that: the merge gate is CI, not the semver position,
+    so a 0.x minor rides the same CI-gated automerge as everything else. A later editor
+    "restoring" Renovate's recommended matchCurrentVersion:'!/^0/' would silently re-gate every
+    0.x minor across the fleet — pin the decision so that reversal can't happen unnoticed.
+    """
+    minor_rules = [
+        rule
+        for rule in _config()["packageRules"]
+        if (rule.get("matchUpdateTypes") or []) == ["minor"]
+    ]
+    assert minor_rules, "no packageRule matches 'minor' updates"
+    assert all(rule.get("automerge") is True for rule in minor_rules)
+    assert all("matchCurrentVersion" not in rule for rule in minor_rules), (
+        "the minor automerge rule must not narrow by matchCurrentVersion — 0.x minors automerge"
+    )
+
+
 def test_refresh_script_consumes_base_ref() -> None:
     """Cross-check the other half of the contract: the script actually reads BASE_REF.
 
