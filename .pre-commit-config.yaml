@@ -179,7 +179,27 @@ repos:
     hooks:
       - id: validate-pyproject
         name: "🐍 python · Validate pyproject.toml"
-        additional_dependencies: ["validate-pyproject-schema-store[all]"]
+        # Pin the schema bundle. schema-store 2026.7.20 ships a uv schema whose new
+        # anyOf/not-wrapped option definitions trip a long-standing fastjsonschema codegen bug:
+        # the generated validator emits `if "<prop>" in data_keys:` without the preceding
+        # `data_keys = set(data.keys())`, so validating a [tool.uv] table raises
+        # `UnboundLocalError: data_keys`. Same family as fastjsonschema #49/#53 (var referenced
+        # before assignment) — open since 2022, so don't expect a quick upstream fix. 2026.7.17
+        # is the last good release.
+        #
+        # `language: python` deliberately hands this dep to Renovate's pre-commit manager so it
+        # keeps trying to move the pin forward, and CI decides: a still-broken bump fails this
+        # hook -> CI red -> fail-closed (platformAutomerge off) so it never merges; a future
+        # release that sidesteps the bug goes green and automerges us back onto latest, no manual
+        # step. Pinning also puts the version *in this file*, so its hash is now part of CI's prek
+        # cache key — CI and local can no longer silently diverge on a floating schema-store.
+        #
+        # If the standing red Renovate bump PR gets annoying, stop the bumps instead by adding to
+        # .github/renovate.json: a packageRule with
+        #   matchPackageNames: ["validate-pyproject-schema-store"], enabled: false
+        # (then you re-bump manually once upstream is fixed).
+        language: python
+        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.7.17"]
 
   # --------------------------------- 📐 YAML ---------------------------------------- #
   # check-yaml (above) only checks that YAML *parses*; yamllint enforces style — indentation,
