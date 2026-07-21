@@ -284,6 +284,25 @@ class BypassActor(_ApiModel):
     actor_slug: str | None = None
     bypass_mode: Literal["always", "pull_request"] = "always"
 
+    @field_validator("actor_slug")
+    @classmethod
+    def _slug_is_a_clean_segment(cls, value: str | None) -> str | None:
+        # Reject at load what would otherwise resolve wrong at plan: an empty slug (issues a
+        # malformed `/apps/` request) and a slug carrying a path separator or newline. The latter
+        # matters because the resolver interpolates the slug into an API path — a value like
+        # `../../orgs/other/teams/admins` could otherwise traverse to a *different* org's team and
+        # silently install the wrong bypass id (a security control). Role *names* may contain
+        # spaces, so only '/', CR, and LF are forbidden, not all whitespace.
+        if value is None:
+            return value
+        if not value.strip():
+            msg = "'actor_slug' must not be empty"
+            raise ValueError(msg)
+        if any(char in value for char in "/\r\n"):
+            msg = "'actor_slug' must not contain '/', a carriage return, or a newline"
+            raise ValueError(msg)
+        return value
+
     @model_validator(mode="after")
     def _actor_id_matches_type(self) -> BypassActor:
         if self.actor_type == "DeployKey":

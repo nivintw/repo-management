@@ -120,5 +120,9 @@ def _render(entries: list[CodeownersEntry], header: str) -> str | None:
     """
     if not entries:
         return None
-    lines = [f"# {header}", *(f"{entry.pattern} {' '.join(entry.owners)}" for entry in entries)]
+    # Prefix *every* line of the header with "# " — a multi-line header must render as several
+    # comment lines, never let an embedded newline emit an un-prefixed (active) CODEOWNERS rule.
+    # splitlines() drops the trailing newline classes; `or [""]` keeps an empty header as "# ".
+    header_lines = [f"# {line}" for line in (header.splitlines() or [""])]
+    lines = [*header_lines, *(f"{entry.pattern} {' '.join(entry.owners)}" for entry in entries)]
     return "\n".join(lines) + "\n"

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from github import GithubException
 
@@ -165,11 +166,11 @@ class _BypassActorResolver:
         if actor_type == "Integration":
             # Public App metadata; the slug is the one in the App's public URL.
             return self._lookup_id(
-                f"/apps/{slug}", missing=f"no GitHub App found for slug {slug!r}"
+                f"/apps/{_seg(slug)}", missing=f"no GitHub App found for slug {slug!r}"
             )
         if actor_type == "Team":
             return self._lookup_id(
-                f"/orgs/{self._org}/teams/{slug}",
+                f"/orgs/{_seg(self._org)}/teams/{_seg(slug)}",
                 missing=f"no team {slug!r} in organization {self._org!r}",
             )
         if actor_type == "RepositoryRole":
@@ -185,7 +186,7 @@ class _BypassActorResolver:
 
     def _lookup_id(self, path: str, *, missing: str) -> int:
         """GET a single object by its slug endpoint and return its numeric ``id``."""
-        return int(self._get(path, missing=missing)["id"])
+        return _require_id(self._get(path, missing=missing), context=path)
 
     def _role_id(self, slug: str) -> int:
         # Only custom repository roles are addressable by name via the API; GitHub's built-in
@@ -193,15 +194,35 @@ class _BypassActorResolver:
         # still be given as a literal actor_id.
         if self._custom_roles is None:
             data = self._get(
-                f"/orgs/{self._org}/custom-repository-roles",
+                f"/orgs/{_seg(self._org)}/custom-repository-roles",
                 missing=f"cannot list custom repository roles for organization {self._org!r}",
             )
+            if "custom_roles" not in data:
+                # An absent key is a shape problem, not "the org has zero roles" — don't let it
+                # masquerade as a "role not found" that tells the operator to delete good config.
+                msg = (
+                    f"unexpected custom-repository-roles response for organization "
+                    f"{self._org!r}: missing 'custom_roles'"
+                )
+                raise ValueError(msg)
             self._custom_roles = {
-                role.get("name", ""): int(role["id"]) for role in data.get("custom_roles", [])
+                _require_name(role): _require_id(role, context="custom role")
+                for role in data["custom_roles"]
             }
-        for name, role_id in self._custom_roles.items():
-            if name.lower() == slug.lower():
-                return role_id
+        # Match case-insensitively, but a slug matching more than one role by case is ambiguous —
+        # binding a bypass grant to an arbitrary one silently would defeat the point of the guard.
+        wanted = slug.lower()
+        matches = [
+            role_id for name, role_id in self._custom_roles.items() if name.lower() == wanted
+        ]
+        if len(matches) > 1:
+            msg = (
+                f"custom repository role slug {slug!r} is ambiguous in organization "
+                f"{self._org!r} — more than one role matches case-insensitively"
+            )
+            raise ValueError(msg)
+        if matches:
+            return matches[0]
         msg = (
             f"no custom repository role named {slug!r} in organization {self._org!r} "
             f"(found: {sorted(self._custom_roles)}). "
@@ -217,6 +238,38 @@ class _BypassActorResolver:
                 raise ValueError(missing) from exc
             raise
         return data
+
+
+def _seg(value: str) -> str:
+    """URL-encode a single path segment so a slug can't inject extra path or query structure.
+
+    ``quote(..., safe="")`` percent-encodes ``/``, ``?``, ``#`` and the like — a defensive layer
+    on top of BypassActor's slug validation, since these values interpolate straight into a REST
+    path. The host is never derived from a slug, so this is about path integrity, not SSRF.
+    """
+    return quote(value, safe="")
+
+
+def _require_id(data: dict[str, Any], *, context: str) -> int:
+    """Return the integer ``id`` from an API object, or raise if it's absent or non-numeric.
+
+    A resolved bypass actor with no usable id is a hard error, not something to paper over with a
+    default that would silently drop the bypass grant.
+    """
+    raw = data.get("id")
+    if raw is None:
+        msg = f"expected an 'id' in the {context} response, got none"
+        raise ValueError(msg)
+    return int(raw)
+
+
+def _require_name(role: dict[str, Any]) -> str:
+    """Return a custom role's ``name``, or raise if it's missing — the key we index roles by."""
+    name = role.get("name")
+    if name is None:
+        msg = "custom repository role is missing its 'name'"
+        raise ValueError(msg)
+    return name
 
 
 def _summary(api: dict[str, Any]) -> dict[str, Any]:
@@ -238,9 +291,14 @@ def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     A declared ruleset is authoritative, so its declared *lists* (rules, bypass actors,
     ref-name patterns) must match the live ones exactly — an extra or missing item is drift
     that triggers an update. *Dict* fields are matched as a subset, ignoring keys the spec
-    never sets (server-supplied metadata like ``integration_id``, ``actor_id``, and
-    timestamps), which we can't control and which would otherwise cause perpetual churn.
-    Lists are compared order-insensitively.
+    never sets (server-supplied metadata like ``integration_id``, timestamps, and node ids),
+    which we can't control and which would otherwise cause perpetual churn. Lists are compared
+    order-insensitively.
+
+    ``actor_id`` is subset-matched like any other key, so it cuts both ways: an actor the spec
+    pins by id (literally, or resolved from an ``actor_slug`` before this compares) must match
+    the live actor's id, while an actor that sets no id (``OrganizationAdmin``) ignores whatever
+    id the server attached — which is exactly why a slug resolving to the live id is a NOOP.
     """
     return _satisfied(desired, current)
 

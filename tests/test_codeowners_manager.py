@@ -92,6 +92,19 @@ def test_empty_string_header_is_honored_not_defaulted(repo: MagicMock) -> None:
     assert changes[0].after == "# \n* @a\n"
 
 
+def test_multiline_header_prefixes_every_line(repo: MagicMock) -> None:
+    """A multi-line header renders each line as a comment — never an active un-prefixed rule."""
+    repo.get_contents.side_effect = GithubException(404, {"message": "Not Found"})
+    desired = SharedConfig(
+        codeowners=[CodeownersEntry(pattern="*", owners=["@a"])],
+        codeowners_header="line one\nline two",
+    )
+
+    changes = CodeownersManager().plan(repo, desired)
+
+    assert changes[0].after == "# line one\n# line two\n* @a\n"
+
+
 def test_matching_file_is_noop(repo: MagicMock) -> None:
     """A live file already matching the rendered content yields no change."""
     repo.get_contents.return_value = _content_file(f"{_HEADER}\n*.py @team\n")
