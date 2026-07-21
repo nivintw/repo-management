@@ -115,8 +115,9 @@ class CodeownersManager:
 def _render(entries: list[CodeownersEntry], header: str) -> str | None:
     """Render entries to a CODEOWNERS file body, or ``None`` for an authoritative-empty set.
 
-    ``header`` is the comment text; it is emitted as a single ``# ``-prefixed line above the
-    entries.
+    ``header`` is the comment text placed above the entries; *every* line of it is ``# ``-prefixed,
+    so a multi-line header renders as several comment lines (an embedded newline can never emit an
+    un-prefixed, active CODEOWNERS rule). An empty header renders a single bare ``# ``.
     """
     if not entries:
         return None
