@@ -7,6 +7,19 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.14.0](https://github.com/nivintw/repo-management/compare/v1.13.0...v1.14.0) (2026-07-21)
+
+
+### Features
+
+* **codeowners:** add consumer-specifiable header comment ([9533e00](https://github.com/nivintw/repo-management/commit/9533e00dab14f7d547b07496eccdb6bd479d3bf7)), closes [#164](https://github.com/nivintw/repo-management/issues/164)
+* **rulesets:** resolve a bypass actor id from a provided slug ([5e63b28](https://github.com/nivintw/repo-management/commit/5e63b2810c30285f7fa54b6ca036592f7995dd6b)), closes [#167](https://github.com/nivintw/repo-management/issues/167)
+
+
+### Bug Fixes
+
+* **rulesets:** harden bypass-actor slug resolution and codeowners header ([a4515ad](https://github.com/nivintw/repo-management/commit/a4515ad23f7af982c28c6c46d91dfb97a63778dd))
+
 ## [1.13.0](https://github.com/nivintw/repo-management/compare/v1.12.0...v1.13.0) (2026-07-20)
 
 
