@@ -43,11 +43,14 @@
         "With platform automerge off, Renovate itself merges only after it observes the",
         "branch checks green (its default; no ignoreTests here), independent of bypass",
         "rights. Repos without a CI workflow yet simply never satisfy that, so their PRs",
-        "wait (fail closed) until they adopt the scaffold. Pre-1.0 minors are excluded —",
-        "0.x minor bumps are conventionally breaking — and ride only the patch rule."
+        "wait (fail closed) until they adopt the scaffold. Pre-1.0 (0.x) minors automerge",
+        "too — deliberately rejecting Renovate's recommended '!/^0/' exclusion of pre-1.0",
+        "versions as conventionally-breaking: this fleet's merge gate is CI, not the semver",
+        "position. A 0.x minor that actually breaks a consumer fails that consumer's CI and",
+        "never merges; one that passes is safe to take. (0.x patch and major already ride",
+        "their own rules with no such exclusion, so this just makes the minor case match.)"
       ],
       "matchUpdateTypes": ["minor"],
-      "matchCurrentVersion": "!/^0/",
       "automerge": true,
       "minimumReleaseAge": "3 days"
     },
