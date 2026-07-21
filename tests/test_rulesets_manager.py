@@ -417,6 +417,65 @@ def test_resolver_non_404_error_propagates() -> None:
         _BypassActorResolver(repo)("Team", "platform")
 
 
+def test_resolver_ambiguous_role_raises() -> None:
+    """Two custom roles matching a slug case-insensitively is ambiguous and refuses to guess."""
+    repo = make_resolver_repo(
+        {
+            "/orgs/o/custom-repository-roles": {
+                "custom_roles": [{"id": 7, "name": "Security"}, {"id": 8, "name": "security"}]
+            }
+        }
+    )
+    with pytest.raises(ValueError, match=r"slug 'security' is ambiguous"):
+        _BypassActorResolver(repo)("RepositoryRole", "security")
+
+
+def test_resolver_missing_custom_roles_key_raises() -> None:
+    """A response lacking 'custom_roles' is a shape error, not 'the role wasn't found'."""
+    repo = make_resolver_repo({"/orgs/o/custom-repository-roles": {"unexpected": []}})
+    with pytest.raises(ValueError, match="missing 'custom_roles'"):
+        _BypassActorResolver(repo)("RepositoryRole", "security")
+
+
+def test_resolver_role_missing_name_raises() -> None:
+    """A custom role object with no 'name' can't be indexed and fails loudly."""
+    repo = make_resolver_repo({"/orgs/o/custom-repository-roles": {"custom_roles": [{"id": 7}]}})
+    with pytest.raises(ValueError, match="missing its 'name'"):
+        _BypassActorResolver(repo)("RepositoryRole", "security")
+
+
+def test_resolver_missing_id_raises() -> None:
+    """A resolved object with no 'id' is a hard error, not a silently-dropped bypass grant."""
+    repo = make_resolver_repo({"/apps/my-ci-app": {"slug": "my-ci-app"}})  # no id
+    with pytest.raises(ValueError, match="expected an 'id'"):
+        _BypassActorResolver(repo)("Integration", "my-ci-app")
+
+
+def test_slug_resolved_id_matching_live_ruleset_is_noop() -> None:
+    """A slug that resolves to the live ruleset's actor_id is in sync, not perpetual drift."""
+    desired = ruleset(bypass_actors=[{"actor_type": "Integration", "actor_slug": "my-ci-app"}])
+    # The live ruleset already carries the numeric id the slug resolves to.
+    current_body = ruleset(bypass_actors=[{"actor_type": "Integration", "actor_id": 456}]).to_api()
+    routes = {"/apps/my-ci-app": {"id": 456}}
+
+    repo = MagicMock()
+    repo.url = URL
+    repo.owner.login = "o"
+
+    def request(verb: str, url: str, **_kwargs: object) -> tuple[dict, Any]:
+        if verb == "GET" and url in routes:
+            return ({}, routes[url])
+        if verb == "GET" and url.split("?", maxsplit=1)[0] == f"{URL}/rulesets":
+            return ({}, [{"id": 1, "name": "main"}])
+        if verb == "GET" and url.startswith(f"{URL}/rulesets/"):
+            return ({}, {"id": 1, **current_body})
+        return ({}, {})
+
+    repo.requester.requestJsonAndCheck.side_effect = request
+
+    assert RulesetsManager().plan(repo, SharedConfig(rulesets=[desired])) == []
+
+
 def test_plan_resolves_bypass_actor_slug_into_body() -> None:
     """End-to-end: a desired ruleset's actor_slug is resolved into the created ruleset body."""
     desired = ruleset(bypass_actors=[{"actor_type": "Integration", "actor_slug": "my-ci-app"}])

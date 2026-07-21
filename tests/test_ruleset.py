@@ -322,6 +322,26 @@ def test_bypass_actor_literal_id_ignores_resolver() -> None:
     }
 
 
+@pytest.mark.parametrize("slug", ["", "   "])
+def test_bypass_actor_empty_slug_rejected(slug: str) -> None:
+    """An empty or whitespace-only slug is rejected at load, not left to a malformed request."""
+    with pytest.raises(ValidationError, match="'actor_slug' must not be empty"):
+        BypassActor(actor_type="Team", actor_slug=slug)
+
+
+@pytest.mark.parametrize("slug", ["../other/teams/admins", "a\nb", "a\rb", "org/team"])
+def test_bypass_actor_slug_with_path_separator_rejected(slug: str) -> None:
+    """A slug carrying '/', CR, or LF is rejected — it interpolates into an API path."""
+    with pytest.raises(ValidationError, match="must not contain"):
+        BypassActor(actor_type="Team", actor_slug=slug)
+
+
+def test_bypass_actor_slug_allows_spaces() -> None:
+    """A custom role name may contain spaces, so a spaced slug is accepted."""
+    actor = BypassActor(actor_type="RepositoryRole", actor_slug="Security Team Lead")
+    assert actor.actor_slug == "Security Team Lead"
+
+
 def test_bypass_actor_org_admin_ignores_actor_id() -> None:
     """OrganizationAdmin ignores actor_id: both an absent and a present id load."""
     assert BypassActor(actor_type="OrganizationAdmin").actor_id is None
