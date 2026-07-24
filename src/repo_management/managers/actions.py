@@ -25,17 +25,26 @@ class ActionsManager:
     domain = "actions"
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
-        """Return changes for the permissions, selected-actions, and workflow-permission APIs."""
+        """Return changes across the seven Actions settings endpoints this manager reconciles.
+
+        Each endpoint is diffed independently, and an endpoint whose config fields are all
+        unset is skipped without a GET (see :meth:`_partial_change`).
+        """
         actions = desired.actions
         if actions is None:
             return []
 
+        fork_private = actions.fork_pr_workflows_private_repos
         candidates = [
             self._partial_change(
                 repo,
                 target="permissions",
                 url=f"{repo.url}/actions/permissions",
-                wanted={"enabled": actions.enabled, "allowed_actions": actions.allowed_actions},
+                wanted={
+                    "enabled": actions.enabled,
+                    "allowed_actions": actions.allowed_actions,
+                    "sha_pinning_required": actions.sha_pinning_required,
+                },
             ),
             self._selected_actions_change(repo, actions.selected_actions)
             if actions.selected_actions is not None
@@ -49,6 +58,34 @@ class ActionsManager:
                     "can_approve_pull_request_reviews": actions.can_approve_pull_request_reviews,
                 },
             ),
+            self._partial_change(
+                repo,
+                target="external access",
+                url=f"{repo.url}/actions/permissions/access",
+                wanted={"access_level": actions.access_level},
+            ),
+            self._partial_change(
+                repo,
+                target="artifact and log retention",
+                url=f"{repo.url}/actions/permissions/artifact-and-log-retention",
+                wanted={"days": actions.artifact_and_log_retention_days},
+            ),
+            self._partial_change(
+                repo,
+                target="fork PR contributor approval",
+                url=f"{repo.url}/actions/permissions/fork-pr-contributor-approval",
+                wanted={"approval_policy": actions.fork_pr_contributor_approval},
+            ),
+            # The sub-model's field names match the API payload keys exactly, so a plain dump
+            # is the wanted dict; a `None` field is unmanaged and written back by _partial_change.
+            self._partial_change(
+                repo,
+                target="fork PR workflows (private repos)",
+                url=f"{repo.url}/actions/permissions/fork-pr-workflows-private-repos",
+                wanted=fork_private.model_dump(),
+            )
+            if fork_private is not None
+            else None,
         ]
         return [change for change in candidates if change is not None]
 

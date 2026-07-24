@@ -8,7 +8,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from repo_management.changes import Action
-from repo_management.config import ActionsConfig, SelectedActions, SharedConfig
+from repo_management.config import (
+    ActionsConfig,
+    ForkPrWorkflowsPrivateRepos,
+    SelectedActions,
+    SharedConfig,
+)
 from repo_management.managers.actions import ActionsManager
 
 URL = "https://api.github.com/repos/o/r"
@@ -221,28 +226,231 @@ def test_workflow_permissions_in_sync(repo: MagicMock) -> None:
     assert ActionsManager().plan(repo, desired) == []
 
 
+def test_sha_pinning_required_change(repo: MagicMock) -> None:
+    """sha_pinning_required is diffed on the shared permissions endpoint, preserving the pair."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"enabled": True, "allowed_actions": "all", "sha_pinning_required": False},
+    )
+    desired = SharedConfig(actions=ActionsConfig(sha_pinning_required=True))
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.target == "permissions"
+    assert change.after == {"sha_pinning_required": True}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions",
+        input={"enabled": True, "allowed_actions": "all", "sha_pinning_required": True},
+    )
+
+
+def test_access_level_change(repo: MagicMock) -> None:
+    """access_level drives the /access endpoint."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {"access_level": "none"})
+    desired = SharedConfig(actions=ActionsConfig(access_level="organization"))
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.target == "external access"
+    assert change.before == {"access_level": "none"}
+    assert change.after == {"access_level": "organization"}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions/access",
+        input={"access_level": "organization"},
+    )
+
+
+def test_access_level_in_sync(repo: MagicMock) -> None:
+    """A matching access_level produces no change."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {"access_level": "organization"})
+    desired = SharedConfig(actions=ActionsConfig(access_level="organization"))
+    assert ActionsManager().plan(repo, desired) == []
+
+
+def test_access_level_unset_is_unmanaged(repo: MagicMock) -> None:
+    """Leaving access_level unset never touches its endpoint."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {})
+    desired = SharedConfig(actions=ActionsConfig(enabled=True))
+
+    ActionsManager().plan(repo, desired)
+
+    calls = [call.args[1] for call in repo.requester.requestJsonAndCheck.call_args_list]
+    assert f"{URL}/actions/permissions/access" not in calls
+
+
+def test_retention_days_change(repo: MagicMock) -> None:
+    """artifact_and_log_retention_days maps to the endpoint's `days` field."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {"days": 90})
+    desired = SharedConfig(actions=ActionsConfig(artifact_and_log_retention_days=30))
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.target == "artifact and log retention"
+    assert change.after == {"days": 30}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions/artifact-and-log-retention",
+        input={"days": 30},
+    )
+
+
+def test_fork_pr_contributor_approval_change(repo: MagicMock) -> None:
+    """fork_pr_contributor_approval maps to the endpoint's approval_policy field."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"approval_policy": "first_time_contributors"},
+    )
+    desired = SharedConfig(
+        actions=ActionsConfig(fork_pr_contributor_approval="all_external_contributors"),
+    )
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.target == "fork PR contributor approval"
+    assert change.after == {"approval_policy": "all_external_contributors"}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions/fork-pr-contributor-approval",
+        input={"approval_policy": "all_external_contributors"},
+    )
+
+
+def test_fork_pr_private_repos_writes_back_unmanaged_fields(repo: MagicMock) -> None:
+    """Declaring one fork-PR field writes the others back with their live values.
+
+    In particular the API-required run_workflows_from_fork_pull_requests, left unmanaged, is
+    preserved from the GET rather than dropped — so the PUT never omits it.
+    """
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {
+            "run_workflows_from_fork_pull_requests": True,
+            "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False,
+            "require_approval_for_fork_pr_workflows": False,
+        },
+    )
+    desired = SharedConfig(
+        actions=ActionsConfig(
+            fork_pr_workflows_private_repos=ForkPrWorkflowsPrivateRepos(
+                require_approval_for_fork_pr_workflows=True,
+            ),
+        ),
+    )
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.target == "fork PR workflows (private repos)"
+    assert change.before == {"require_approval_for_fork_pr_workflows": False}
+    assert change.after == {"require_approval_for_fork_pr_workflows": True}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions/fork-pr-workflows-private-repos",
+        input={
+            "run_workflows_from_fork_pull_requests": True,
+            "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False,
+            "require_approval_for_fork_pr_workflows": True,
+        },
+    )
+
+
+def test_fork_pr_private_repos_in_sync(repo: MagicMock) -> None:
+    """A matching fork-PR private-repos config produces no change."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {
+            "run_workflows_from_fork_pull_requests": True,
+            "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False,
+            "require_approval_for_fork_pr_workflows": True,
+        },
+    )
+    desired = SharedConfig(
+        actions=ActionsConfig(
+            fork_pr_workflows_private_repos=ForkPrWorkflowsPrivateRepos(
+                require_approval_for_fork_pr_workflows=True,
+            ),
+        ),
+    )
+    assert ActionsManager().plan(repo, desired) == []
+
+
+def test_fork_pr_private_repos_unset_is_unmanaged(repo: MagicMock) -> None:
+    """Leaving fork_pr_workflows_private_repos unset never touches its endpoint."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {})
+    desired = SharedConfig(actions=ActionsConfig(enabled=True))
+
+    ActionsManager().plan(repo, desired)
+
+    calls = [call.args[1] for call in repo.requester.requestJsonAndCheck.call_args_list]
+    assert f"{URL}/actions/permissions/fork-pr-workflows-private-repos" not in calls
+
+
 def test_every_actions_field_produces_a_change(repo: MagicMock) -> None:
-    """Guard: every ActionsConfig field must be diffed by one of the three sub-changes.
+    """Guard: every ActionsConfig field must be diffed by one of the sub-changes.
 
     A field added to ActionsConfig without a plan() handler would silently become
-    unmanaged.
+    unmanaged. Config field names diverge from the API payload keys for a few endpoints,
+    so map each such change back to the field it manages by its change target.
     """
     repo.url = URL
     repo.requester.requestJsonAndCheck.return_value = ({}, {})
     desired = ActionsConfig(
         enabled=True,
         allowed_actions="selected",
+        sha_pinning_required=True,
         selected_actions=SelectedActions(verified_allowed=True, patterns_allowed=["a/b@*"]),
         default_workflow_permissions="write",
         can_approve_pull_request_reviews=True,
+        access_level="organization",
+        artifact_and_log_retention_days=30,
+        fork_pr_contributor_approval="all_external_contributors",
+        fork_pr_workflows_private_repos=ForkPrWorkflowsPrivateRepos(
+            run_workflows_from_fork_pull_requests=True,
+        ),
     )
 
     changes = ActionsManager().plan(repo, SharedConfig(actions=desired))
 
+    # Targets whose payload keys don't match the config field name they manage.
+    target_field = {
+        "selected actions": "selected_actions",
+        "external access": "access_level",
+        "artifact and log retention": "artifact_and_log_retention_days",
+        "fork PR contributor approval": "fork_pr_contributor_approval",
+        "fork PR workflows (private repos)": "fork_pr_workflows_private_repos",
+    }
     managed: set[str] = set()
     for change in changes:
-        if change.target == "selected actions":
-            managed.add("selected_actions")
+        if change.target in target_field:
+            managed.add(target_field[change.target])
         else:
             assert isinstance(change.after, dict)
             managed.update(str(key) for key in change.after)
