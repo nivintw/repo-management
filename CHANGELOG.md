@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [1.15.0](https://github.com/nivintw/repo-management/compare/v1.14.0...v1.15.0) (2026-07-24)
+
+
+### Features
+
+* **actions:** manage fork-PR, external access, retention, and SHA-pinning ([cb8b4aa](https://github.com/nivintw/repo-management/commit/cb8b4aa338b2e46a863d0872f746346b3afad216))
+
 ## [1.14.0](https://github.com/nivintw/repo-management/compare/v1.13.0...v1.14.0) (2026-07-21)
 
 
