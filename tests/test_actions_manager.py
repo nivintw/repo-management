@@ -249,6 +249,33 @@ def test_sha_pinning_required_change(repo: MagicMock) -> None:
     )
 
 
+def test_permissions_write_back_preserves_unmanaged_sha_pinning(repo: MagicMock) -> None:
+    """Changing allowed_actions writes the live sha_pinning_required back, never clearing it.
+
+    sha_pinning_required is a security control; leaving it unset must preserve the repo's live
+    value on a PUT driven by a different field on the shared permissions endpoint.
+    """
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"enabled": True, "allowed_actions": "all", "sha_pinning_required": True},
+    )
+    desired = SharedConfig(actions=ActionsConfig(allowed_actions="selected"))
+
+    changes = ActionsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.target == "permissions"
+    assert change.after == {"allowed_actions": "selected"}
+    change.apply()
+    repo.requester.requestJsonAndCheck.assert_called_with(
+        "PUT",
+        f"{URL}/actions/permissions",
+        input={"enabled": True, "allowed_actions": "selected", "sha_pinning_required": True},
+    )
+
+
 def test_access_level_change(repo: MagicMock) -> None:
     """access_level drives the /access endpoint."""
     repo.url = URL
