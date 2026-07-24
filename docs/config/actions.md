@@ -66,3 +66,10 @@ left unmanaged.
 `fork_pr_contributor_approval` to public repos). The manager stays declarative and sends what
 you declare; GitHub rejects an inapplicable value (e.g. a non-`none` `access_level` on a public
 repo) at apply time rather than the config silently dropping it.
+
+To actually harden fork-PR workflows on a private repo, declare **all four**
+`fork_pr_workflows_private_repos` fields, not just `require_approval_for_fork_pr_workflows`.
+Because an unmanaged field is preserved at its live value, requiring approval alone leaves the
+repo's current `send_secrets_and_variables` and `send_write_tokens_to_workflows` exposure
+untouched — set them to `false` explicitly if fork PRs should never receive secrets or write
+tokens.
