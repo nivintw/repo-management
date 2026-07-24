@@ -81,8 +81,9 @@ every section lives in the [config reference](config.md).
 
 -   **`actions`**
 
-    Actions enablement/policy (including selected-actions patterns), default workflow
-    permissions, and workflow-approval permission.
+    Actions enablement/policy (including selected-actions patterns and SHA-pinning), default
+    workflow permissions, workflow-approval permission, fork-PR workflow settings, external
+    workflow access, and artifact/log retention.
 
 -   **`security`**
 

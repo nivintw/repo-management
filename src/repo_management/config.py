@@ -288,6 +288,11 @@ class SelectedActions(Strict):
 class ForkPrWorkflowsPrivateRepos(Strict):
     """Fork-PR workflow settings for a private/internal repo (Settings → Actions → General).
 
+    Nested (unlike the flat ``enabled``/``allowed_actions``/``sha_pinning_required`` trio, which
+    predate this and can't be nested without a breaking config change) to group four related
+    fields under one key and match the endpoint's own payload shape — the field names are the
+    API keys, so the manager PUTs ``model_dump()`` verbatim.
+
     Each field is independently unmanaged (``None``) — an unmanaged field is written back with
     its live value on apply, so declaring only one of the four never clears the others. GitHub
     requires ``run_workflows_from_fork_pull_requests`` on every write, which the write-back of

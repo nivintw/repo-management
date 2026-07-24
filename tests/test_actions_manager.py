@@ -439,10 +439,11 @@ def test_every_actions_field_produces_a_change(repo: MagicMock) -> None:
 
     changes = ActionsManager().plan(repo, SharedConfig(actions=desired))
 
-    # Targets whose payload keys don't match the config field name they manage.
+    # Targets whose payload keys don't match the config field name they manage. Endpoints
+    # whose payload key equals the field name (e.g. access_level) are recorded by the else
+    # branch below and need no entry here.
     target_field = {
         "selected actions": "selected_actions",
-        "external access": "access_level",
         "artifact and log retention": "artifact_and_log_retention_days",
         "fork PR contributor approval": "fork_pr_contributor_approval",
         "fork PR workflows (private repos)": "fork_pr_workflows_private_repos",
