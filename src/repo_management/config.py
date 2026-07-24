@@ -285,6 +285,21 @@ class SelectedActions(Strict):
     patterns_allowed: list[str] = Field(default_factory=list)
 
 
+class ForkPrWorkflowsPrivateRepos(Strict):
+    """Fork-PR workflow settings for a private/internal repo (Settings → Actions → General).
+
+    Each field is independently unmanaged (``None``) — an unmanaged field is written back with
+    its live value on apply, so declaring only one of the four never clears the others. GitHub
+    requires ``run_workflows_from_fork_pull_requests`` on every write, which the write-back of
+    its live value satisfies when it is left unmanaged.
+    """
+
+    run_workflows_from_fork_pull_requests: bool | None = None
+    send_write_tokens_to_workflows: bool | None = None
+    send_secrets_and_variables: bool | None = None
+    require_approval_for_fork_pr_workflows: bool | None = None
+
+
 class ActionsConfig(Strict):
     """Actions permissions: enablement, allowed-actions policy, and workflow permissions.
 
@@ -293,11 +308,30 @@ class ActionsConfig(Strict):
 
     enabled: bool | None = None
     allowed_actions: Literal["all", "local_only", "selected"] | None = None
+    # "Require actions to be pinned to a full-length commit SHA" — a field on the same
+    # permissions endpoint as enabled/allowed_actions above.
+    sha_pinning_required: bool | None = None
     selected_actions: SelectedActions | None = None
     default_workflow_permissions: Literal["read", "write"] | None = None
     # "Allow GitHub Actions to create and approve pull requests" — the same
     # workflow-permissions endpoint as default_workflow_permissions above.
     can_approve_pull_request_reviews: bool | None = None
+    # "Access" — which outside workflows may use this repo's actions/workflows. Meaningful for
+    # private/internal repos; GitHub rejects a non-`none` value on a public repo at apply time.
+    access_level: Literal["none", "user", "organization"] | None = None
+    # Artifact & log retention period, in days. GitHub enforces the org-configured ceiling.
+    artifact_and_log_retention_days: int | None = Field(default=None, gt=0)
+    # "Fork pull request workflows from outside collaborators" approval policy (public repos).
+    fork_pr_contributor_approval: (
+        Literal[
+            "first_time_contributors_new_to_github",
+            "first_time_contributors",
+            "all_external_contributors",
+        ]
+        | None
+    ) = None
+    # "Fork pull request workflows in private repositories" (private/internal repos).
+    fork_pr_workflows_private_repos: ForkPrWorkflowsPrivateRepos | None = None
 
     @model_validator(mode="after")
     def _selected_actions_requires_selected_policy(self) -> ActionsConfig:

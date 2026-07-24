@@ -208,6 +208,13 @@ def test_selected_actions_requires_selected_policy() -> None:
     ActionsConfig(allowed_actions="selected", selected_actions=SelectedActions())
 
 
+def test_retention_days_must_be_positive() -> None:
+    """A non-positive artifact/log retention period is rejected at load, never sent to GitHub."""
+    with pytest.raises(ValueError, match="greater than 0"):
+        ActionsConfig(artifact_and_log_retention_days=0)
+    ActionsConfig(artifact_and_log_retention_days=1)
+
+
 def test_reviewer_requires_matching_identifier() -> None:
     """A User reviewer needs login (not slug); a Team reviewer needs slug (not login)."""
     with pytest.raises(ValueError, match="'User' reviewer requires 'login'"):

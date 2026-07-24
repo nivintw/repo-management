@@ -85,7 +85,7 @@ reference page:
 | --- | --- |
 | [rulesets](rulesets.md) | Repository rulesets — target, enforcement, bypass actors, conditions, and rule types |
 | [settings](config/settings.md) | Repository-level settings and merge options |
-| [actions](config/actions.md) | Actions enablement, allowed-actions policy, and workflow permissions |
+| [actions](config/actions.md) | Actions enablement, allowed-actions policy, workflow permissions, fork-PR settings, external access, and retention |
 | [security](#security) | Secret scanning, Dependabot, and private vulnerability reporting |
 | [labels](#labels) | Issue and PR labels |
 | [collaborators](#collaborators) | Direct collaborators and their permission level |
