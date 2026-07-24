@@ -310,6 +310,26 @@ def test_retention_days_change(repo: MagicMock) -> None:
     )
 
 
+def test_retention_days_in_sync(repo: MagicMock) -> None:
+    """A matching retention period produces no change."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {"days": 30})
+    desired = SharedConfig(actions=ActionsConfig(artifact_and_log_retention_days=30))
+    assert ActionsManager().plan(repo, desired) == []
+
+
+def test_retention_days_unset_is_unmanaged(repo: MagicMock) -> None:
+    """Leaving artifact_and_log_retention_days unset never touches its endpoint."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {})
+    desired = SharedConfig(actions=ActionsConfig(enabled=True))
+
+    ActionsManager().plan(repo, desired)
+
+    calls = [call.args[1] for call in repo.requester.requestJsonAndCheck.call_args_list]
+    assert f"{URL}/actions/permissions/artifact-and-log-retention" not in calls
+
+
 def test_fork_pr_contributor_approval_change(repo: MagicMock) -> None:
     """fork_pr_contributor_approval maps to the endpoint's approval_policy field."""
     repo.url = URL
@@ -333,6 +353,31 @@ def test_fork_pr_contributor_approval_change(repo: MagicMock) -> None:
         f"{URL}/actions/permissions/fork-pr-contributor-approval",
         input={"approval_policy": "all_external_contributors"},
     )
+
+
+def test_fork_pr_contributor_approval_in_sync(repo: MagicMock) -> None:
+    """A matching contributor-approval policy produces no change."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = (
+        {},
+        {"approval_policy": "all_external_contributors"},
+    )
+    desired = SharedConfig(
+        actions=ActionsConfig(fork_pr_contributor_approval="all_external_contributors"),
+    )
+    assert ActionsManager().plan(repo, desired) == []
+
+
+def test_fork_pr_contributor_approval_unset_is_unmanaged(repo: MagicMock) -> None:
+    """Leaving fork_pr_contributor_approval unset never touches its endpoint."""
+    repo.url = URL
+    repo.requester.requestJsonAndCheck.return_value = ({}, {})
+    desired = SharedConfig(actions=ActionsConfig(enabled=True))
+
+    ActionsManager().plan(repo, desired)
+
+    calls = [call.args[1] for call in repo.requester.requestJsonAndCheck.call_args_list]
+    assert f"{URL}/actions/permissions/fork-pr-contributor-approval" not in calls
 
 
 def test_fork_pr_private_repos_writes_back_unmanaged_fields(repo: MagicMock) -> None:
