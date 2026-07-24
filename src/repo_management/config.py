@@ -306,9 +306,11 @@ class ForkPrWorkflowsPrivateRepos(Strict):
 
 
 class ActionsConfig(Strict):
-    """Actions permissions: enablement, allowed-actions policy, and workflow permissions.
+    """Actions settings across the seven ``/actions/permissions`` endpoints.
 
-    Unset fields are left unmanaged, consistent with :class:`Settings`.
+    Enablement, allowed-actions policy (incl. SHA-pinning), workflow permissions, external
+    workflow access, artifact/log retention, and fork-PR settings. Unset fields are left
+    unmanaged, consistent with :class:`Settings`.
     """
 
     enabled: bool | None = None
