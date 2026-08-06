@@ -286,15 +286,16 @@ def _report_apply(reports: list[ApplyReport], skipped: list[tuple[str, str]]) ->
     # Name the repos, as `plan`'s roll-up does. A partially-applied fleet is the state an
     # operator most needs to size, and a bare count doesn't say which repos to re-run.
     parts = []
+    # Escape every name: they come from config, and Rich would read a `[...]` in one as markup,
+    # silently swallowing part of the name on the line that says which repos to re-run.
     if failed:
         broken = sorted({report.repo_name for report in reports if report.failed})
-        parts.append(
-            f"{failed} change(s) failed across {len(broken)} repo(s) ({', '.join(broken)})"
-        )
+        names = ", ".join(escape(name) for name in broken)
+        parts.append(f"{failed} change(s) failed across {len(broken)} repo(s) ({names})")
     if abandoned:
         parts.append(f"{abandoned} change(s) not attempted")
     if skipped:
-        names = ", ".join(name for name, _ in skipped)
+        names = ", ".join(escape(name) for name, _ in skipped)
         parts.append(f"{len(skipped)} repo(s) skipped ({names})")
     raise _fail("; ".join(parts) + ".")
 

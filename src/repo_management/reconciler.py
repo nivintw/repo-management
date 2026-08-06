@@ -193,7 +193,7 @@ def preflight_plan(plan: RepoPlan) -> str | None:
     - A write payload won't resolve. Secret values resolve lazily at the write, so a missing one
       wouldn't otherwise surface until mid-apply; resolving them up front keeps a repository's
       own writes all-or-nothing *with respect to unresolvable payloads* — a write the API
-      rejects is still isolated per change, not per repository.
+      rejects is isolated per domain (see :func:`apply_plan`), not per repository.
 
     Either way the cost is one repository, never the fleet. ``plan`` never calls this — secrets
     are write-only, resolved only when applying.
@@ -236,6 +236,8 @@ def apply_plan(plan: RepoPlan) -> ApplyReport:
             continue
         try:
             change.apply()
+        except _FLEET_FATAL:
+            raise  # dooms the run, not this domain — see the constant's comment
         except Exception as exc:  # noqa: BLE001 - fault isolation; see the module docstring
             broken.add(change.domain)
             report.failed.append((change, _describe_failure(exc)))

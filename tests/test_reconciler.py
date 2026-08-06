@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from conftest import make_secret
-from github import GithubException
+from github import BadCredentialsException, GithubException, RateLimitExceededException
 
 from repo_management import reconciler
 from repo_management.changes import Action, Change
@@ -509,3 +509,38 @@ def test_apply_plan_still_isolates_across_domains() -> None:
     assert applied == ["a"]  # a different domain is unaffected
     assert report.abandoned == []
     assert [change.target for change, _ in report.failed] == ["webhook:x"]
+
+
+def test_apply_plan_lets_a_fleet_fatal_condition_escape() -> None:
+    """A dead token mid-apply dooms the run, so it must not be isolated as a failed change.
+
+    Isolating it would record the same problem once per change in every remaining repository,
+    and — because PyGithub retries rate-limit responses with backoff — turn one fast failure
+    into a long stall that deepens the secondary-rate-limit penalty.
+    """
+    plan = RepoPlan(
+        "o/r",
+        [
+            Change(
+                "labels",
+                Action.CREATE,
+                "label:a",
+                None,
+                None,
+                _raiser(BadCredentialsException(401, {"message": "Bad credentials"})),
+            )
+        ],
+    )
+
+    with pytest.raises(BadCredentialsException):
+        apply_plan(plan)
+
+
+def test_plan_repo_lets_a_fleet_fatal_condition_escape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same contract on the plan side: a rate-limit wall is the run's problem, not a domain's."""
+    broken = MagicMock(domain="rulesets")
+    broken.plan.side_effect = RateLimitExceededException(403, {"message": "rate limit exceeded"})
+    monkeypatch.setattr(reconciler, "build_managers", lambda **_kw: [broken])
+
+    with pytest.raises(RateLimitExceededException):
+        plan_repo(MagicMock(), SharedConfig())
