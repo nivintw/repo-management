@@ -190,6 +190,36 @@ def _print_plan(plan: RepoPlan) -> None:
     _print_changes(plan.repo_name, plan.changes)
 
 
+# The access-granting sections, paired with the field naming each one's mode.
+_ACCESS_SECTIONS = (
+    ("collaborators", "collaborators_mode"),
+    ("teams", "teams_mode"),
+    ("deploy_keys", "deploy_keys_mode"),
+)
+
+
+def _print_add_only_notice(config: Config) -> None:
+    """Say which declared access sections aren't pruning, before any `in sync` line is believed.
+
+    Without this, a config declaring `collaborators:` reports `✓ in sync` over a repo carrying a
+    collaborator, team grant, or deploy key that nobody listed — an affirmative all-clear that
+    actually means "no changes I am willing to make". That reads identically to a genuinely
+    clean repo, and it is the reading an operator upgrading from an authoritative 1.x config
+    would take. Naming the mode makes the silence explicit rather than inferred.
+    """
+    add_only = [
+        section
+        for section, mode_field in _ACCESS_SECTIONS
+        if getattr(config, section) is not None and getattr(config, mode_field) != "authoritative"
+    ]
+    if not add_only:
+        return
+    console.print(
+        f"[yellow]note:[/yellow] {', '.join(add_only)} add-only — entries not listed in config "
+        "are left alone, not reported. Set the matching *_mode to 'authoritative' to manage them."
+    )
+
+
 def _preflight(plans: list[RepoPlan]) -> None:
     """Resolve every write's payload (secret values) before any write, so a missing one aborts.
 
@@ -250,6 +280,7 @@ def plan(
 ) -> None:
     """Show the changes needed to reconcile each repo (no writes)."""
     selected = _select(_load(config), repo)
+    _print_add_only_notice(selected)
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
@@ -274,6 +305,7 @@ def apply(
 ) -> None:
     """Apply the planned changes to GitHub."""
     selected = _select(_load(config), repo)
+    _print_add_only_notice(selected)
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
