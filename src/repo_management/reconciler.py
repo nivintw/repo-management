@@ -204,6 +204,8 @@ def preflight_plan(plan: RepoPlan) -> str | None:
         for change in plan.actionable:
             if change.preflight is not None:
                 change.preflight()
+    except _FLEET_FATAL:
+        raise  # dooms the run, not this repo — see the constant's comment
     except Exception as exc:  # noqa: BLE001 - fault isolation; see the module docstring
         return _describe_failure(exc)
     return None
