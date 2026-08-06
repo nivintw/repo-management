@@ -15,6 +15,7 @@ import typer
 from github import GithubException
 from rich.console import Console
 from rich.markup import escape
+from rich.text import Text
 
 from repo_management.client import api_message, get_client
 from repo_management.config import (
@@ -57,8 +58,14 @@ app = typer.Typer(
     # Never dump frame locals on error — they can contain the token or secret values.
     pretty_exceptions_show_locals=False,
 )
-console = Console()
-err_console = Console(stderr=True)
+# emoji=False because every name this tool prints — a label, a secret, a webhook target — comes
+# from user config, and targets are rendered `{kind}:{name}` followed by ": ". That makes
+# `label:bug` into the shortcode `:bug:`, which Rich would substitute for 🐛 — silently replacing
+# the identifier the operator needs with a pictogram, on the very line reporting a failure.
+# `escape()` guards the `[markup]` half of this hazard and does nothing about shortcodes. The
+# tool's own glyphs (✓, !) are literal characters, so disabling substitution costs nothing.
+console = Console(emoji=False)
+err_console = Console(stderr=True, emoji=False)
 
 
 class ReposFormat(enum.StrEnum):
@@ -105,7 +112,10 @@ _ForceSecretsOpt = Annotated[
 
 
 def _fail(message: str) -> typer.Exit:
-    err_console.print(f"[red]error:[/red] {message}")
+    # soft_wrap: an error can name every repo that failed, and hard-wrapping to the terminal
+    # width would break a name across lines — leaving the one line that says what to re-run
+    # neither greppable nor copy-pasteable out of a CI log.
+    err_console.print(f"[red]error:[/red] {message}", soft_wrap=True)
     return typer.Exit(1)
 
 
@@ -196,50 +206,97 @@ def _print_plan(plan: RepoPlan) -> None:
     _print_changes(plan.repo_name, plan.changes)
 
 
-def _partition(plans: list[RepoPlan]) -> tuple[list[RepoPlan], list[tuple[RepoPlan, str]]]:
-    """Split the fleet into the repos cleared to write and the ones held back, paired with why."""
+def _detail(line: str, detail: str) -> None:
+    """Print a reason to stderr, keeping any embedded traceback copy-pasteable.
+
+    A diagnostic for an unanticipated failure carries a whole traceback, and Rich would hard-wrap
+    it to the terminal width — breaking file paths mid-token so the stack can no longer be
+    grepped or pasted. Print the first line styled, then the rest verbatim with wrapping off.
+    """
+    head, _, rest = detail.partition("\n")
+    err_console.print(f"{line}: {escape(head)}", soft_wrap=True)
+    if rest:
+        err_console.print(Text(rest), soft_wrap=True)
+
+
+def _partition(plans: list[RepoPlan]) -> tuple[list[RepoPlan], list[tuple[str, str]]]:
+    """Split the fleet into the repos cleared to write and the ones held back, paired with why.
+
+    A held-back repo is reduced to its name here: nothing downstream needs the rest of the plan,
+    and carrying it invites a caller to act on a plan that was deliberately not applied.
+    """
     ready: list[RepoPlan] = []
-    held: list[tuple[RepoPlan, str]] = []
+    held: list[tuple[str, str]] = []
     for repo_plan in plans:
         reason = preflight_plan(repo_plan)
         if reason is None:
             ready.append(repo_plan)
         else:
-            held.append((repo_plan, reason))
+            held.append((repo_plan.repo_name, reason))
     return ready, held
 
 
-def _report_apply(reports: list[ApplyReport], skipped: list[tuple[RepoPlan, str]]) -> None:
+def _report_skipped(skipped: list[tuple[str, str]]) -> None:
+    """Name every repo being held back, and why — *before* the operator is asked to confirm.
+
+    A preflight-held repo prints a perfectly ordinary diff (its payload only fails to resolve at
+    write time), so without this the operator would scroll a diff, be prompted with a smaller
+    count than it implies, and learn which repo was dropped only after the writes had run.
+    """
+    for repo_name, reason in skipped:
+        _detail(f"[yellow]skipped[/yellow] {escape(repo_name)}", reason)
+
+
+def _report_apply(reports: list[ApplyReport], skipped: list[tuple[str, str]]) -> None:
     """Summarize an apply run, then exit non-zero if any repo was skipped or any write failed.
 
-    Every repository is accounted for, applied or not: a run that reported only its successes
-    would read as a clean sweep while leaving repos silently unreconciled.
+    Every repository with an outcome is accounted for, applied or not — a run that reported only
+    its successes would read as a clean sweep while leaving repos silently unreconciled. Repos
+    already in sync have no outcome to report and are covered by the plan printed above.
     """
     applied = sum(len(report.applied) for report in reports)
     failed = sum(len(report.failed) for report in reports)
+    abandoned = sum(len(report.abandoned) for report in reports)
 
-    if not applied and not failed and not skipped:
+    if not applied and not failed and not abandoned and not skipped:
         console.print("\n[green]nothing to do[/green]")
         return
 
     if applied:
-        touched = sum(1 for report in reports if report.applied)
-        console.print(f"\n[green]✓ applied {applied} change(s) across {touched} repo(s)[/green]")
-
-    for repo_plan, reason in skipped:
-        err_console.print(
-            f"[yellow]skipped[/yellow] {escape(repo_plan.repo_name)}: {escape(reason)}"
+        applied_repos = sum(1 for report in reports if report.applied)
+        console.print(
+            f"\n[green]✓ applied {applied} change(s) across {applied_repos} repo(s)[/green]"
         )
+
     for report in reports:
         for change, error in report.failed:
-            err_console.print(
-                f"[red]failed[/red] {escape(report.repo_name)} "
-                f"{escape(change.target)}: {escape(error)}"
+            _detail(
+                f"[red]failed[/red] {escape(report.repo_name)} {escape(change.target)}",
+                error,
+            )
+        for change, reason in report.abandoned:
+            _detail(
+                f"[yellow]not attempted[/yellow] {escape(report.repo_name)} "
+                f"{escape(change.target)}",
+                reason,
             )
 
-    if skipped or failed:
-        msg = f"{failed} change(s) failed; {len(skipped)} repo(s) skipped."
-        raise _fail(msg)
+    if not skipped and not failed and not abandoned:
+        return
+    # Name the repos, as `plan`'s roll-up does. A partially-applied fleet is the state an
+    # operator most needs to size, and a bare count doesn't say which repos to re-run.
+    parts = []
+    if failed:
+        broken = sorted({report.repo_name for report in reports if report.failed})
+        parts.append(
+            f"{failed} change(s) failed across {len(broken)} repo(s) ({', '.join(broken)})"
+        )
+    if abandoned:
+        parts.append(f"{abandoned} change(s) not attempted")
+    if skipped:
+        names = ", ".join(name for name, _ in skipped)
+        parts.append(f"{len(skipped)} repo(s) skipped ({names})")
+    raise _fail("; ".join(parts) + ".")
 
 
 @app.command()
@@ -301,7 +358,7 @@ def plan(
     unhealthy = [item for item in plans if item.problems]
     if unhealthy:
         problems = sum(len(item.problems) for item in unhealthy)
-        names = ", ".join(item.repo_name for item in unhealthy)
+        names = ", ".join(escape(item.repo_name) for item in unhealthy)
         msg = (
             f"{problems} problem(s) across {len(unhealthy)} repo(s) ({names}) "
             f"— see the ! line(s) above."
@@ -336,6 +393,10 @@ def apply(
     # still surfaces loudly.
     with _api_errors():
         ready, skipped = _partition(plans)
+        # Disclose every held-back repo before asking. The prompt's count covers only what will
+        # actually be written, so an undisclosed skip would make it silently disagree with the
+        # diff the operator just read.
+        _report_skipped(skipped)
         total = sum(len(item.actionable) for item in ready)
         if total and not yes and not typer.confirm(f"\nApply {total} change(s)?"):
             msg = "aborted"

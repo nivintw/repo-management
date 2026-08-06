@@ -18,7 +18,13 @@ from repo_management import reconciler
 from repo_management.changes import Action, Change
 from repo_management.config import Config, ConfigError, Secret, Settings, SharedConfig
 from repo_management.managers import build_managers
-from repo_management.reconciler import RepoPlan, apply_plan, plan_config, plan_repo
+from repo_management.reconciler import (
+    RepoPlan,
+    apply_plan,
+    plan_config,
+    plan_repo,
+    preflight_plan,
+)
 
 
 def test_build_managers_registers_every_domain() -> None:
@@ -149,10 +155,19 @@ def test_apply_plan_invokes_each_change() -> None:
     assert calls == ["a", "b"]
 
 
+class _NeverApply(BaseException):
+    """Raised by a test diagnostic's apply. Deliberately NOT an ``Exception``.
+
+    ``apply_plan`` isolates every ``Exception`` a change raises, which would quietly absorb an
+    ``AssertionError`` guard and leave the "diagnostics are never applied" invariant untested.
+    A ``BaseException`` escapes that isolation, so the guard still fails the run loudly.
+    """
+
+
 def _diagnostic(target: str) -> Change:
     def _raise() -> None:
         msg = "a diagnostic must never be applied"
-        raise AssertionError(msg)
+        raise _NeverApply(msg)
 
     return Change("variables", Action.UPDATE, target, None, None, _raise, error="value unset")
 
@@ -169,11 +184,16 @@ def test_repo_plan_partitions_actionable_and_problems() -> None:
 
 
 def test_apply_plan_skips_diagnostics() -> None:
-    """apply_plan applies actionable changes and never invokes a diagnostic's apply."""
+    """apply_plan applies actionable changes and never invokes a diagnostic's apply.
+
+    ``report.failed`` must stay empty: the diagnostic has to be *never attempted*, not
+    attempted and swallowed by the per-change isolation.
+    """
     calls: list[str] = []
     good = Change("x", Action.CREATE, "a", None, None, lambda: calls.append("a"))
-    apply_plan(RepoPlan("o/r", [good, _diagnostic("variable:X")]))
+    report = apply_plan(RepoPlan("o/r", [good, _diagnostic("variable:X")]))
     assert calls == ["a"]
+    assert report.failed == []
 
 
 def _raiser(exc: Exception) -> Callable[..., NoReturn]:
@@ -296,7 +316,8 @@ def test_apply_plan_isolates_a_failing_change() -> None:
 
     report = apply_plan(plan)
 
-    assert calls == ["a", "b"]  # the 403 did not abandon the change after it
+    # The webhooks 403 says nothing about labels, so both label writes still ran.
+    assert calls == ["a", "b"]
     assert report.failed
     assert [change.target for change in report.applied] == ["label:a", "label:b"]
     (failed, error) = report.failed[0]
@@ -313,3 +334,178 @@ def test_apply_plan_reports_a_clean_run() -> None:
     assert report.failed == []
     assert report.repo_name == "o/r"
     assert [change.target for change in report.applied] == ["label:a"]
+
+
+def test_preflight_isolates_a_non_config_error() -> None:
+    """A preflight raising something other than ConfigError costs its repo, not the fleet.
+
+    The pre-isolation code caught only ConfigError here. Anything else propagated out of the
+    partition pass, past _api_errors (which knows four types, none of them ValueError), and
+    killed the entire fleet apply before a single repo was written — the exact failure mode
+    this change exists to remove, on the one path that used to be narrowest.
+    """
+    change = Change(
+        "secrets",
+        Action.CREATE,
+        "secret:TOK",
+        None,
+        None,
+        lambda: None,
+        preflight=_raiser(ValueError("resolver blew up")),
+    )
+
+    reason = preflight_plan(RepoPlan("o/r", [change]))
+
+    assert reason is not None
+    assert "ValueError" in reason
+    # An unanticipated type keeps its traceback on this path too, not just the plan path.
+    assert "Traceback" in reason
+
+
+def test_preflight_reports_an_expected_failure_without_a_traceback() -> None:
+    """A missing env var is fully described by its message, so it stays a one-liner."""
+    change = Change(
+        "secrets",
+        Action.CREATE,
+        "secret:TOK",
+        None,
+        None,
+        lambda: None,
+        preflight=_raiser(ConfigError("environment variable 'TOK_SRC' is not set or is empty")),
+    )
+
+    reason = preflight_plan(RepoPlan("o/r", [change]))
+
+    assert reason is not None
+    assert "TOK_SRC" in reason
+    assert "Traceback" not in reason
+
+
+def test_preflight_holds_back_a_plan_carrying_problems() -> None:
+    """A plan with any diagnostic is held back before its payloads are even resolved."""
+    resolved: list[str] = []
+    change = Change(
+        "secrets",
+        Action.CREATE,
+        "secret:TOK",
+        None,
+        None,
+        lambda: None,
+        preflight=lambda: resolved.append("TOK"),
+    )
+
+    reason = preflight_plan(RepoPlan("o/r", [change, _diagnostic("variable:X")]))
+
+    assert reason is not None
+    assert "problem(s) in its plan" in reason
+    assert resolved == []  # held back before any payload resolution
+
+
+def test_preflight_clears_a_healthy_plan() -> None:
+    """A plan whose payloads all resolve is cleared to write."""
+    resolved: list[str] = []
+    change = Change(
+        "secrets",
+        Action.CREATE,
+        "secret:TOK",
+        None,
+        None,
+        lambda: None,
+        preflight=lambda: resolved.append("TOK"),
+    )
+
+    assert preflight_plan(RepoPlan("o/r", [change])) is None
+    assert resolved == ["TOK"]
+
+
+def test_apply_plan_keeps_the_traceback_for_an_unanticipated_write_failure() -> None:
+    """A change whose apply() raises an unexpected type keeps its traceback in the report.
+
+    The write path deserves the same treatment as the plan path: a TypeError mid-apply is a bug
+    in this tool, and flattening it to one line would cost the stack trace that explains it.
+    """
+    plan = RepoPlan(
+        "o/r",
+        [
+            Change("labels", Action.CREATE, "label:a", None, None, _raiser(TypeError("nope"))),
+            Change(
+                "webhooks",
+                Action.CREATE,
+                "webhook:x",
+                None,
+                None,
+                _raiser(GithubException(403, {"message": "Must have admin rights"})),
+            ),
+        ],
+    )
+
+    report = apply_plan(plan)
+
+    errors = {change.target: error for change, error in report.failed}
+    assert "Traceback" in errors["label:a"]  # unanticipated -> keeps the stack
+    assert "Traceback" not in errors["webhook:x"]  # anticipated -> one line
+    assert "Must have admin rights" in errors["webhook:x"]  # the API's own message, not the repr
+
+
+def test_apply_plan_abandons_the_rest_of_a_domain_after_a_failure() -> None:
+    """A failed write must not let its own domain's later changes run — they may undo it.
+
+    Every authoritative manager emits creates/updates first and deletes last, so a rename is a
+    CREATE of the new name followed by a DELETE of the old. If the CREATE is rejected and the
+    DELETE runs anyway, the repository ends up WORSE than before the run: the old ruleset is
+    gone and nothing replaced it. Guards against per-change isolation being restored here.
+    """
+    deleted: list[str] = []
+    plan = RepoPlan(
+        "o/r",
+        [
+            Change(
+                "rulesets",
+                Action.CREATE,
+                "ruleset:new",
+                None,
+                None,
+                _raiser(GithubException(422, {"message": "Upgrade to GitHub Team"})),
+            ),
+            Change(
+                "rulesets",
+                Action.DELETE,
+                "ruleset:old",
+                None,
+                None,
+                lambda: deleted.append("ruleset:old"),
+            ),
+        ],
+    )
+
+    report = apply_plan(plan)
+
+    assert deleted == []  # the branch protection survives the failed replacement
+    assert [change.target for change, _ in report.failed] == ["ruleset:new"]
+    # Abandoned, not silently dropped — the operator is told it was never attempted.
+    assert [change.target for change, _ in report.abandoned] == ["ruleset:old"]
+
+
+def test_apply_plan_still_isolates_across_domains() -> None:
+    """A failure in one domain must not stop a different one — that isolation is the point."""
+    applied: list[str] = []
+    plan = RepoPlan(
+        "o/r",
+        [
+            Change(
+                "webhooks",
+                Action.CREATE,
+                "webhook:x",
+                None,
+                None,
+                _raiser(GithubException(403, {"message": "Must have admin rights"})),
+            ),
+            Change("labels", Action.CREATE, "label:a", None, None, lambda: applied.append("a")),
+        ],
+    )
+
+    report = apply_plan(plan)
+
+    assert applied == ["a"]  # a different domain is unaffected
+    assert report.abandoned == []
+    assert [change.target for change, _ in report.failed] == ["webhook:x"]

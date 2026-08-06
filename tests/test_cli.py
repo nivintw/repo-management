@@ -899,3 +899,101 @@ def test_projects_plan_survives_an_unbalanced_markup_tag_in_a_title(
     assert result.exit_code == 0
     assert result.exception is None
     assert "Roadmap [/]" in result.output
+
+
+def test_failed_write_line_keeps_a_colon_delimited_target_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target like `label:bug` must print literally, not as an emoji.
+
+    Targets render `{kind}:{name}` and the failure line appends ": ", so `label:bug` forms the
+    shortcode `:bug:`. With Rich's default emoji substitution that line reads `label` + a
+    pictogram — replacing the one identifier telling the operator which write failed.
+    """
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/alpha", [_change()])]
+    )
+    bug = Change("labels", Action.CREATE, "label:bug", None, "bug", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "apply_plan",
+        lambda plan: ApplyReport(plan.repo_name, failed=[(bug, "GithubException: 403")]),
+    )
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
+
+    assert "label:bug" in result.stderr
+    assert "🐛" not in result.stderr
+
+
+def test_apply_discloses_skipped_repos_before_the_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The operator is told which repos are held back BEFORE consenting, not after the writes.
+
+    A preflight-held repo prints an ordinary diff, so without this the prompt's count would
+    silently disagree with the diff just read, and the reason would arrive too late to act on.
+    """
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [
+            RepoPlan("owner/alpha", [_change()]),
+            RepoPlan("owner/beta", [Change.diagnostic("repo", "owner/beta", "unreachable")]),
+        ],
+    )
+    applied: list[str] = []
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(applied))
+
+    # Decline at the prompt: whatever the operator saw before answering is all that was shown.
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path, FLEET))], input="n\n")
+
+    assert applied == []  # declined, so nothing was written...
+    assert "skipped" in result.stderr  # ...yet the skip was already disclosed
+    assert "owner/beta" in result.stderr
+
+
+def test_apply_rollup_names_the_repos_that_failed_and_were_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The roll-up names repos, not just counts — a bare count can't tell you what to re-run."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [
+            RepoPlan("owner/alpha", [_change()]),
+            RepoPlan("owner/beta", [Change.diagnostic("repo", "owner/beta", "unreachable")]),
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "apply_plan",
+        lambda plan: ApplyReport(plan.repo_name, failed=[(_change(), "GithubException: 403")]),
+    )
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path, FLEET)), "--yes"])
+
+    assert result.exit_code == 1
+    assert "1 change(s) failed across 1 repo(s) (owner/alpha)" in result.stderr
+    assert "1 repo(s) skipped (owner/beta)" in result.stderr
+
+
+def test_plan_rollup_escapes_a_repo_name_carrying_markup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo name with brackets must survive the roll-up, not be eaten as Rich markup."""
+    name = "owner/re[po]"
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [RepoPlan(name, [Change.diagnostic("repo", name, "unreachable")])],
+    )
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
+
+    assert result.exit_code == 1
+    assert name in result.stderr  # the whole name, brackets intact

@@ -10,8 +10,12 @@ during ``plan`` and invokes ``change.apply()`` during ``apply``.
 
 A change may also carry a ``preflight`` — a side-effect-free callable that resolves the
 write's payload (e.g. a secret value from the environment) so ``apply`` can validate every
-write *before* performing the first one, keeping a failed run from leaving a half-applied
-fleet. And a *diagnostic* :class:`Change` (built via :meth:`Change.diagnostic`) stands in for
+write *before* performing the first one, so no repository is left half-written because a
+value was missing. That guarantee is scoped to *unresolvable payloads*: a write the API
+rejects costs its own change and, within its domain, the changes after it — see
+:func:`~repo_management.reconciler.apply_plan`.
+
+And a *diagnostic* :class:`Change` (built via :meth:`Change.diagnostic`) stands in for
 something the plan couldn't determine — a desired value that wouldn't resolve, a domain whose
 read failed, a repository that couldn't be fetched. It is reported and blocks that repository,
 never applied.
@@ -51,7 +55,8 @@ class Change:
         secret: When true, ``before``/``after`` are redacted in :meth:`describe`.
         preflight: Optional side-effect-free callable that resolves this write's payload (e.g.
             reads a secret's value from the environment). ``apply`` runs every change's
-            ``preflight`` before the first write so a missing value aborts with nothing applied.
+            ``preflight`` closures before that repository's first write, so a missing value
+            costs the whole repository rather than half of it. Other repositories still apply.
             ``None`` when there's no payload to resolve (deletes, already-resolved variables).
         error: When set, this is a *diagnostic*, not a change to apply — a desired value that
             could not be resolved (see :attr:`unresolved` and :meth:`diagnostic`). Build one only

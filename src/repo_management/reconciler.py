@@ -21,7 +21,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from github import GithubException
+from github import BadCredentialsException, GithubException, RateLimitExceededException
 
 from repo_management.changes import Change
 from repo_management.client import api_message, get_repo, source_secret_timestamps
@@ -44,11 +44,15 @@ _REPO_DOMAIN = "repo"
 # to the whole domain, not to one entity inside it.
 _PLAN_TARGET = "plan"
 # Failures a repository reconcile anticipates, and whose message already says everything useful:
-# a GitHub API rejection or a config problem. Anything else reaching a handler below is a bug in
-# this tool rather than a fact about the repository — see :func:`_describe_failure`. The CLI
-# boundary's ``_api_errors`` recognizes a wider set (it also fronts the projects sub-app, which
-# no manager here can raise from); this tuple is deliberately the narrower, per-repo subset.
-_EXPECTED_FAILURES = (GithubException, ConfigError)
+# a GitHub API rejection, a config problem, or a transport error. `OSError` covers the last of
+# those because `requests`' exceptions subclass it — a connection reset is a fact about the
+# network, not a bug here, and formatting a urllib3 stack for it (per repo, per domain) would
+# bury the run in thousands of lines. Kept in step with the CLI boundary's `_api_errors`, which
+# recognizes the same three plus `ProjectError` for the projects sub-app this never reaches.
+_EXPECTED_FAILURES = (GithubException, ConfigError, OSError)
+# Conditions that doom the whole run, so isolating them per repository would report one problem
+# N times and stall on retry backoff. These stay fatal and surface once, at the CLI boundary.
+_FLEET_FATAL = (BadCredentialsException, RateLimitExceededException)
 
 
 def _describe_failure(exc: Exception) -> str:
@@ -102,6 +106,9 @@ class ApplyReport:
     repo_name: str
     applied: list[Change] = field(default_factory=list)
     failed: list[tuple[Change, str]] = field(default_factory=list)
+    # Changes never attempted because an earlier write in the same domain failed. Distinct from
+    # ``failed``: these were abandoned deliberately, not rejected by the API.
+    abandoned: list[tuple[Change, str]] = field(default_factory=list)
 
 
 def plan_repo(
@@ -123,6 +130,8 @@ def plan_repo(
     for manager in build_managers(force_secrets=force_secrets, source_secrets=source_secrets):
         try:
             changes.extend(manager.plan(repo, desired))
+        except _FLEET_FATAL:
+            raise  # dooms the run, not this domain — see the constant's comment
         except Exception as exc:  # noqa: BLE001 - fault isolation; see the module docstring
             changes.append(Change.diagnostic(manager.domain, _PLAN_TARGET, _describe_failure(exc)))
     return changes
@@ -152,6 +161,12 @@ def plan_config(client: Github, config: Config, *, force_secrets: bool = False) 
             changes = plan_repo(
                 repo, config, force_secrets=force_secrets, source_secrets=source_secrets
             )
+        except _FLEET_FATAL:
+            # A dead token or an exhausted rate limit is a fact about the *run*, not this repo.
+            # Isolating it would repeat the same failure for every repository — and, because
+            # PyGithub retries rate-limit responses with backoff, would turn one fast failure
+            # into a long stall that deepens the secondary-rate-limit penalty.
+            raise
         except Exception as exc:  # noqa: BLE001 - fault isolation; see the module docstring
             changes = [Change.diagnostic(_REPO_DOMAIN, name, _describe_failure(exc))]
         plans.append(RepoPlan(name, changes))
@@ -177,7 +192,8 @@ def preflight_plan(plan: RepoPlan) -> str | None:
     - Its plan carries a problem, so the diff was computed from a partial picture of the repo.
     - A write payload won't resolve. Secret values resolve lazily at the write, so a missing one
       wouldn't otherwise surface until mid-apply; resolving them up front keeps a repository's
-      own writes all-or-nothing.
+      own writes all-or-nothing *with respect to unresolvable payloads* — a write the API
+      rejects is still isolated per change, not per repository.
 
     Either way the cost is one repository, never the fleet. ``plan`` never calls this — secrets
     are write-only, resolved only when applying.
@@ -194,21 +210,34 @@ def preflight_plan(plan: RepoPlan) -> str | None:
 
 
 def apply_plan(plan: RepoPlan) -> ApplyReport:
-    """Apply every actionable change in a plan, in order, isolating each failure.
+    """Apply a plan's actionable changes in order, isolating failures **per domain**.
 
-    A change that raises is recorded and the rest still apply. Domains are as independent as
-    repositories: a 403 writing webhooks says nothing about whether labels can be written, and
-    abandoning the remainder would leave the repository further from its desired state than the
-    one failure requires.
+    Domains are as independent as repositories — a 403 writing webhooks says nothing about
+    whether labels can be written — so one domain's failure never stops the others.
+
+    Within a domain it is the opposite, and the distinction is load-bearing rather than
+    fastidious. An authoritative section expresses a *replacement* as two changes: every manager
+    emits its creates and updates first and its deletes last, so a renamed ruleset is a CREATE of
+    the new name followed by a DELETE of the old. Those two are halves of one operation. If the
+    CREATE is rejected — a plan tier without rulesets, an invite cap, an org policy — running the
+    DELETE anyway leaves the repository *worse* than before the run: the branch protection is
+    gone and nothing replaced it. So the first failure in a domain abandons that domain's
+    remaining changes, which are reported as abandoned rather than silently dropped.
 
     Diagnostics carry no write and are skipped; the CLI holds back any plan carrying one, so in
     practice this only ever sees actionable changes.
     """
     report = ApplyReport(plan.repo_name)
+    broken: set[str] = set()
     for change in plan.actionable:
+        if change.domain in broken:
+            reason = f"not attempted: an earlier {change.domain} write failed"
+            report.abandoned.append((change, reason))
+            continue
         try:
             change.apply()
         except Exception as exc:  # noqa: BLE001 - fault isolation; see the module docstring
+            broken.add(change.domain)
             report.failed.append((change, _describe_failure(exc)))
         else:
             report.applied.append(change)

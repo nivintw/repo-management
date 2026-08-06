@@ -44,11 +44,24 @@ def get_client(token: str | None = None) -> Github:
         An authenticated :class:`github.Github` client.
 
     Raises:
-        ConfigError: If no token is available.
+        ConfigError: If no token is available, or the token isn't header-safe.
     """
     token = token or os.environ.get(TOKEN_ENV)
     if not token:
         msg = f"no GitHub token: pass one explicitly or set {TOKEN_ENV}"
+        raise ConfigError(msg)
+    # A token read from a file or a here-doc routinely carries a trailing newline. Surrounding
+    # whitespace is unambiguously not part of the credential, so strip it rather than fail.
+    token = token.strip()
+    # Anything left that can't go in an HTTP header must be rejected *here*, where the message
+    # can name the source without quoting the value. Left to `requests`, it raises an
+    # InvalidHeader whose message embeds the whole `Authorization` value — and that lands in a
+    # per-repo diagnostic, so a fleet run would print the token once per repository.
+    if not token.isprintable() or any(char.isspace() for char in token):
+        msg = (
+            f"the GitHub token from {TOKEN_ENV} contains whitespace or non-printable "
+            "characters and can't be sent as an HTTP header; check how it was set"
+        )
         raise ConfigError(msg)
     return Github(auth=Auth.Token(token))
 
