@@ -143,17 +143,28 @@ On success:
 - A repo whose plan carries **any** `!` line is **skipped**. Its diff was computed from
   incomplete state, or it declares config that can't take effect, so writing it wouldn't match
   what the config means. Every healthy repo still applies.
-- A repo whose secret payloads won't resolve is likewise skipped, before any of its writes run.
-  A repo's own writes stay all-or-nothing.
-- A **single failed write** costs its own change, not the rest of its repo. A 403 on webhooks
-  says nothing about whether labels can be written, so the remaining changes still apply.
+- A repo whose secret payloads won't resolve is likewise skipped, **before any of its writes
+  run** — so a missing value never leaves a repo half-written. That guarantee is specifically
+  about payloads that can't be resolved; it is not a promise that a repo's writes are
+  all-or-nothing in general (see the next point).
+- A **failed write** costs its own change and the rest of **that domain** for that repo — but
+  no other domain. A 403 on webhooks says nothing about whether labels can be written, so
+  labels still apply.
+
+Why a failure stops its own domain rather than just its own change: a declared section is
+authoritative, and a *replacement* is expressed as two changes — a create of the new thing,
+then a delete of the old. If the create is rejected (a plan tier without rulesets, an invite
+cap, an org policy) and the delete ran anyway, the repo would end up **worse than before the
+run**: the old ruleset gone and nothing in its place. So the changes after a failure in the
+same domain are reported as `not attempted` rather than run.
 
 Skips and failures print to stderr, each naming the repo (and, for a write, the target):
 
 ```text
 skipped owner/beta: {n} problem(s) in its plan — see the ! line(s) above
 failed owner/alpha webhook:x: {reason the write was rejected}
-error: {n} change(s) failed; {n} repo(s) skipped.
+not attempted owner/alpha webhook:y: an earlier webhooks write failed
+error: {n} change(s) failed across {n} repo(s) ({names}); {n} repo(s) skipped ({names}).
 ```
 
 !!! warning
