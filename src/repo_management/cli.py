@@ -28,7 +28,13 @@ from repo_management.config import (
 )
 from repo_management.graphql import GraphQLClient
 from repo_management.managers.projects import ProjectError, ProjectsManager
-from repo_management.reconciler import RepoPlan, apply_plan, plan_config
+from repo_management.reconciler import (
+    ApplyReport,
+    RepoPlan,
+    apply_plan,
+    describe_failure,
+    plan_config,
+)
 from repo_management.roadmap import (
     Board,
     build_status_update,
@@ -190,20 +196,62 @@ def _print_plan(plan: RepoPlan) -> None:
     _print_changes(plan.repo_name, plan.changes)
 
 
-def _preflight(plans: list[RepoPlan]) -> None:
-    """Resolve every write's payload (secret values) before any write, so a missing one aborts.
+def _preflight(plans: list[RepoPlan]) -> tuple[list[RepoPlan], list[tuple[RepoPlan, str]]]:
+    """Resolve each repo's write payloads (secret values) before that repo is written to.
 
     Secret values resolve lazily at the write, so a missing one wouldn't surface until mid-apply;
-    running every change's ``preflight`` up front restores apply's pre-write, all-or-nothing
-    guarantee. ``plan`` never calls this — secrets are write-only, resolved only when applying.
+    running a repo's ``preflight`` closures up front keeps its own writes all-or-nothing. A repo
+    whose preflight fails is held back and reported rather than aborting the run — the missing
+    value belongs to that repo, and the rest can still be applied.
+
+    Returns the repos cleared to apply, and the held-back ones paired with why.
+    ``plan`` never calls this — secrets are write-only, resolved only when applying.
     """
-    try:
-        for plan in plans:
-            for change in plan.actionable:
+    ready: list[RepoPlan] = []
+    blocked: list[tuple[RepoPlan, str]] = []
+    for plan_item in plans:
+        try:
+            for change in plan_item.actionable:
                 if change.preflight is not None:
                     change.preflight()
-    except ConfigError as exc:
-        raise _fail(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - an unresolvable payload must cost only its own
+            # repo; the type is preserved and an unexpected one keeps its traceback.
+            blocked.append((plan_item, describe_failure(exc)))
+        else:
+            ready.append(plan_item)
+    return ready, blocked
+
+
+def _report_apply(reports: list[ApplyReport], skipped: list[tuple[RepoPlan, str]]) -> None:
+    """Summarize an apply run, then exit non-zero if any repo was skipped or any write failed.
+
+    Every repository is accounted for, applied or not: a run that reported only its successes
+    would read as a clean sweep while leaving repos silently unreconciled.
+    """
+    applied = sum(len(report.applied) for report in reports)
+    touched = sum(1 for report in reports if report.applied)
+    failures = [
+        (report.repo_name, change, error) for report in reports for change, error in report.failed
+    ]
+
+    if not applied and not failures and not skipped:
+        console.print("\n[green]nothing to do[/green]")
+        return
+
+    if applied:
+        console.print(f"\n[green]✓ applied {applied} change(s) across {touched} repo(s)[/green]")
+
+    for plan_item, reason in skipped:
+        name = escape(plan_item.repo_name)
+        err_console.print(f"[yellow]skipped[/yellow] {name}: {escape(reason)}")
+    for repo_name, change, error in failures:
+        err_console.print(
+            f"[red]failed[/red] {escape(repo_name)} {escape(change.target)}: {escape(error)}"
+        )
+
+    if skipped or failures:
+        msg = f"{len(failures)} change(s) failed; {len(skipped)} repo(s) skipped."
+        raise _fail(msg)
 
 
 @app.command()
@@ -248,18 +296,28 @@ def plan(
     *,
     force_secrets: _ForceSecretsOpt = False,
 ) -> None:
-    """Show the changes needed to reconcile each repo (no writes)."""
+    """Show the changes needed to reconcile each repo (no writes).
+
+    Every repo is planned independently: one that can't be read contributes a `!` line and the
+    rest still print their diff.
+    """
     selected = _select(_load(config), repo)
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
     total = sum(len(item.actionable) for item in plans)
     console.print(f"\n{total} change(s) across {len(plans)} repo(s).")
-    # A variable whose desired value can't be resolved is shown as a `!` line above rather than
-    # aborting the plan mid-build; report the count and exit non-zero so it's a hard failure.
-    problems = sum(len(item.problems) for item in plans)
-    if problems:
-        msg = f"{problems} unresolved value(s) — see the ! line(s) above."
+    # A value that wouldn't resolve, or a domain that wouldn't read, is shown as a `!` line above
+    # rather than aborting the run; roll it up here and exit non-zero so it's still a hard
+    # failure — isolating a fault reports it differently, it doesn't forgive it.
+    unhealthy = [item for item in plans if not item.healthy]
+    if unhealthy:
+        problems = sum(len(item.problems) for item in unhealthy)
+        names = ", ".join(item.repo_name for item in unhealthy)
+        msg = (
+            f"{problems} problem(s) across {len(unhealthy)} repo(s) ({names}) "
+            f"— see the ! line(s) above."
+        )
         raise _fail(msg)
 
 
@@ -272,37 +330,35 @@ def apply(
     yes: _YesOpt = False,
     force_secrets: _ForceSecretsOpt = False,
 ) -> None:
-    """Apply the planned changes to GitHub."""
+    """Apply the planned changes to GitHub.
+
+    Each repo stands alone. One that couldn't be fully planned, or whose payloads won't resolve,
+    is skipped and reported while every healthy repo still applies; a failed write costs its own
+    change rather than the rest of its repo. Anything short of a clean sweep exits non-zero.
+    """
     selected = _select(_load(config), repo)
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
-    # Refuse to apply a plan with any unresolvable value — fail fast before writing anything,
-    # rather than resolving the rest and blowing up partway through.
-    problems = sum(len(item.problems) for item in plans)
-    if problems:
-        msg = f"{problems} unresolved value(s) — resolve them and re-run; nothing was applied."
-        raise _fail(msg)
-    total = sum(len(item.actionable) for item in plans)
-    if total == 0:
-        console.print("\n[green]nothing to do[/green]")
-        return
-    _preflight(plans)
-    if not yes and not typer.confirm(f"\nApply {total} change(s)?"):
+
+    # A plan carrying a problem is only a partial picture of its repo, so applying it would write
+    # a diff computed from incomplete state. Hold that repo back — the cost is one repo, not the
+    # fleet, which is the whole point of planning them independently.
+    skipped = [
+        (item, f"{len(item.problems)} problem(s) in its plan — see the ! line(s) above")
+        for item in plans
+        if not item.healthy
+    ]
+    ready, blocked = _preflight([item for item in plans if item.healthy])
+    skipped.extend(blocked)
+
+    # Only repos that actually have writes queued; an in-sync repo needs no round-trip.
+    writable = [item for item in ready if item.actionable]
+    total = sum(len(item.actionable) for item in writable)
+    if total and not yes and not typer.confirm(f"\nApply {total} change(s)?"):
         msg = "aborted"
         raise _fail(msg)
-    for repo_plan in plans:
-        try:
-            apply_plan(repo_plan)
-        except GithubException as exc:
-            msg = f"applying {repo_plan.repo_name}: {exc.data or exc}"
-            raise _fail(msg) from exc
-        except ConfigError as exc:
-            # A value that preflight resolved could vanish before the write (env unset mid-run);
-            # surface it as a clean error, never an uncaught traceback.
-            msg = f"applying {repo_plan.repo_name}: {exc}"
-            raise _fail(msg) from exc
-    console.print(f"\n[green]✓ applied {total} change(s)[/green]")
+    _report_apply([apply_plan(item) for item in writable], skipped)
 
 
 projects_app = typer.Typer(

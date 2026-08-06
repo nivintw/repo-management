@@ -5,15 +5,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import NoReturn
 from unittest.mock import MagicMock
 
 import pytest
 from conftest import make_secret
+from github import GithubException
 
 from repo_management import reconciler
 from repo_management.changes import Action, Change
-from repo_management.config import Config, Secret, Settings, SharedConfig
+from repo_management.config import Config, ConfigError, Secret, Settings, SharedConfig
 from repo_management.managers import build_managers
 from repo_management.reconciler import RepoPlan, apply_plan, plan_config, plan_repo
 
@@ -171,3 +174,140 @@ def test_apply_plan_skips_diagnostics() -> None:
     good = Change("x", Action.CREATE, "a", None, None, lambda: calls.append("a"))
     apply_plan(RepoPlan("o/r", [good, _diagnostic("variable:X")]))
     assert calls == ["a"]
+
+
+def _boom(exc: Exception) -> Callable[..., NoReturn]:
+    """A callable that raises ``exc`` whatever it's handed."""
+
+    def _raise(*_args: object, **_kwargs: object) -> NoReturn:
+        raise exc
+
+    return _raise
+
+
+def test_plan_repo_isolates_a_failing_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One manager's plan() blowing up costs its own domain, not the other managers'."""
+    ok = MagicMock(domain="labels")
+    ok.plan.return_value = [Change("labels", Action.CREATE, "label:bug", None, "bug", lambda: None)]
+    broken = MagicMock(domain="rulesets")
+    broken.plan.side_effect = GithubException(403, {"message": "Upgrade required"})
+    monkeypatch.setattr(reconciler, "build_managers", lambda **_kw: [broken, ok])
+
+    changes = plan_repo(MagicMock(), SharedConfig())
+
+    # The healthy domain still planned...
+    assert [change.target for change in changes if not change.unresolved] == ["label:bug"]
+    # ...and the broken one degraded to a diagnostic naming its own domain and its type.
+    (problem,) = [change for change in changes if change.unresolved]
+    assert problem.domain == "rulesets"
+    assert "GithubException" in str(problem.error)
+
+
+def test_plan_repo_isolates_an_unexpected_exception_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A type _api_errors never caught (ValueError, reachable via rulesets) is isolated too.
+
+    These tracebacked before fault isolation existed, so covering an unanticipated type is the
+    point rather than an edge case.
+    """
+    broken = MagicMock(domain="rulesets")
+    broken.plan.side_effect = ValueError("no bypass actor 'platform'")
+    monkeypatch.setattr(reconciler, "build_managers", lambda **_kw: [broken])
+
+    (problem,) = plan_repo(MagicMock(), SharedConfig())
+
+    assert problem.unresolved
+    assert "ValueError" in str(problem.error)
+    # An unanticipated type keeps its traceback: flattening a bug in this tool to one line would
+    # trade a stack trace for a sentence nobody can act on.
+    assert "Traceback" in str(problem.error)
+
+
+def test_plan_repo_keeps_an_expected_failure_to_one_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An anticipated failure is fully described by its message, so it carries no traceback."""
+    broken = MagicMock(domain="pages")
+    broken.plan.side_effect = ConfigError("cannot access repository 'o/gone'")
+    monkeypatch.setattr(reconciler, "build_managers", lambda **_kw: [broken])
+
+    (problem,) = plan_repo(MagicMock(), SharedConfig())
+
+    assert "ConfigError" in str(problem.error)
+    assert "Traceback" not in str(problem.error)
+
+
+def test_plan_config_isolates_a_failing_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A repo that can't be fetched costs its own plan; every other repo still plans."""
+    monkeypatch.setattr(
+        reconciler,
+        "get_repo",
+        lambda _client, name: (
+            _boom(ConfigError(f"cannot access repository {name!r}"))() if name == "o/gone" else name
+        ),
+    )
+    monkeypatch.setattr(reconciler, "plan_repo", lambda *_a, **_kw: [])
+
+    plans = plan_config(MagicMock(), Config(repos=["o/first", "o/gone", "o/last"]))
+
+    assert [plan.repo_name for plan in plans] == ["o/first", "o/gone", "o/last"]
+    assert [plan.healthy for plan in plans] == [True, False, True]
+    (problem,) = plans[1].problems
+    assert problem.domain == "repo"
+    assert "o/gone" in str(problem.error)
+
+
+def test_plan_config_isolates_a_repo_failing_late(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fleet survives a mid-run failure, and the repos after it still plan.
+
+    Guards the original bug directly: a failure on a middle repo used to discard every plan
+    already computed, leaving the operator with one error line and no diff at all.
+    """
+    monkeypatch.setattr(reconciler, "get_repo", lambda _client, name: name)
+    monkeypatch.setattr(
+        reconciler,
+        "plan_repo",
+        lambda repo, *_a, **_kw: _boom(TypeError("expected a file"))() if repo == "o/b" else [],
+    )
+
+    plans = plan_config(MagicMock(), Config(repos=["o/a", "o/b", "o/c"]))
+
+    assert [plan.healthy for plan in plans] == [True, False, True]
+    assert "TypeError" in str(plans[1].problems[0].error)
+
+
+def test_apply_plan_isolates_a_failing_change() -> None:
+    """A failed write costs its own change; the repo's remaining changes still apply."""
+    calls: list[str] = []
+    plan = RepoPlan(
+        "o/r",
+        [
+            Change("labels", Action.CREATE, "label:a", None, None, lambda: calls.append("a")),
+            Change(
+                "webhooks",
+                Action.CREATE,
+                "webhook:x",
+                None,
+                None,
+                _boom(GithubException(403, {"message": "Must have admin rights"})),
+            ),
+            Change("labels", Action.CREATE, "label:b", None, None, lambda: calls.append("b")),
+        ],
+    )
+
+    report = apply_plan(plan)
+
+    assert calls == ["a", "b"]  # the 403 did not abandon the change after it
+    assert not report.ok
+    assert [change.target for change in report.applied] == ["label:a", "label:b"]
+    (failed, error) = report.failed[0]
+    assert failed.target == "webhook:x"
+    assert "GithubException" in error
+
+
+def test_apply_plan_reports_a_clean_run() -> None:
+    """Every change applying cleanly reports ok with each change recorded."""
+    plan = RepoPlan("o/r", [Change("labels", Action.CREATE, "label:a", None, None, lambda: None)])
+
+    report = apply_plan(plan)
+
+    assert report.ok
+    assert report.repo_name == "o/r"
+    assert [change.target for change in report.applied] == ["label:a"]
