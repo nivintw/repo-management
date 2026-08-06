@@ -98,10 +98,20 @@ def test_differing_grant_is_updated() -> None:
     )
 
 
-def test_unlisted_team_is_revoked() -> None:
-    """A declared teams section is authoritative: a team with access absent from it is revoked."""
+def test_unlisted_team_is_left_alone_by_default() -> None:
+    """teams_mode defaults to add-only: a grant this config never mentions is not revoked."""
     repo = make_repo([_team("sre", "push"), _team("legacy", "admin")])
     desired = SharedConfig(teams=[TeamAccess(slug="sre", permission="push")])
+
+    assert TeamsManager().plan(repo, desired) == []
+
+
+def test_unlisted_team_is_revoked_when_authoritative() -> None:
+    """teams_mode=authoritative restores the complete-set behaviour."""
+    repo = make_repo([_team("sre", "push"), _team("legacy", "admin")])
+    desired = SharedConfig(
+        teams=[TeamAccess(slug="sre", permission="push")], teams_mode="authoritative"
+    )
 
     changes = TeamsManager().plan(repo, desired)
 
@@ -113,6 +123,21 @@ def test_unlisted_team_is_revoked() -> None:
     repo.requester.requestJsonAndCheck.assert_any_call(
         "DELETE", "/orgs/acme/teams/legacy/repos/acme/widget"
     )
+
+
+def test_listed_team_is_repermissioned_under_add_only() -> None:
+    """Add-only governs *who*, not *what*: a listed team is still held at its declared value.
+
+    Including downward — a grant escalated to admin out-of-band is brought back to push.
+    """
+    repo = make_repo([_team("sre", "admin")])
+    desired = SharedConfig(teams=[TeamAccess(slug="sre", permission="push")])
+
+    changes = TeamsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    assert changes[0].action is Action.UPDATE
+    assert (changes[0].before, changes[0].after) == ("admin", "push")
 
 
 def test_list_paginates() -> None:
@@ -135,10 +160,21 @@ def test_list_paginates() -> None:
     repo.organization = MagicMock(login="acme")
     repo.requester.requestJsonAndCheck.side_effect = request
 
-    # Authoritative-empty revokes every listed team — 101 DELETE changes prove both pages read.
-    changes = TeamsManager().plan(repo, SharedConfig(teams=[]))
+    # Authoritative-empty revokes every listed team — 101 DELETE changes prove both pages were
+    # read *in full*, not merely that page 2 was fetched.
+    changes = TeamsManager().plan(repo, SharedConfig(teams=[], teams_mode="authoritative"))
     assert len(changes) == 101
     assert all(change.action is Action.DELETE for change in changes)
+
+    # And prove it again in the DEFAULT mode, which reads no fewer pages: a team that exists
+    # only on page 2 must be seen as an existing grant to re-permission. If page 2 went unread
+    # it would look absent and this would be a CREATE from nothing instead of an UPDATE.
+    changes = TeamsManager().plan(
+        repo, SharedConfig(teams=[TeamAccess(slug="t100", permission="admin")])
+    )
+    assert len(changes) == 1
+    assert changes[0].action is Action.UPDATE
+    assert (changes[0].before, changes[0].after) == ("pull", "admin")
 
 
 def test_role_falls_back_to_legacy_permission() -> None:

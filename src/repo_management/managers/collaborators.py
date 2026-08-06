@@ -3,10 +3,17 @@
 
 """Manager for repository collaborators.
 
-A declared ``collaborators`` section is authoritative: collaborators are added and have
-their permission reconciled, and *direct* collaborators absent from the config are removed.
-Only directly-granted access is managed — access inherited from org/team membership is not
-listed and so is never touched.
+A declared ``collaborators`` section manages the people it lists: each is added if missing and
+has their permission reconciled — in both directions, so a grant escalated out-of-band is
+brought back to the declared value.
+
+What happens to *unlisted* direct collaborators is governed by ``collaborators_mode``. It
+defaults to ``add-only``, which leaves them entirely alone: adding someone through the GitHub
+UI is a legitimate way to grant access, and this tool won't revoke it at the next apply. Set
+``authoritative`` to restore the complete-set behaviour, removing anyone unlisted.
+
+Either way, only directly-granted access is managed — access inherited from org/team membership
+is never listed and so is never touched.
 """
 
 from __future__ import annotations
@@ -27,12 +34,12 @@ _NONE = "none"
 
 
 class CollaboratorsManager:
-    """Add, update, and remove direct collaborators to match the config."""
+    """Add and re-permission direct collaborators; remove unlisted ones only when authoritative."""
 
     domain = "collaborators"
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
-        """Return changes to add, re-permission, and remove collaborators to match config."""
+        """Return changes to add and re-permission collaborators, and (if authoritative) remove."""
         if desired.collaborators is None:
             return []
 
@@ -41,6 +48,11 @@ class CollaboratorsManager:
             change = self._collaborator_change(repo, collaborator)
             if change is not None:
                 changes.append(change)
+
+        if desired.collaborators_mode == "add-only":
+            # Nothing unlisted is touched, so the listing isn't needed at all — and not asking
+            # for it means add-only works with a token that can't enumerate collaborators.
+            return changes
 
         wanted = {collaborator.username for collaborator in desired.collaborators}
         # affiliation="direct" excludes access inherited via org/team membership, which the

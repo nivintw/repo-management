@@ -29,7 +29,7 @@ def _hermetic_source_repo(monkeypatch: pytest.MonkeyPatch) -> None:
 def repo() -> MagicMock:
     """Return a mock standing in for a PyGithub ``Repository``.
 
-    ``get_collaborators`` defaults to empty so the authoritative-prune pass has nothing to
+    ``get_collaborators`` defaults to empty so an authoritative-mode prune pass has nothing to
     remove unless a test populates it.
     """
     mock = MagicMock(name="Repository")
