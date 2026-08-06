@@ -22,6 +22,17 @@ TOKEN_ENV = "GITHUB_TOKEN"  # noqa: S105 — env var name, not a secret
 SOURCE_REPO_ENV = "GITHUB_REPOSITORY"
 
 
+def api_message(exc: GithubException) -> str:
+    """The human-facing message from a GitHub API rejection.
+
+    PyGithub puts the API's own message in ``data`` (``{"message": "Must have admin rights"}``);
+    ``str(exc)`` is the status-plus-repr form, which is noise in front of an operator. Every
+    surface that reports an API failure renders it through here, so the same 403 reads the same
+    way wherever it was caught — at the CLI boundary, or isolated to one repo mid-fleet.
+    """
+    return str(exc.data or exc)
+
+
 def get_client(token: str | None = None) -> Github:
     """Build an authenticated GitHub client.
 
@@ -58,7 +69,7 @@ def get_repo(client: Github, full_name: str) -> Repository:
     try:
         return client.get_repo(full_name)
     except GithubException as exc:
-        msg = f"cannot access repository {full_name!r}: {exc.data or exc}"
+        msg = f"cannot access repository {full_name!r}: {api_message(exc)}"
         raise ConfigError(msg) from exc
 
 
@@ -104,7 +115,7 @@ def source_secret_timestamps(client: Github) -> dict[str, datetime]:
         }
     except GithubException as exc:
         warnings.warn(
-            f"cannot read source secret timestamps from {source!r} ({exc.data or exc}); "
+            f"cannot read source secret timestamps from {source!r} ({api_message(exc)}); "
             "existing secrets will NOT be re-pushed this run — rerun with --force-secrets to "
             "force a rotation to propagate",
             stacklevel=2,
