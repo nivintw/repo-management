@@ -7,8 +7,10 @@
 # applied to each of them. `extends:` pulls in one or more base files (relative paths,
 # resolved recursively) and merges this file on top: scalars here win, and list sections
 # merge by each item's natural key (a same-key item here replaces the base's, new items are
-# appended). Each declared section is authoritative — items not listed are removed from the
-# repo — while an unset section is left entirely unmanaged.
+# appended). Most declared sections are authoritative — items not listed are removed from the
+# repo — while an unset section is left entirely unmanaged. The access-granting sections
+# (collaborators, teams, deploy_keys) are the exception: they default to add-only and never
+# revoke access they didn't grant. See their `*_mode` keys.
 #
 #   repo-management validate -c examples/repos.yaml
 #   repo-management plan     -c examples/repos.yaml
@@ -51,7 +53,9 @@ rulesets:
       - {type: tag_name_pattern, operator: starts_with, pattern: "v"}
 
 collaborators:
-  # Authoritative: any *direct* collaborator not listed here is removed.
+  # Add-only by default: octocat is added and held at `push` (including being walked back down
+  # if someone escalates them out-of-band), while any *direct* collaborator not listed here is
+  # left alone. Set `collaborators_mode: authoritative` to remove unlisted ones instead.
   - {username: octocat, permission: push}
 
 secrets:

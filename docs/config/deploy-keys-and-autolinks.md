@@ -39,6 +39,28 @@ differing only by comment/whitespace can't survive a merge as if they were diffe
     old key paired with a create of the new one**, not a single in-place update — GitHub's
     deploy-key API has no update endpoint.
 
+### deploy_keys_mode
+
+`deploy_keys` is one of the three [add-only](../config.md#access-granting-sections-are-add-only-by-default)
+sections. By default a key present on the repo but **not listed** here is left alone; set
+`deploy_keys_mode: authoritative` to delete unlisted keys instead.
+
+```yaml
+deploy_keys:
+  - {title: ci-deploy, key: "ssh-ed25519 AAAAC3Nza... ci@example"}
+deploy_keys_mode: authoritative   # default: add-only
+```
+
+!!! note "The mode does not affect the delete+create pair above"
+    This section is the one place two different things both look like a delete. `add-only`
+    suppresses only the pruning of **unlisted** keys. A key you *do* list whose `title` or
+    `read_only` drifted is still reconciled — and, since there's no update endpoint, that
+    reconciliation *is* a delete plus a create. Suppressing that too would leave a listed key
+    permanently unable to reach its declared state, with no error to tell you.
+
+**Note that `autolinks`, on the same page, is not add-only** — it stays authoritative, like
+labels and webhooks. Only the three access-granting sections changed.
+
 ## autolinks
 
 Autolink references, matched by `key_prefix` — a prefix like `TICKET-` in commit messages

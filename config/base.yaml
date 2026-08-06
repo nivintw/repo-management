@@ -9,6 +9,9 @@
 # EDIT ME. These are safe defaults — tighten/loosen to taste. Reminder on semantics:
 #   - A section you DECLARE is authoritative: anything on the repo not listed here is
 #     removed. A section you OMIT is left entirely unmanaged.
+#   - EXCEPT collaborators / teams / deploy_keys, which are add-only by default: they manage
+#     only what they list and never revoke anything else. Set `<section>_mode: authoritative`
+#     to opt one back into pruning.
 #   - `~DEFAULT_BRANCH` resolves per-repo (main here, master on cxxserv/cxxtests).
 
 settings:
