@@ -44,10 +44,15 @@ always redacted. `repo-management list-repos` prints the managed fleet across a 
 directory with no network access — see the [CLI reference](cli.md) for every command and
 flag.
 
-!!! warning "Declared sections are authoritative"
-    A declared `labels:` section deletes labels not in the list; a declared
-    `collaborators:` section removes unlisted direct collaborators. Start with `plan` and
-    read the diff before your first `apply`.
+!!! warning "Most declared sections are authoritative"
+    A declared `labels:` section deletes labels not in the list. Start with `plan` and read
+    the diff before your first `apply`.
+
+    The exceptions are the three access-granting sections — `collaborators`, `teams`,
+    `deploy_keys` — which are **add-only** by default: they manage the principals they name
+    and never revoke anyone else's access. Set the matching `*_mode` to `authoritative` to
+    make them the complete set. See
+    [Section authority](config.md#access-granting-sections-are-add-only-by-default).
 
 ## Reference
 
@@ -69,8 +74,8 @@ flag.
 
 ## What it manages
 
-Each section below is independent — declare only the ones you want managed — and each
-declared section is authoritative (see the warning above). Full field-by-field detail for
+Each section below is independent — declare only the ones you want managed — and most
+declared sections are authoritative (see the warning above). Full field-by-field detail for
 every section lives in the [config reference](config.md).
 
 <div class="grid cards" markdown>

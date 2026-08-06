@@ -171,3 +171,50 @@ def test_changed_title_for_same_key_is_delete_and_create_not_update(repo: MagicM
     existing.delete.assert_called_once_with()
     create.apply()
     repo.create_key.assert_called_once_with("new-name", "ssh-ed25519 AAAA...", read_only=False)
+
+
+def test_deploy_keys_mode_without_section_is_still_unmanaged(repo: MagicMock) -> None:
+    """An omitted section outranks its mode — see the collaborators twin for why this matters."""
+    existing = make_deploy_key(title="ci", key="ssh-ed25519 AAAA...", read_only=True)
+    repo.get_keys.return_value = [existing]
+
+    assert DeployKeysManager().plan(repo, SharedConfig(deploy_keys_mode="authoritative")) == []
+    existing.delete.assert_not_called()
+
+
+def test_empty_deploy_keys_is_a_noop_under_add_only(repo: MagicMock) -> None:
+    """`deploy_keys: []` stops asserting "this repo has no keys" under the new default."""
+    existing = make_deploy_key(title="rogue", key="ssh-ed25519 ROGUE...", read_only=False)
+    repo.get_keys.return_value = [existing]
+
+    assert DeployKeysManager().plan(repo, SharedConfig(deploy_keys=[])) == []
+    existing.delete.assert_not_called()
+
+
+def test_empty_deploy_keys_deletes_all_when_authoritative(repo: MagicMock) -> None:
+    """`deploy_keys: [] + authoritative` still removes every key — the escape hatch."""
+    existing = make_deploy_key(title="rogue", key="ssh-ed25519 ROGUE...", read_only=False)
+    repo.get_keys.return_value = [existing]
+    desired = SharedConfig(deploy_keys=[], deploy_keys_mode="authoritative")
+
+    changes = DeployKeysManager().plan(repo, desired)
+
+    assert [change.action for change in changes] == [Action.DELETE]
+    changes[0].apply()
+    existing.delete.assert_called_once_with()
+
+
+def test_unrecognized_mode_never_prunes() -> None:
+    """The gates key on `authoritative`, so any unrecognized mode declines to prune.
+
+    `SectionMode` admits two values today, so this can only be reached by constructing the model
+    directly — which is the point: it pins the *polarity*, so adding a third mode later (a
+    `report-only`, say) can't silently turn into a mass revocation.
+    """
+    repo = MagicMock()
+    existing = make_deploy_key(title="rogue", key="ssh-ed25519 ROGUE...", read_only=False)
+    repo.get_keys.return_value = [existing]
+    desired = SharedConfig(deploy_keys=[])
+    object.__setattr__(desired, "deploy_keys_mode", "report-only")
+
+    assert DeployKeysManager().plan(repo, desired) == []

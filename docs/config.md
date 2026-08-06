@@ -97,9 +97,43 @@ collaborators_mode: authoritative
 
 **Add-only governs *who*, not *what*.** A principal the section **does** list is still
 reconciled to exactly its declared permission — in both directions. Someone listed as `pull`
-who was bumped to `admin` through the UI is returned to `pull`. What add-only changes is that
-the section stops asserting anything about principals it doesn't name, so granting access
+whose **direct** grant was bumped to `admin` is returned to `pull`. What add-only changes is
+that the section stops asserting anything about principals it doesn't name, so granting access
 through the GitHub UI is no longer undone at the next apply.
+
+!!! warning "An escalation inherited from a team or org role can't be walked back this way"
+    GitHub reports a collaborator's **effective** permission — the highest of their direct,
+    team, and org grants. So if someone listed here as `pull` is *also* an org owner, or sits
+    in a team holding `admin`, this section will keep planning `admin → pull` on every run: the
+    direct grant it writes never lowers the effective one. The plan never converges.
+
+    Under 1.x a declared `teams:` section would have revoked the team grant and closed the
+    loop. With `teams_mode: add-only` it won't, so the two defaults compose into a
+    never-converging plan. If you hit this, either set `teams_mode: authoritative`, or fix the
+    escalation at its source (the team or org role) rather than here.
+
+### `[]` no longer means "nobody"
+
+Declaring a section **empty** used to be the strongest statement in a config — `collaborators:
+[]` asserted *this repo has no direct collaborators*. Under `add-only` an empty list manages
+nothing, so it is now a **no-op**, and a plan over a repo full of unlisted collaborators will
+report `✓ in sync`.
+
+The "assert nobody" idiom still exists, but it needs the mode:
+
+```yaml
+collaborators: []
+collaborators_mode: authoritative   # removes every direct collaborator
+```
+
+The same applies to `teams: []` and `deploy_keys: []`.
+
+### A mode without its section does nothing
+
+An **omitted** section is unmanaged regardless of its mode: `teams_mode: authoritative` with no
+`teams:` key revokes nothing. Omission always outranks mode. This matters because the modes are
+top-level scalars that merge through [`extends:`](#composing-with-extends) independently of
+their sections — a base can set a mode for a section a child never declares.
 
 !!! note "Why the default is add-only"
     Under `authoritative`, adding a collaborator required a PR — anyone added out-of-band was
