@@ -73,8 +73,34 @@ and makes `plan` exit non-zero — without hiding the rest of the diff:
   ! [domain] target: {reason the value couldn't be resolved}
 ```
 
+### Every repo is independent
+
+A `!` line is also how a *read* failure surfaces. Managers query GitHub while planning, and
+those queries fail for reasons specific to one repository — a plan tier that doesn't carry
+rulesets, an Actions endpoint that only exists for one visibility, a token without admin, a
+repo renamed out from under the config. None of that aborts the run:
+
+- A **manager** that fails contributes a `!` line for its own domain; the other domains for
+  that repo still plan.
+- A **repo** that can't be fetched at all contributes a single `! [repo]` line; every other
+  repo still plans.
+
+So a failure on the twelfth repo of sixteen costs you that repo's diff and nothing else. The
+run still exits non-zero, naming which repos had problems — isolating a fault changes how it's
+reported, not whether it counts:
+
+```text
+error: {n} problem(s) across {n} repo(s) (owner/beta) — see the ! line(s) above.
+```
+
 !!! note
-    Secret values are always redacted in output as `<redacted>`, regardless of `--force-secrets` — the redaction is unconditional on the change itself, not a function of the flag. `--force-secrets` only controls whether an already-present secret is re-planned for rotation in the first place; it never controls whether a secret's value is printed. Variable values, by contrast, are shown in plaintext, so don't put anything sensitive in a `variables:` entry — use a secret instead.
+    A failure whose type this tool anticipates — a GitHub API rejection, a config problem — is
+    reported as a single line, because its message already says everything useful. Any other
+    type is a bug in this tool rather than a fact about your repo, so it keeps its full
+    traceback in the `!` line instead of being flattened into one sentence.
+
+!!! note
+    Secret values are always redacted in output as `***`, regardless of `--force-secrets` — the redaction is unconditional on the change itself, not a function of the flag. `--force-secrets` only controls whether an already-present secret is re-planned for rotation in the first place; it never controls whether a secret's value is printed. Variable values, by contrast, are shown in plaintext, so don't put anything sensitive in a `variables:` entry — use a secret instead.
 
 ## apply
 
@@ -104,8 +130,44 @@ Apply {total} change(s)?
 On success:
 
 ```text
-✓ applied {n} change(s)
+✓ applied {n} change(s) across {n} repo(s)
 ```
+
+### A failure costs one repo, not the fleet
+
+`apply` holds the same independence `plan` does, and reports every repo it touched or didn't:
+
+- A repo whose plan carries **any** `!` line is **skipped** — its diff was computed from
+  incomplete state, so writing it would apply a partial picture. Every healthy repo still
+  applies.
+- A repo whose secret payloads won't resolve is likewise skipped, **before any of its writes
+  run** — so a missing value never leaves a repo half-written. That guarantee is specifically
+  about payloads that can't be resolved; it is not a promise that a repo's writes are
+  all-or-nothing in general (see the next point).
+- A **failed write** costs its own change and the rest of **that domain** for that repo — but
+  no other domain. A 403 on webhooks says nothing about whether labels can be written, so
+  labels still apply.
+
+Why a failure stops its own domain rather than just its own change: a declared section is
+authoritative, and a *replacement* is expressed as two changes — a create of the new thing,
+then a delete of the old. If the create is rejected (a plan tier without rulesets, an invite
+cap, an org policy) and the delete ran anyway, the repo would end up **worse than before the
+run**: the old ruleset gone and nothing in its place. So the changes after a failure in the
+same domain are reported as `not attempted` rather than run.
+
+Skips and failures print to stderr, each naming the repo (and, for a write, the target):
+
+```text
+skipped owner/beta: {n} problem(s) in its plan — see the ! line(s) above
+failed owner/alpha webhook:x: {reason the write was rejected}
+not attempted owner/alpha webhook:y: an earlier webhooks write failed
+error: {n} change(s) failed across {n} repo(s) ({names}); {n} repo(s) skipped ({names}).
+```
+
+!!! warning
+    Anything short of a clean sweep exits non-zero. A partially-applied fleet is a **failed**
+    run even though some repos were reconciled — re-run once the reported problems are fixed.
+    `apply` is idempotent, so the repos that already succeeded are no-ops on the next pass.
 
 ## list-repos
 

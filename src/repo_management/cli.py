@@ -15,8 +15,9 @@ import typer
 from github import GithubException
 from rich.console import Console
 from rich.markup import escape
+from rich.text import Text
 
-from repo_management.client import get_client
+from repo_management.client import api_message, get_client
 from repo_management.config import (
     Config,
     ConfigError,
@@ -28,7 +29,13 @@ from repo_management.config import (
 )
 from repo_management.graphql import GraphQLClient
 from repo_management.managers.projects import ProjectError, ProjectsManager
-from repo_management.reconciler import RepoPlan, apply_plan, plan_config
+from repo_management.reconciler import (
+    ApplyReport,
+    RepoPlan,
+    apply_plan,
+    plan_config,
+    preflight_plan,
+)
 from repo_management.roadmap import (
     Board,
     build_status_update,
@@ -51,8 +58,14 @@ app = typer.Typer(
     # Never dump frame locals on error — they can contain the token or secret values.
     pretty_exceptions_show_locals=False,
 )
-console = Console()
-err_console = Console(stderr=True)
+# emoji=False because every name this tool prints — a label, a secret, a webhook target — comes
+# from user config, and targets are rendered `{kind}:{name}` followed by ": ". That makes
+# `label:bug` into the shortcode `:bug:`, which Rich would substitute for 🐛 — silently replacing
+# the identifier the operator needs with a pictogram, on the very line reporting a failure.
+# `escape()` guards the `[markup]` half of this hazard and does nothing about shortcodes. The
+# tool's own glyphs (✓, !) are literal characters, so disabling substitution costs nothing.
+console = Console(emoji=False)
+err_console = Console(stderr=True, emoji=False)
 
 
 class ReposFormat(enum.StrEnum):
@@ -99,7 +112,10 @@ _ForceSecretsOpt = Annotated[
 
 
 def _fail(message: str) -> typer.Exit:
-    err_console.print(f"[red]error:[/red] {message}")
+    # soft_wrap: an error can name every repo that failed, and hard-wrapping to the terminal
+    # width would break a name across lines — leaving the one line that says what to re-run
+    # neither greppable nor copy-pasteable out of a CI log.
+    err_console.print(f"[red]error:[/red] {message}", soft_wrap=True)
     return typer.Exit(1)
 
 
@@ -111,7 +127,7 @@ def _api_errors() -> Iterator[None]:
     except (ConfigError, ProjectError, OSError) as exc:
         raise _fail(str(exc)) from exc
     except GithubException as exc:
-        msg = f"GitHub API error: {exc.data or exc}"
+        msg = f"GitHub API error: {api_message(exc)}"
         raise _fail(msg) from exc
 
 
@@ -158,7 +174,7 @@ def _apply_changes(changes: list[Change], *, yes: bool) -> None:
         try:
             change.apply()
         except GithubException as exc:
-            msg = f"applying {change.target}: {exc.data or exc}"
+            msg = f"applying {change.target}: {api_message(exc)}"
             raise _fail(msg) from exc
     console.print(f"\n[green]✓ applied {len(changes)} change(s)[/green]")
 
@@ -190,20 +206,98 @@ def _print_plan(plan: RepoPlan) -> None:
     _print_changes(plan.repo_name, plan.changes)
 
 
-def _preflight(plans: list[RepoPlan]) -> None:
-    """Resolve every write's payload (secret values) before any write, so a missing one aborts.
+def _detail(line: str, detail: str) -> None:
+    """Print a reason to stderr, keeping any embedded traceback copy-pasteable.
 
-    Secret values resolve lazily at the write, so a missing one wouldn't surface until mid-apply;
-    running every change's ``preflight`` up front restores apply's pre-write, all-or-nothing
-    guarantee. ``plan`` never calls this — secrets are write-only, resolved only when applying.
+    A diagnostic for an unanticipated failure carries a whole traceback, and Rich would hard-wrap
+    it to the terminal width — breaking file paths mid-token so the stack can no longer be
+    grepped or pasted. Print the first line styled, then the rest verbatim with wrapping off.
     """
-    try:
-        for plan in plans:
-            for change in plan.actionable:
-                if change.preflight is not None:
-                    change.preflight()
-    except ConfigError as exc:
-        raise _fail(str(exc)) from exc
+    head, _, rest = detail.partition("\n")
+    err_console.print(f"{line}: {escape(head)}", soft_wrap=True)
+    if rest:
+        err_console.print(Text(rest), soft_wrap=True)
+
+
+def _partition(plans: list[RepoPlan]) -> tuple[list[RepoPlan], list[tuple[str, str]]]:
+    """Split the fleet into the repos cleared to write and the ones held back, paired with why.
+
+    A held-back repo is reduced to its name here: nothing downstream needs the rest of the plan,
+    and carrying it invites a caller to act on a plan that was deliberately not applied.
+    """
+    ready: list[RepoPlan] = []
+    held: list[tuple[str, str]] = []
+    for repo_plan in plans:
+        reason = preflight_plan(repo_plan)
+        if reason is None:
+            ready.append(repo_plan)
+        else:
+            held.append((repo_plan.repo_name, reason))
+    return ready, held
+
+
+def _report_skipped(skipped: list[tuple[str, str]]) -> None:
+    """Name every repo being held back, and why — *before* the operator is asked to confirm.
+
+    A preflight-held repo prints a perfectly ordinary diff (its payload only fails to resolve at
+    write time), so without this the operator would scroll a diff, be prompted with a smaller
+    count than it implies, and learn which repo was dropped only after the writes had run.
+    """
+    for repo_name, reason in skipped:
+        _detail(f"[yellow]skipped[/yellow] {escape(repo_name)}", reason)
+
+
+def _report_apply(reports: list[ApplyReport], skipped: list[tuple[str, str]]) -> None:
+    """Summarize an apply run, then exit non-zero if any repo was skipped or any write failed.
+
+    Every repository with an outcome is accounted for, applied or not — a run that reported only
+    its successes would read as a clean sweep while leaving repos silently unreconciled. Repos
+    already in sync have no outcome to report and are covered by the plan printed above.
+    """
+    applied = sum(len(report.applied) for report in reports)
+    failed = sum(len(report.failed) for report in reports)
+    abandoned = sum(len(report.abandoned) for report in reports)
+
+    if not applied and not failed and not abandoned and not skipped:
+        console.print("\n[green]nothing to do[/green]")
+        return
+
+    if applied:
+        applied_repos = sum(1 for report in reports if report.applied)
+        console.print(
+            f"\n[green]✓ applied {applied} change(s) across {applied_repos} repo(s)[/green]"
+        )
+
+    for report in reports:
+        for change, error in report.failed:
+            _detail(
+                f"[red]failed[/red] {escape(report.repo_name)} {escape(change.target)}",
+                error,
+            )
+        for change, reason in report.abandoned:
+            _detail(
+                f"[yellow]not attempted[/yellow] {escape(report.repo_name)} "
+                f"{escape(change.target)}",
+                reason,
+            )
+
+    if not skipped and not failed and not abandoned:
+        return
+    # Name the repos, as `plan`'s roll-up does. A partially-applied fleet is the state an
+    # operator most needs to size, and a bare count doesn't say which repos to re-run.
+    parts = []
+    # Escape every name: they come from config, and Rich would read a `[...]` in one as markup,
+    # silently swallowing part of the name on the line that says which repos to re-run.
+    if failed:
+        broken = sorted({report.repo_name for report in reports if report.failed})
+        names = ", ".join(escape(name) for name in broken)
+        parts.append(f"{failed} change(s) failed across {len(broken)} repo(s) ({names})")
+    if abandoned:
+        parts.append(f"{abandoned} change(s) not attempted")
+    if skipped:
+        names = ", ".join(escape(name) for name, _ in skipped)
+        parts.append(f"{len(skipped)} repo(s) skipped ({names})")
+    raise _fail("; ".join(parts) + ".")
 
 
 @app.command()
@@ -248,18 +342,28 @@ def plan(
     *,
     force_secrets: _ForceSecretsOpt = False,
 ) -> None:
-    """Show the changes needed to reconcile each repo (no writes)."""
+    """Show the changes needed to reconcile each repo (no writes).
+
+    Every repo is planned independently: one that can't be read contributes a `!` line and the
+    rest still print their diff.
+    """
     selected = _select(_load(config), repo)
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
     total = sum(len(item.actionable) for item in plans)
     console.print(f"\n{total} change(s) across {len(plans)} repo(s).")
-    # A variable whose desired value can't be resolved is shown as a `!` line above rather than
-    # aborting the plan mid-build; report the count and exit non-zero so it's a hard failure.
-    problems = sum(len(item.problems) for item in plans)
-    if problems:
-        msg = f"{problems} unresolved value(s) — see the ! line(s) above."
+    # A value that wouldn't resolve, or a domain that wouldn't read, is shown as a `!` line above
+    # rather than aborting the run; roll it up here and exit non-zero so it's still a hard
+    # failure — isolating a fault reports it differently, it doesn't forgive it.
+    unhealthy = [item for item in plans if item.problems]
+    if unhealthy:
+        problems = sum(len(item.problems) for item in unhealthy)
+        names = ", ".join(escape(item.repo_name) for item in unhealthy)
+        msg = (
+            f"{problems} problem(s) across {len(unhealthy)} repo(s) ({names}) "
+            f"— see the ! line(s) above."
+        )
         raise _fail(msg)
 
 
@@ -272,37 +376,33 @@ def apply(
     yes: _YesOpt = False,
     force_secrets: _ForceSecretsOpt = False,
 ) -> None:
-    """Apply the planned changes to GitHub."""
+    """Apply the planned changes to GitHub.
+
+    Each repo stands alone. One that couldn't be fully planned, or whose payloads won't resolve,
+    is skipped and reported while every healthy repo still applies; a failed write costs its own
+    change rather than the rest of its repo. Anything short of a clean sweep exits non-zero.
+    """
     selected = _select(_load(config), repo)
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
-    # Refuse to apply a plan with any unresolvable value — fail fast before writing anything,
-    # rather than resolving the rest and blowing up partway through.
-    problems = sum(len(item.problems) for item in plans)
-    if problems:
-        msg = f"{problems} unresolved value(s) — resolve them and re-run; nothing was applied."
-        raise _fail(msg)
-    total = sum(len(item.actionable) for item in plans)
-    if total == 0:
-        console.print("\n[green]nothing to do[/green]")
-        return
-    _preflight(plans)
-    if not yes and not typer.confirm(f"\nApply {total} change(s)?"):
-        msg = "aborted"
-        raise _fail(msg)
-    for repo_plan in plans:
-        try:
-            apply_plan(repo_plan)
-        except GithubException as exc:
-            msg = f"applying {repo_plan.repo_name}: {exc.data or exc}"
-            raise _fail(msg) from exc
-        except ConfigError as exc:
-            # A value that preflight resolved could vanish before the write (env unset mid-run);
-            # surface it as a clean error, never an uncaught traceback.
-            msg = f"applying {repo_plan.repo_name}: {exc}"
-            raise _fail(msg) from exc
-    console.print(f"\n[green]✓ applied {total} change(s)[/green]")
+
+    # preflight_plan and apply_plan are total — they convert failures into reasons and reports
+    # rather than raising. _api_errors is the belt-and-braces boundary for anything that slips
+    # past them: an expected API/config failure still exits cleanly instead of tracebacking, and
+    # a genuine bug in this tool (typer.Exit is a RuntimeError, so it passes straight through)
+    # still surfaces loudly.
+    with _api_errors():
+        ready, skipped = _partition(plans)
+        # Disclose every held-back repo before asking. The prompt's count covers only what will
+        # actually be written, so an undisclosed skip would make it silently disagree with the
+        # diff the operator just read.
+        _report_skipped(skipped)
+        total = sum(len(item.actionable) for item in ready)
+        if total and not yes and not typer.confirm(f"\nApply {total} change(s)?"):
+            msg = "aborted"
+            raise _fail(msg)
+        _report_apply([apply_plan(item) for item in ready if item.actionable], skipped)
 
 
 projects_app = typer.Typer(

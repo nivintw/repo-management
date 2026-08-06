@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from repo_management import cli
 from repo_management.changes import Action, Change
 from repo_management.config import Config, ConfigError
 from repo_management.managers.projects import AmbiguousProjectError, ProjectNotFoundError
-from repo_management.reconciler import RepoPlan
+from repo_management.reconciler import ApplyReport, RepoPlan
 from repo_management.roadmap import BoardItem, StatusFieldInfo
 
 runner = CliRunner()
@@ -33,6 +34,16 @@ def write(tmp_path: Path, text: str = VALID) -> Path:
 
 def _change() -> Change:
     return Change("settings", Action.UPDATE, "description", "old", "new", lambda: None)
+
+
+def _stub_apply(recorder: list[str]) -> Callable[[RepoPlan], ApplyReport]:
+    """Stand in for ``apply_plan``: record the repo and report every change as applied."""
+
+    def _apply(plan: RepoPlan) -> ApplyReport:
+        recorder.append(plan.repo_name)
+        return ApplyReport(plan.repo_name, applied=list(plan.actionable))
+
+    return _apply
 
 
 def test_validate_ok(tmp_path: Path) -> None:
@@ -143,6 +154,7 @@ def test_apply_github_error_is_clean(tmp_path: Path, monkeypatch: pytest.MonkeyP
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
     assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 def test_apply_with_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,7 +164,7 @@ def test_apply_with_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(
         cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change()])]
     )
-    monkeypatch.setattr(cli, "apply_plan", lambda plan: applied.append(plan.repo_name))
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(applied))
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
@@ -210,34 +222,35 @@ def test_plan_hard_errors_on_unresolved_but_shows_the_rest(
     # line, diagnostics and ordinary changes alike — a pre-existing display quirk, not this fix's).
     assert "variable:REGION: unset" in result.stdout
     assert "1 change(s)" in result.stdout  # the diagnostic isn't counted as a change
-    assert "unresolved value(s)" in result.stderr
+    assert "1 problem(s) across 1 repo(s) (owner/repo)" in result.stderr
 
 
-def test_apply_refuses_when_a_value_is_unresolved(
+def test_apply_skips_a_repo_whose_value_is_unresolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Apply refuses to write anything when the plan carries an unresolved value."""
+    """A repo whose plan carries an unresolved value is skipped, not written to."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(
         cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_diagnostic()])]
     )
     called: list[str] = []
-    monkeypatch.setattr(cli, "apply_plan", lambda plan: called.append(plan.repo_name))
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(called))
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
     assert result.exit_code == 1
-    assert "unresolved value(s)" in result.stderr
+    assert "skipped" in result.stderr
+    assert "owner/repo" in result.stderr
     assert called == []  # nothing was applied
 
 
 def test_apply_preflight_refuses_missing_secret_with_zero_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A secret whose value can't be resolved aborts apply before any write (preflight pass).
+    """A secret whose value can't be resolved skips that repo before any write (preflight pass).
 
     Secret values resolve lazily at the write, so they never become plan-time diagnostics; the
-    preflight pass is what restores apply's pre-write, all-or-nothing guarantee for them.
+    preflight pass is what keeps a repo's writes all-or-nothing for them.
     """
 
     def _bad_preflight() -> None:
@@ -260,13 +273,13 @@ def test_apply_preflight_refuses_missing_secret_with_zero_writes(
         cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [change])]
     )
     ran: list[str] = []
-    monkeypatch.setattr(cli, "apply_plan", lambda plan: ran.append(plan.repo_name))
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(ran))
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
     assert result.exit_code == 1
     assert applied == []  # the write closure never ran
-    assert ran == []  # apply_plan never reached — aborted before the write loop
+    assert ran == []  # apply_plan never reached — the repo was held back before the write loop
     assert "TOK_SRC" in result.stderr
 
 
@@ -275,7 +288,7 @@ def test_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
     called: list[str] = []
-    monkeypatch.setattr(cli, "apply_plan", lambda plan: called.append(plan.repo_name))
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(called))
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
@@ -291,12 +304,96 @@ def test_apply_declined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [_change()])]
     )
     applied: list[str] = []
-    monkeypatch.setattr(cli, "apply_plan", lambda plan: applied.append(plan.repo_name))
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(applied))
 
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path))], input="n\n")
 
     assert result.exit_code == 1
     assert applied == []
+
+
+FLEET = "repos:\n  - owner/alpha\n  - owner/beta\n  - owner/gamma\n"
+
+
+def _fleet_plans() -> list[RepoPlan]:
+    """Three repos where the middle one couldn't be read at all — the isolation case."""
+    return [
+        RepoPlan("owner/alpha", [_change()]),
+        RepoPlan(
+            "owner/beta",
+            [Change.diagnostic("repo", "owner/beta", "ConfigError: cannot access repository")],
+        ),
+        RepoPlan("owner/gamma", [_change()]),
+    ]
+
+
+def test_plan_shows_every_healthy_repo_despite_one_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo that can't be read gets a `!` line; the others still print their diff.
+
+    The original bug: the run aborted on the first failure, so a late failure discarded every
+    plan already computed and printed nothing but one error line.
+    """
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: _fleet_plans(),
+    )
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path, FLEET))])
+
+    assert result.exit_code == 1  # isolating a fault reports it differently, it doesn't forgive it
+    assert "owner/alpha" in result.stdout
+    assert "owner/gamma" in result.stdout  # the repo *after* the failure still planned
+    assert "2 change(s) across 3 repo(s)" in result.stdout
+    assert "1 problem(s) across 1 repo(s) (owner/beta)" in result.stderr
+
+
+def test_apply_applies_healthy_repos_and_skips_the_broken_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One unplannable repo is skipped and named; every healthy repo is still written."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: _fleet_plans(),
+    )
+    applied: list[str] = []
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(applied))
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path, FLEET)), "--yes"])
+
+    assert applied == ["owner/alpha", "owner/gamma"]  # the broken repo never reached a write
+    assert "applied 2 change(s) across 2 repo(s)" in result.stdout
+    assert "skipped" in result.stderr
+    assert "owner/beta" in result.stderr
+    assert result.exit_code == 1  # a skipped repo is still a failed run
+
+
+def test_apply_reports_a_failed_write_and_still_exits_non_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write that fails is named against its repo and target, and reddens the run."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/alpha", [_change()])]
+    )
+
+    def _failing(plan: RepoPlan) -> ApplyReport:
+        return ApplyReport(plan.repo_name, failed=[(_change(), "GithubException: 403")])
+
+    monkeypatch.setattr(cli, "apply_plan", _failing)
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
+
+    assert result.exit_code == 1
+    assert "failed" in result.stderr
+    assert "owner/alpha" in result.stderr
+    assert "description" in result.stderr  # the change's own target, not just the repo
+    assert "1 change(s) failed" in result.stderr
 
 
 def _fleet(tmp_path: Path) -> Path:
@@ -802,3 +899,101 @@ def test_projects_plan_survives_an_unbalanced_markup_tag_in_a_title(
     assert result.exit_code == 0
     assert result.exception is None
     assert "Roadmap [/]" in result.output
+
+
+def test_failed_write_line_keeps_a_colon_delimited_target_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target like `label:bug` must print literally, not as an emoji.
+
+    Targets render `{kind}:{name}` and the failure line appends ": ", so `label:bug` forms the
+    shortcode `:bug:`. With Rich's default emoji substitution that line reads `label` + a
+    pictogram — replacing the one identifier telling the operator which write failed.
+    """
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/alpha", [_change()])]
+    )
+    bug = Change("labels", Action.CREATE, "label:bug", None, "bug", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "apply_plan",
+        lambda plan: ApplyReport(plan.repo_name, failed=[(bug, "GithubException: 403")]),
+    )
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
+
+    assert "label:bug" in result.stderr
+    assert "🐛" not in result.stderr
+
+
+def test_apply_discloses_skipped_repos_before_the_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The operator is told which repos are held back BEFORE consenting, not after the writes.
+
+    A preflight-held repo prints an ordinary diff, so without this the prompt's count would
+    silently disagree with the diff just read, and the reason would arrive too late to act on.
+    """
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [
+            RepoPlan("owner/alpha", [_change()]),
+            RepoPlan("owner/beta", [Change.diagnostic("repo", "owner/beta", "unreachable")]),
+        ],
+    )
+    applied: list[str] = []
+    monkeypatch.setattr(cli, "apply_plan", _stub_apply(applied))
+
+    # Decline at the prompt: whatever the operator saw before answering is all that was shown.
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path, FLEET))], input="n\n")
+
+    assert applied == []  # declined, so nothing was written...
+    assert "skipped" in result.stderr  # ...yet the skip was already disclosed
+    assert "owner/beta" in result.stderr
+
+
+def test_apply_rollup_names_the_repos_that_failed_and_were_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The roll-up names repos, not just counts — a bare count can't tell you what to re-run."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [
+            RepoPlan("owner/alpha", [_change()]),
+            RepoPlan("owner/beta", [Change.diagnostic("repo", "owner/beta", "unreachable")]),
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "apply_plan",
+        lambda plan: ApplyReport(plan.repo_name, failed=[(_change(), "GithubException: 403")]),
+    )
+
+    result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path, FLEET)), "--yes"])
+
+    assert result.exit_code == 1
+    assert "1 change(s) failed across 1 repo(s) (owner/alpha)" in result.stderr
+    assert "1 repo(s) skipped (owner/beta)" in result.stderr
+
+
+def test_plan_rollup_escapes_a_repo_name_carrying_markup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo name with brackets must survive the roll-up, not be eaten as Rich markup."""
+    name = "owner/re[po]"
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli,
+        "plan_config",
+        lambda _c, _cfg, **_kw: [RepoPlan(name, [Change.diagnostic("repo", name, "unreachable")])],
+    )
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
+
+    assert result.exit_code == 1
+    assert name in result.stderr  # the whole name, brackets intact

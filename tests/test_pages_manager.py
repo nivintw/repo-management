@@ -138,8 +138,9 @@ def test_enabled_false_disables_existing(repo: MagicMock) -> None:
 def test_pages_read_403_degrades_to_skip_with_warning(repo: MagicMock) -> None:
     """A 403 on the Pages read (token lacks the Pages grant) skips Pages with a warning.
 
-    The reconciler runs each manager's plan() in a bare loop, so letting the 403 propagate
-    would abort every other domain for the repo. Degrade to the same skip shape as a 404.
+    The reconciler isolates a raising manager into a diagnostic, which would mark the repo
+    unhealthy and cost it its apply. A missing Pages grant is an expected token shape rather
+    than a fault, so it degrades to the same skip shape as a 404 and leaves the repo writable.
     """
     repo.url = URL
 
