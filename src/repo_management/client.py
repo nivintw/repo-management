@@ -23,12 +23,17 @@ SOURCE_REPO_ENV = "GITHUB_REPOSITORY"
 
 
 def api_message(exc: GithubException) -> str:
-    """The human-facing message from a GitHub API rejection.
+    """Render a GitHub API rejection for an operator.
 
-    PyGithub puts the API's own message in ``data`` (``{"message": "Must have admin rights"}``);
-    ``str(exc)`` is the status-plus-repr form, which is noise in front of an operator. Every
-    surface that reports an API failure renders it through here, so the same 403 reads the same
-    way wherever it was caught — at the CLI boundary, or isolated to one repo mid-fleet.
+    PyGithub parses the API's response body into ``data``; ``str(exc)`` is the
+    status-plus-repr form, which is noise in front of an operator. Every surface that reports an
+    API failure renders it through here, so the same 403 reads the same way wherever it was
+    caught — at the CLI boundary, or isolated to one repo mid-fleet.
+
+    This returns the whole payload rather than digging out ``data["message"]``, which would read
+    more cleanly but drop detail that matters: a 422's actual explanation lives in its ``errors``
+    array, not its message (``{"message": "Validation Failed", "errors": [...]}``). Falls back to
+    ``str(exc)`` when the response carried no body at all.
     """
     return str(exc.data or exc)
 
