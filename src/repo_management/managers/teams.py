@@ -8,9 +8,13 @@ teams rather than individual users. Teams exist only inside an organization, so 
 requires an org-owned repository; a declared ``teams`` section on a personal-account repo is a
 config error.
 
-A declared ``teams`` section is authoritative: each team's permission is granted/updated, and
-a team with access absent from the config has its grant revoked. PyGithub has no clean
-team-grant surface, so — like ``RulesetsManager`` — this drives the REST API directly through
+A declared ``teams`` section manages the teams it lists: each one's permission is granted and
+reconciled in both directions. What happens to a team with access that the config *doesn't*
+list is governed by ``teams_mode``, which defaults to ``add-only`` and leaves such grants
+alone; ``authoritative`` revokes them.
+
+PyGithub has no clean team-grant surface, so — like ``RulesetsManager`` — this drives the
+REST API directly through
 the authenticated requester: the org-scoped ``PUT``/``DELETE
 /orgs/{org}/teams/{slug}/repos/{owner}/{repo}`` write endpoints, and the repo-scoped
 ``GET {repo.url}/teams`` listing for the current grants.
@@ -56,6 +60,9 @@ class TeamsManager:
             change = self._grant_change(repo, org.login, team, existing.get(team.slug))
             if change is not None:
                 changes.append(change)
+
+        if desired.teams_mode == "add-only":
+            return changes
 
         wanted = {team.slug for team in desired.teams}
         changes.extend(

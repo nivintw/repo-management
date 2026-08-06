@@ -10,8 +10,10 @@ repo *should* be configured in a YAML file; `repo-management` reads the live sta
 you the diff, and reconciles it through the GitHub API (via [PyGithub]).
 
 It is **declarative and idempotent**: re-running when nothing has changed does nothing.
-A section you don't mention is left unmanaged; a section you *do* declare is authoritative —
-it's the complete desired set, so anything on the repo not listed in it is removed.
+A section you don't mention is left unmanaged; a section you *do* declare is the complete
+desired set, so anything on the repo not listed in it is removed. The exceptions are the
+access-granting sections — `collaborators`, `teams`, `deploy_keys` — which are **add-only** by
+default and never revoke access they didn't grant.
 
 Full documentation lives at **[nivintw.github.io/repo-management][docs]**; the source code,
 issue tracker, and annotated example configs live in the

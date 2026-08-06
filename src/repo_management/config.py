@@ -9,8 +9,11 @@ that are merged underneath it: scalars from the override win, and list sections 
 each item's natural key (so a same-key item in the override replaces the base's item and
 new items are appended).
 
-Each declared section is *authoritative*: it is the complete desired set, so items present
-on the repo but absent from the section are removed. A section left unset is *unmanaged* —
+Most declared sections are *authoritative*: the section is the complete desired set, so items
+present on the repo but absent from it are removed. The access-granting sections
+(``collaborators``, ``teams``, ``deploy_keys``) are the exception — they default to *add-only*
+via their ``*_mode`` keys and never remove what they don't list (see ``SectionMode``). A
+section left unset is *unmanaged* —
 the reconciler leaves that whole domain untouched.
 """
 
@@ -32,6 +35,18 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 Permission = Literal["pull", "triage", "push", "maintain", "admin"]
+
+# How a section treats entities present on the repo but absent from config.
+#
+# ``add-only`` (the default) manages only what the section explicitly lists: an unlisted entity
+# is left completely alone. ``authoritative`` additionally removes anything unlisted, making the
+# section the complete desired set.
+#
+# The distinction is about *who*, not *what*: a listed entity is reconciled to exactly its
+# declared state under both modes, including reducing a permission that drifted upward
+# out-of-band. Add-only stops the section asserting anything about entities it doesn't name; it
+# does not stop it asserting the state of the ones it does.
+SectionMode = Literal["add-only", "authoritative"]
 
 # GitHub login / team-slug charset: alphanumeric and hyphens, no leading/trailing hyphen.
 # Rejects '/' in particular -- a Reviewer's login/slug is interpolated directly into a raw
@@ -523,7 +538,12 @@ class SharedConfig(Strict):
     rulesets: list[Ruleset] | None = None
     labels: list[Label] | None = None
     collaborators: list[Collaborator] | None = None
+    # Access-granting sections default to `add-only`: this tool manages the principals it names
+    # and never revokes anyone else's access. Set `authoritative` to make the section the
+    # complete set, removing anyone unlisted. See `SectionMode`.
+    collaborators_mode: SectionMode = "add-only"
     teams: list[TeamAccess] | None = None
+    teams_mode: SectionMode = "add-only"
     codeowners: list[CodeownersEntry] | None = None
     # The comment placed at the top of a managed CODEOWNERS file, as plain text (rendered with a
     # leading "# "). Unset falls back to the manager's default; only rendered when `codeowners`
@@ -533,6 +553,10 @@ class SharedConfig(Strict):
     secrets: list[Secret] | None = None
     variables: list[Variable] | None = None
     deploy_keys: list[DeployKey] | None = None
+    # Deploy keys are machine access, so they follow the same default as human access. Note this
+    # gates only the removal of *unlisted* keys: a listed key whose title or read_only drifted is
+    # still reconciled, which GitHub's API forces to be expressed as a delete-then-recreate pair.
+    deploy_keys_mode: SectionMode = "add-only"
     autolinks: list[Autolink] | None = None
     environments: list[Environment] | None = None
     pages: Pages | None = None

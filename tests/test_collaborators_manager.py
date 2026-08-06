@@ -105,12 +105,30 @@ def test_existing_triage_and_desired_maintain_produces_update(repo: MagicMock) -
     repo.add_to_collaborators.assert_called_once_with("alice", "maintain")
 
 
-def test_unlisted_direct_collaborator_is_removed(repo: MagicMock) -> None:
-    """A direct collaborator absent from the config is removed (authoritative)."""
+def test_unlisted_direct_collaborator_is_left_alone_by_default(repo: MagicMock) -> None:
+    """collaborators_mode defaults to add-only: someone added via the UI keeps their access.
+
+    Also asserts the listing is never requested — nothing unlisted is acted on, so add-only
+    works with a token that can't enumerate collaborators at all.
+    """
     repo.get_collaborator_permission.return_value = "write"
     repo.get_collaborator_role_name.return_value = "write"
     repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
     desired = SharedConfig(collaborators=[Collaborator(username="alice", permission="push")])
+
+    assert CollaboratorsManager().plan(repo, desired) == []
+    repo.get_collaborators.assert_not_called()
+
+
+def test_unlisted_direct_collaborator_is_removed_when_authoritative(repo: MagicMock) -> None:
+    """collaborators_mode=authoritative restores the complete-set behaviour."""
+    repo.get_collaborator_permission.return_value = "write"
+    repo.get_collaborator_role_name.return_value = "write"
+    repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
+    desired = SharedConfig(
+        collaborators=[Collaborator(username="alice", permission="push")],
+        collaborators_mode="authoritative",
+    )
 
     changes = CollaboratorsManager().plan(repo, desired)
 
@@ -122,6 +140,25 @@ def test_unlisted_direct_collaborator_is_removed(repo: MagicMock) -> None:
     repo.get_collaborators.assert_called_once_with(affiliation="direct")
     change.apply()
     repo.remove_from_collaborators.assert_called_once_with("mallory")
+
+
+def test_listed_collaborator_is_downgraded_under_add_only(repo: MagicMock) -> None:
+    """Add-only governs *who*, not *what*: an out-of-band escalation is still walked back.
+
+    The most security-relevant case for this default — someone listed as `pull` who was bumped
+    to `admin` in the UI is returned to `pull`, even though unlisted people are untouched.
+    """
+    repo.get_collaborator_permission.return_value = "admin"
+    repo.get_collaborator_role_name.return_value = "admin"
+    desired = SharedConfig(collaborators=[Collaborator(username="alice", permission="pull")])
+
+    changes = CollaboratorsManager().plan(repo, desired)
+
+    assert len(changes) == 1
+    assert changes[0].action is Action.UPDATE
+    assert (changes[0].before, changes[0].after) == ("admin", "pull")
+    changes[0].apply()
+    repo.add_to_collaborators.assert_called_once_with("alice", "pull")
 
 
 def test_multiple_collaborators(repo: MagicMock) -> None:

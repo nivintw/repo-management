@@ -3,8 +3,14 @@
 
 """Manager for repository deploy keys.
 
-A declared ``deploy_keys`` section is the authoritative, complete set: a key present on
-the repo but absent from the section is deleted. The natural key for the diff is the
+A declared ``deploy_keys`` section manages the keys it lists. Whether a key present on the repo
+but absent from the section is deleted is governed by ``deploy_keys_mode``, which defaults to
+``add-only`` (leave it alone); ``authoritative`` restores the complete-set behaviour.
+
+Note the gate applies **only** to that prune. A *listed* key whose ``title`` or ``read_only``
+changed is still reconciled under add-only — and, per the API limitation below, that
+reconciliation is itself expressed as a delete plus a create. The two kinds of delete this
+manager emits are not interchangeable. The natural key for the diff is the
 key's content (the ``key`` field), not its ``title`` -- GitHub allows duplicate titles,
 but key content is the real identity of a deploy key. Matching normalizes to just the
 algorithm and base64 body (see :func:`~repo_management.config.normalize_deploy_key`): an
@@ -36,12 +42,12 @@ if TYPE_CHECKING:
 
 
 class DeployKeysManager:
-    """Reconcile deploy keys: a declared ``deploy_keys`` section is authoritative and complete."""
+    """Reconcile the deploy keys a config lists; prune unlisted ones only when authoritative."""
 
     domain = "deploy_keys"
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
-        """Return changes to create, delete, and delete+recreate deploy keys to match the config."""
+        """Return changes to create and delete+recreate keys, and (if authoritative) prune."""
         if desired.deploy_keys is None:
             return []
 
@@ -57,10 +63,14 @@ class DeployKeysManager:
                 changes.append(self._delete(current))
                 changes.append(self._create(repo, item))
 
-        wanted_keys = {normalize_deploy_key(item.key) for item in wanted}
-        changes.extend(
-            self._delete(key) for content, key in existing.items() if content not in wanted_keys
-        )
+        # Gate ONLY the prune of unlisted keys. The delete+create pair emitted above is how a
+        # *listed* key's title/read_only update is expressed (GitHub has no update endpoint), so
+        # suppressing deletes wholesale here would silently stop listed keys converging.
+        if desired.deploy_keys_mode == "authoritative":
+            wanted_keys = {normalize_deploy_key(item.key) for item in wanted}
+            changes.extend(
+                self._delete(key) for content, key in existing.items() if content not in wanted_keys
+            )
 
         return changes
 

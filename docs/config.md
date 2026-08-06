@@ -65,15 +65,50 @@ rulesets:
 
 ## Section authority
 
-!!! warning "A declared section is the complete desired set"
+!!! warning "Most declared sections are the complete desired set"
     Anything present on the repo but absent from the section is removed on apply: labels,
-    webhooks, secrets, and variables not listed are deleted; direct collaborators not listed
-    are removed; repo rulesets not listed are deleted. There's no partial-update mode —
-    declaring three labels when the repo has five means the other two go away.
+    webhooks, secrets, and variables not listed are deleted; repo rulesets not listed are
+    deleted. There's no partial-update mode — declaring three labels when the repo has five
+    means the other two go away.
 
     An **omitted** section is the opposite: leave it out entirely and that whole domain is
     left unmanaged, untouched by apply. Whether you declare a section at all matters just as
     much as what you put in it.
+
+### Access-granting sections are add-only by default
+
+Three sections are the exception, because revoking access is not the same kind of act as
+deleting a label: **`collaborators`**, **`teams`**, and **`deploy_keys`**. Each has a
+companion `*_mode` key:
+
+| Key | Default | `add-only` | `authoritative` |
+| --- | --- | --- | --- |
+| `collaborators_mode` | `add-only` | Unlisted direct collaborators are left alone | Unlisted direct collaborators are removed |
+| `teams_mode` | `add-only` | Unlisted team grants are left alone | Unlisted team grants are revoked |
+| `deploy_keys_mode` | `add-only` | Unlisted keys are left alone | Unlisted keys are deleted |
+
+```yaml
+collaborators:
+  - {username: octocat, permission: push}
+
+# Opt one section back into pruning; the others keep the add-only default.
+collaborators_mode: authoritative
+```
+
+**Add-only governs *who*, not *what*.** A principal the section **does** list is still
+reconciled to exactly its declared permission — in both directions. Someone listed as `pull`
+who was bumped to `admin` through the UI is returned to `pull`. What add-only changes is that
+the section stops asserting anything about principals it doesn't name, so granting access
+through the GitHub UI is no longer undone at the next apply.
+
+!!! note "Why the default is add-only"
+    Under `authoritative`, adding a collaborator required a PR — anyone added out-of-band was
+    silently revoked on the next reconcile. That made this tool the only legitimate path to
+    granting access. The default now assumes the opposite: manage the principals you name, and
+    leave everyone else to the humans and processes that granted them.
+
+    If you *want* config to be the sole source of truth for access — a strong posture, and a
+    reasonable one — set the relevant `*_mode` to `authoritative` explicitly.
 
 ## The sections
 
@@ -174,6 +209,9 @@ collaborators:
     inherited from an organization or a team is never inspected or touched, so this section
     can't accidentally revoke org-level access.
 
+    By default (`collaborators_mode: add-only`) a direct collaborator this section doesn't list
+    is also left alone — see [Access-granting sections](#access-granting-sections-are-add-only-by-default).
+
 GitHub's legacy permission field collapses `maintain` into `write` and `triage` into
 `read`, which would never converge as those roles; the manager instead reads each
 collaborator's granular `role_name` and maps only `read`/`write` back to `pull`/`push`
@@ -188,8 +226,9 @@ permission on the repo.
 Org-only: teams exist only in an organization, so a `teams:` section on a personal-account
 repo is a config error.
 
-Authoritative: a team grant present on the repo but absent from config is revoked; `teams: []`
-revokes all managed team grants; omitting the section leaves team access unmanaged.
+Add-only by default: a team grant present on the repo but absent from config is left alone.
+Set `teams_mode: authoritative` to revoke it — under which `teams: []` revokes every managed
+team grant. Omitting the section entirely leaves team access unmanaged either way.
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
