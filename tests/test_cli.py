@@ -154,6 +154,7 @@ def test_apply_github_error_is_clean(tmp_path: Path, monkeypatch: pytest.MonkeyP
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
     assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
 def test_apply_with_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -314,9 +315,16 @@ def test_apply_declined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 FLEET = "repos:\n  - owner/alpha\n  - owner/beta\n  - owner/gamma\n"
 
 
-def _repo_failure(name: str) -> Change:
-    """The repo-level diagnostic plan_config produces for a repo it couldn't read."""
-    return Change.diagnostic("repo", name, "ConfigError: cannot access repository")
+def _fleet_plans() -> list[RepoPlan]:
+    """Three repos where the middle one couldn't be read at all — the isolation case."""
+    return [
+        RepoPlan("owner/alpha", [_change()]),
+        RepoPlan(
+            "owner/beta",
+            [Change.diagnostic("repo", "owner/beta", "ConfigError: cannot access repository")],
+        ),
+        RepoPlan("owner/gamma", [_change()]),
+    ]
 
 
 def test_plan_shows_every_healthy_repo_despite_one_failing(
@@ -331,11 +339,7 @@ def test_plan_shows_every_healthy_repo_despite_one_failing(
     monkeypatch.setattr(
         cli,
         "plan_config",
-        lambda _c, _cfg, **_kw: [
-            RepoPlan("owner/alpha", [_change()]),
-            RepoPlan("owner/beta", [_repo_failure("owner/beta")]),
-            RepoPlan("owner/gamma", [_change()]),
-        ],
+        lambda _c, _cfg, **_kw: _fleet_plans(),
     )
 
     result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path, FLEET))])
@@ -355,11 +359,7 @@ def test_apply_applies_healthy_repos_and_skips_the_broken_one(
     monkeypatch.setattr(
         cli,
         "plan_config",
-        lambda _c, _cfg, **_kw: [
-            RepoPlan("owner/alpha", [_change()]),
-            RepoPlan("owner/beta", [_repo_failure("owner/beta")]),
-            RepoPlan("owner/gamma", [_change()]),
-        ],
+        lambda _c, _cfg, **_kw: _fleet_plans(),
     )
     applied: list[str] = []
     monkeypatch.setattr(cli, "apply_plan", _stub_apply(applied))

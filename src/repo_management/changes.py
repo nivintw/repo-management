@@ -11,9 +11,10 @@ during ``plan`` and invokes ``change.apply()`` during ``apply``.
 A change may also carry a ``preflight`` — a side-effect-free callable that resolves the
 write's payload (e.g. a secret value from the environment) so ``apply`` can validate every
 write *before* performing the first one, keeping a failed run from leaving a half-applied
-fleet. And a *diagnostic* :class:`Change` (built via :meth:`Change.diagnostic`) represents a
-desired value that couldn't be resolved at all — it is reported and blocks the run, never
-applied.
+fleet. And a *diagnostic* :class:`Change` (built via :meth:`Change.diagnostic`) stands in for
+something the plan couldn't determine — a desired value that wouldn't resolve, a domain whose
+read failed, a repository that couldn't be fetched. It is reported and blocks that repository,
+never applied.
 """
 
 from __future__ import annotations
@@ -79,23 +80,27 @@ class Change:
 
     @classmethod
     def diagnostic(cls, domain: str, target: str, error: str) -> Change:
-        """Build a diagnostic: a desired value that couldn't be resolved, not a change to apply.
+        """Build a diagnostic: something the plan couldn't determine, not a change to apply.
+
+        Carries both kinds of unknown — a desired value that wouldn't resolve, and a read that
+        failed (one domain's, or the whole repository's). They're the same thing downstream: the
+        repository isn't fully known, so it must not be written to.
 
         Renders as a ``!`` line (:meth:`describe`), partitions into ``RepoPlan.problems``, and
-        blocks the run — the CLI reports it and exits non-zero for ``plan``, and refuses to write
-        anything for ``apply``. Its ``apply`` re-raises: it is never invoked on the happy path,
-        but fails loud rather than silently writing if it ever is.
+        costs its repository the apply — the CLI reports it and exits non-zero for ``plan``, and
+        skips that repository for ``apply``. Its ``apply`` re-raises: it is never invoked on the
+        happy path, but fails loud rather than silently writing if it ever is.
         """
 
         def _apply() -> None:
-            msg = f"refusing to apply an unresolved value: {error}"
+            msg = f"refusing to apply a diagnostic: {error}"
             raise RuntimeError(msg)
 
         return cls(domain, Action.UPDATE, target, None, None, _apply, error=error)
 
     @property
     def unresolved(self) -> bool:
-        """Whether this is a diagnostic for an unresolvable value, not a change to apply."""
+        """Whether this is a diagnostic — something unknown — rather than a change to apply."""
         return self.error is not None
 
     def describe(self) -> str:

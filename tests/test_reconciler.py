@@ -176,7 +176,7 @@ def test_apply_plan_skips_diagnostics() -> None:
     assert calls == ["a"]
 
 
-def _boom(exc: Exception) -> Callable[..., NoReturn]:
+def _raiser(exc: Exception) -> Callable[..., NoReturn]:
     """A callable that raises ``exc`` whatever it's handed."""
 
     def _raise(*_args: object, **_kwargs: object) -> NoReturn:
@@ -240,7 +240,9 @@ def test_plan_config_isolates_a_failing_repo(monkeypatch: pytest.MonkeyPatch) ->
         reconciler,
         "get_repo",
         lambda _client, name: (
-            _boom(ConfigError(f"cannot access repository {name!r}"))() if name == "o/gone" else name
+            _raiser(ConfigError(f"cannot access repository {name!r}"))()
+            if name == "o/gone"
+            else name
         ),
     )
     monkeypatch.setattr(reconciler, "plan_repo", lambda *_a, **_kw: [])
@@ -248,7 +250,7 @@ def test_plan_config_isolates_a_failing_repo(monkeypatch: pytest.MonkeyPatch) ->
     plans = plan_config(MagicMock(), Config(repos=["o/first", "o/gone", "o/last"]))
 
     assert [plan.repo_name for plan in plans] == ["o/first", "o/gone", "o/last"]
-    assert [plan.healthy for plan in plans] == [True, False, True]
+    assert [not plan.problems for plan in plans] == [True, False, True]
     (problem,) = plans[1].problems
     assert problem.domain == "repo"
     assert "o/gone" in str(problem.error)
@@ -264,12 +266,12 @@ def test_plan_config_isolates_a_repo_failing_late(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         reconciler,
         "plan_repo",
-        lambda repo, *_a, **_kw: _boom(TypeError("expected a file"))() if repo == "o/b" else [],
+        lambda repo, *_a, **_kw: _raiser(TypeError("expected a file"))() if repo == "o/b" else [],
     )
 
     plans = plan_config(MagicMock(), Config(repos=["o/a", "o/b", "o/c"]))
 
-    assert [plan.healthy for plan in plans] == [True, False, True]
+    assert [not plan.problems for plan in plans] == [True, False, True]
     assert "TypeError" in str(plans[1].problems[0].error)
 
 
@@ -286,7 +288,7 @@ def test_apply_plan_isolates_a_failing_change() -> None:
                 "webhook:x",
                 None,
                 None,
-                _boom(GithubException(403, {"message": "Must have admin rights"})),
+                _raiser(GithubException(403, {"message": "Must have admin rights"})),
             ),
             Change("labels", Action.CREATE, "label:b", None, None, lambda: calls.append("b")),
         ],
@@ -295,7 +297,7 @@ def test_apply_plan_isolates_a_failing_change() -> None:
     report = apply_plan(plan)
 
     assert calls == ["a", "b"]  # the 403 did not abandon the change after it
-    assert not report.ok
+    assert report.failed
     assert [change.target for change in report.applied] == ["label:a", "label:b"]
     (failed, error) = report.failed[0]
     assert failed.target == "webhook:x"
@@ -308,6 +310,6 @@ def test_apply_plan_reports_a_clean_run() -> None:
 
     report = apply_plan(plan)
 
-    assert report.ok
+    assert report.failed == []
     assert report.repo_name == "o/r"
     assert [change.target for change in report.applied] == ["label:a"]
