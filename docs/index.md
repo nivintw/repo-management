@@ -10,8 +10,9 @@ Declarative, YAML-driven GitHub repository configuration. Describe how a reposit
 the diff, and reconciles it through the GitHub API.
 
 It is **declarative and idempotent**: re-running when nothing has changed does nothing. A
-section you don't mention is left unmanaged; a section you *do* declare is authoritative —
-it's the complete desired set, so anything on the repo not listed in it is removed.
+section you don't mention is left unmanaged; a section you *do* declare is the complete
+desired set, so anything on the repo not listed in it is removed — except the access-granting
+sections (`collaborators`, `teams`, `deploy_keys`), which are **add-only** by default.
 
 ## Install
 
@@ -101,7 +102,7 @@ every section lives in the [config reference](config.md).
 
 -   **`collaborators`**
 
-    Add/re-permission direct collaborators; remove those not listed.
+    Add/re-permission direct collaborators; leave unlisted ones alone (add-only by default).
 
 -   **`webhooks`**
 
@@ -109,7 +110,7 @@ every section lives in the [config reference](config.md).
 
 -   **`deploy_keys`**
 
-    Create/delete deploy keys, matched by key content; delete those not listed.
+    Create deploy keys, matched by key content; leave unlisted ones alone (add-only by default).
 
 -   **`autolinks`**
 

@@ -84,11 +84,27 @@ def test_matching_ignores_trailing_comment(repo: MagicMock) -> None:
     assert DeployKeysManager().plan(repo, desired) == []
 
 
-def test_unlisted_deploy_key_is_deleted(repo: MagicMock) -> None:
-    """A declared deploy_keys section is authoritative: an unlisted key is deleted."""
+def test_unlisted_deploy_key_is_left_alone_by_default(repo: MagicMock) -> None:
+    """deploy_keys_mode defaults to add-only: a key added out-of-band is not deleted."""
     existing = make_deploy_key(title="stale", key="ssh-ed25519 STALE...", read_only=True)
     desired = SharedConfig(
         deploy_keys=[DeployKey(title="ci", key="ssh-ed25519 AAAA...", read_only=True)],
+    )
+    repo.get_keys.return_value = [existing]
+
+    changes = DeployKeysManager().plan(repo, desired)
+
+    # Only the CREATE for the listed key; "stale" is untouched.
+    assert {change.target: change.action for change in changes} == {"deploy_key:ci": Action.CREATE}
+    existing.delete.assert_not_called()
+
+
+def test_unlisted_deploy_key_is_deleted_when_authoritative(repo: MagicMock) -> None:
+    """deploy_keys_mode=authoritative restores the complete-set behaviour."""
+    existing = make_deploy_key(title="stale", key="ssh-ed25519 STALE...", read_only=True)
+    desired = SharedConfig(
+        deploy_keys=[DeployKey(title="ci", key="ssh-ed25519 AAAA...", read_only=True)],
+        deploy_keys_mode="authoritative",
     )
     repo.get_keys.return_value = [existing]
 
@@ -100,6 +116,31 @@ def test_unlisted_deploy_key_is_deleted(repo: MagicMock) -> None:
     delete = next(change for change in changes if change.action is Action.DELETE)
     delete.apply()
     existing.delete.assert_called_once_with()
+
+
+def test_listed_key_still_delete_recreates_under_add_only(repo: MagicMock) -> None:
+    """THE trap this whole change had to avoid.
+
+    This manager emits DELETE for two unrelated reasons: pruning an unlisted key, and expressing
+    an update to a LISTED key (GitHub has no deploy-key update endpoint, so a title/read_only
+    change is a delete plus a create). Add-only gates only the first. Gating deletes wholesale
+    would leave listed keys silently unable to converge on title/read_only — the config would
+    claim a state the repo never reaches, forever, with no error.
+    """
+    existing = make_deploy_key(title="old-name", key="ssh-ed25519 AAAA...", read_only=True)
+    desired = SharedConfig(
+        deploy_keys=[DeployKey(title="new-name", key="ssh-ed25519 AAAA...", read_only=True)],
+    )
+    repo.get_keys.return_value = [existing]
+
+    changes = DeployKeysManager().plan(repo, desired)
+
+    # Same key content, changed title: the pair must survive add-only.
+    assert [change.action for change in changes] == [Action.DELETE, Action.CREATE]
+    assert [change.target for change in changes] == [
+        "deploy_key:old-name",
+        "deploy_key:new-name",
+    ]
 
 
 def test_changed_title_for_same_key_is_delete_and_create_not_update(repo: MagicMock) -> None:

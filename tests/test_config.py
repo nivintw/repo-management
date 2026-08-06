@@ -610,3 +610,38 @@ def test_extends_unhashable_merge_key_clean_error(tmp_path: Path) -> None:
     )
     with pytest.raises(ConfigError):
         load_config(override)
+
+
+def test_section_modes_default_to_add_only(tmp_path: Path) -> None:
+    """The three access-granting sections never remove anyone unless asked to."""
+    config = load_config(write(tmp_path, "repos:\n  - o/r\n"))
+
+    assert config.collaborators_mode == "add-only"
+    assert config.teams_mode == "add-only"
+    assert config.deploy_keys_mode == "add-only"
+
+
+def test_section_mode_rejects_an_unknown_value(tmp_path: Path) -> None:
+    """A typo'd mode is a load error, not a silent fallback to the permissive default.
+
+    Getting this wrong the other way would be the dangerous direction: `authoritatve` quietly
+    reading as add-only would leave an operator believing pruning is on when it isn't.
+    """
+    path = write(tmp_path, "repos:\n  - o/r\nteams_mode: authoritatve\n")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
+def test_section_mode_overrides_through_extends(tmp_path: Path) -> None:
+    """A child can opt one section back into pruning without restating the others."""
+    (tmp_path / "base.yaml").write_text(
+        "repos:\n  - o/r\ncollaborators_mode: authoritative\nteams_mode: authoritative\n",
+        encoding="utf-8",
+    )
+    child = write(tmp_path, "extends: base.yaml\nteams_mode: add-only\n", name="child.yaml")
+
+    config = load_config(child)
+
+    assert config.teams_mode == "add-only"  # the child's override wins...
+    assert config.collaborators_mode == "authoritative"  # ...and leaves its sibling alone
+    assert config.deploy_keys_mode == "add-only"  # untouched by either file
