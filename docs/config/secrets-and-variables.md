@@ -41,7 +41,9 @@ alone — re-pushing it every apply would be pure churn. Values are never printe
 Because the value is write-only payload — never shown, never diffed — a secret is resolved
 only when `apply` performs the write, not while building the diff. So `plan` shows every
 would-set / would-update / would-delete line **without needing any secret value present** in
-the environment; a missing `value_from_env` source surfaces as an error at `apply`, not `plan`.
+the environment; a missing `value_from_env` source surfaces at `apply`, not `plan`. It's caught
+before any of that repo's writes run, so the repo is skipped whole rather than half-applied —
+and only that repo: every other one in the fleet still applies, and the run exits non-zero.
 
 Two things override that skip-if-exists default for an existing secret:
 
