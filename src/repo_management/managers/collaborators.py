@@ -49,7 +49,10 @@ class CollaboratorsManager:
             if change is not None:
                 changes.append(change)
 
-        if desired.collaborators_mode == "add-only":
+        # Gated on `authoritative`, not on `add-only`, so any mode this code doesn't recognize
+        # declines to prune. With two Literal values today the spellings are equivalent; the
+        # polarity is what keeps a future third mode from mass-revoking by accident.
+        if desired.collaborators_mode != "authoritative":
             # Nothing unlisted is touched, so the listing isn't needed at all — and not asking
             # for it means add-only works with a token that can't enumerate collaborators.
             return changes

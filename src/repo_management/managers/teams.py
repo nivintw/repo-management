@@ -61,7 +61,9 @@ class TeamsManager:
             if change is not None:
                 changes.append(change)
 
-        if desired.teams_mode == "add-only":
+        # Gated on `authoritative` so an unrecognized mode declines to prune — see the note in
+        # CollaboratorsManager.
+        if desired.teams_mode != "authoritative":
             return changes
 
         wanted = {team.slug for team in desired.teams}

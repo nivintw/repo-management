@@ -183,3 +183,42 @@ def test_multiple_collaborators(repo: MagicMock) -> None:
     assert change_charlie.action is Action.UPDATE
     assert change_charlie.target == "collaborator:charlie"
     assert (change_charlie.before, change_charlie.after) == ("pull", "push")
+
+
+def test_collaborators_mode_without_section_is_still_unmanaged(repo: MagicMock) -> None:
+    """An omitted section outranks its mode: no section means the domain is untouched.
+
+    The dangerous misreading is the reverse — `collaborators_mode: authoritative` with no
+    `collaborators:` key revoking every direct collaborator on every repo in the fleet. That is
+    reachable because the mode is a separate top-level scalar that merges through `extends:`
+    independently of its section.
+    """
+    repo.get_collaborators.return_value = [make_user("alice")]
+
+    assert CollaboratorsManager().plan(repo, SharedConfig(collaborators_mode="authoritative")) == []
+    repo.get_collaborators.assert_not_called()
+
+
+def test_empty_collaborators_is_a_noop_under_add_only(repo: MagicMock) -> None:
+    """`collaborators: []` no longer asserts "nobody has direct access" under the new default.
+
+    Under 1.x this was the strongest statement in the config. It is now a no-op, and that
+    inversion is silent — hence both this test and the docs note.
+    """
+    repo.get_collaborators.return_value = [make_user("mallory")]
+
+    assert CollaboratorsManager().plan(repo, SharedConfig(collaborators=[])) == []
+
+
+def test_empty_collaborators_revokes_everyone_when_authoritative(repo: MagicMock) -> None:
+    """`collaborators: [] + authoritative` is the emergency lockdown, and must still work."""
+    repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
+    desired = SharedConfig(collaborators=[], collaborators_mode="authoritative")
+
+    changes = CollaboratorsManager().plan(repo, desired)
+
+    assert {change.target for change in changes} == {
+        "collaborator:alice",
+        "collaborator:mallory",
+    }
+    assert all(change.action is Action.DELETE for change in changes)
