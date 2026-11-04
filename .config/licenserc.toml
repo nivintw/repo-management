@@ -1,27 +1,29 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-# hawkeye (https://github.com/korandoru/hawkeye) — inserts & maintains SPDX license
-# headers for REUSE compliance. Run: `hawkeye format` (or `check`). Header text is
-# templated from [properties] so year/holder/license live in one place. Only files
-# with no usable comment syntax stay in REUSE.toml (strict JSON, lockfiles).
+# hawkeye (https://github.com/fast/hawkeye) — inserts & maintains SPDX license headers for
+# REUSE compliance. Run: `hawkeye format` (or `check`). Header text is templated from [props]
+# so year/holder/license live in one place. Only files with no usable comment syntax stay in
+# REUSE.toml (strict JSON, lockfiles).
 
+[header]
 # REUSE-IgnoreStart — this template literally contains an SPDX-License-Identifier line;
 # without the guard, `reuse lint` tries to parse the placeholder as a license.
-inlineHeader = """
-SPDX-FileCopyrightText: © {{ props["inceptionYear"] }} {{ props["copyrightHolder"] }}
-SPDX-License-Identifier: {{ props["spdxLicenseIdentifier"] }}
+text = """
+SPDX-FileCopyrightText: © {{ props.inception_year }} {{ props.copyright_holder }}
+SPDX-License-Identifier: {{ props.spdx_license_identifier }}
 """
 # REUSE-IgnoreEnd
+keywords = ["SPDX-"]
 
-# Negations cancel hawkeye's built-in default excludes (which skip **/*.md) so those get
-# headered too.
+[files]
+# Scan from where hawkeye is invoked (the repo root); the default would be this config's dir.
+root = "{{ cwd }}"
 excludes = [
   "LICENSE",
   "LICENSES/**",
   "uv.lock",
   "**/*.json",
-  "!**/*.md",
   "**/.python-version",
   "**/.vscode/*",
   # CODEOWNERS has no extension hawkeye maps; it carries its own `#` header (reuse-verified).
@@ -33,20 +35,25 @@ excludes = [
   # The Claude Code guard hooks ship verbatim from the template (no per-file templating), so
   # they carry no inline header — excluded here and licensed via REUSE.toml instead.
   ".claude/hooks/**",
+  # Licensed via REUSE.toml instead of an inline header.
+  "**/.gitignore",
+  "docs/assets/favicon.svg",
 ]
 
-additionalHeaders = ["markdown-header.toml"]
+[git]
+ignore = "auto"
 
-[mapping.MARKDOWN_CUSTOM]
+[props]
+inception_year = 2026
+spdx_license_identifier = "MIT"
+copyright_holder = "Tyler Nivin"
+
+[[rules]]
 extensions = ["md"]
+style_out = "xml"
 
-# '#'-comment files hawkeye doesn't map by default. (.gitignore stays in hawkeye's default
-# excludes and is licensed via REUSE.toml instead — see that file.)
-[mapping.SCRIPT_STYLE]
+# '#'-comment files hawkeye doesn't map by default.
+[[rules]]
 extensions = ["txt", "fish", "bats"]
 filenames = [".envrc"]
-
-[properties]
-inceptionYear = "2026"
-spdxLicenseIdentifier = "MIT"
-copyrightHolder = "Tyler Nivin"
+style_out = "script"

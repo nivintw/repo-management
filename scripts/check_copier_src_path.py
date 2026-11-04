@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
-
 """Assert that .copier-answers.yml records a REMOTE `_src_path`, not a local path.
 
 Copier writes the template location it was run from into `_src_path`. If a project is

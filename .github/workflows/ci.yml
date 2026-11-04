@@ -135,15 +135,15 @@ jobs:
       - name: Check SPDX license headers (hawkeye)
         if: inputs.skip-quality-gate != true
         env:
-          # renovate: datasource=github-releases depName=korandoru/hawkeye
-          HAWKEYE_VERSION: "6.5.1"
+          # renovate: datasource=github-releases depName=fast/hawkeye
+          HAWKEYE_VERSION: "7.3.0"
           # SHA256 of hawkeye-x86_64-unknown-linux-gnu.tar.xz — refreshed with the version
           # by scripts/refresh-binary-checksums.sh.
-          HAWKEYE_SHA256: "d6eb0505a45a15244f4f789158aafe5e3f1a7dc86c9dc1d7651f3cb1e1b321e0"  # gitleaks:allow
+          HAWKEYE_SHA256: "25559e6495c4af22333730892fd916fa0b16a7dd7d56af36dbafe9830b38cfcd"  # gitleaks:allow
         run: |
           set -euo pipefail
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 60 \
-            "https://github.com/korandoru/hawkeye/releases/download/v${HAWKEYE_VERSION}/hawkeye-x86_64-unknown-linux-gnu.tar.xz" \
+            "https://github.com/fast/hawkeye/releases/download/v${HAWKEYE_VERSION}/hawkeye-x86_64-unknown-linux-gnu.tar.xz" \
             -o "$RUNNER_TEMP/hawkeye.tar.xz"
           echo "${HAWKEYE_SHA256}  $RUNNER_TEMP/hawkeye.tar.xz" | sha256sum -c -
           tar -xJ --strip-components=1 -C "$RUNNER_TEMP" -f "$RUNNER_TEMP/hawkeye.tar.xz" hawkeye-x86_64-unknown-linux-gnu/hawkeye

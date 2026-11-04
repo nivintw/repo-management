@@ -95,7 +95,7 @@ fetch_sha() { # <TOOL> <version> -> bare hex digest on stdout
       awk '$2 == "osv-scanner_linux_amd64" {print $1}'
     ;;
   HAWKEYE)
-    curl -fsSL "${retry[@]}" "https://github.com/korandoru/hawkeye/releases/download/v${version}/hawkeye-x86_64-unknown-linux-gnu.tar.xz.sha256" |
+    curl -fsSL "${retry[@]}" "https://github.com/fast/hawkeye/releases/download/v${version}/hawkeye-x86_64-unknown-linux-gnu.tar.xz.sha256" |
       awk '{print $1}'
     ;;
   KUBECONFORM)
