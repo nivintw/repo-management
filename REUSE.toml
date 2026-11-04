@@ -3,7 +3,7 @@
 
 version = 1
 
-# .gitignore stays in hawkeye's default excludes (not re-included via a negation) and is
+# .gitignore is excluded from hawkeye (see .config/licenserc.toml) and is
 # licensed here instead of via an inline header.
 [[annotations]]
 path = ".gitignore"
