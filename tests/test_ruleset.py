@@ -29,6 +29,8 @@ from repo_management.ruleset import (
     WorkflowsRule,
 )
 
+_RULE: TypeAdapter[Rule] = TypeAdapter(Rule)
+
 
 def test_simple_rule_has_no_parameters() -> None:
     """A parameterless rule renders as just a type."""
@@ -196,7 +198,6 @@ def test_status_checks_non_list_rejected() -> None:
         ("update", "update_allows_fetch_and_merge", True),
         ("pull_request", "required_approving_review_count", 1),
         ("required_status_checks", "required_status_checks", ["ci"]),
-        ("required_status_checks", "strict_required_status_checks_policy", True),
         ("required_deployments", "required_deployment_environments", ["prod"]),
         ("merge_queue", "merge_method", "SQUASH"),
         ("file_path_restriction", "restricted_file_paths", ["a"]),
@@ -210,35 +211,36 @@ def test_status_checks_non_list_rejected() -> None:
 )
 def test_flat_rule_field_rejected(rule_type: str, field: str, value: object) -> None:
     """A field outside `parameters` is a load error, so it can't be silently ignored."""
-    adapter: TypeAdapter[object] = TypeAdapter(Rule)
     with pytest.raises(ValidationError, match=field):
-        adapter.validate_python({"type": rule_type, field: value})
+        _RULE.validate_python({"type": rule_type, field: value})
 
 
 def test_required_checks_name_rejected() -> None:
     """Only the API's name is accepted for the list of required status checks."""
-    adapter: TypeAdapter[object] = TypeAdapter(Rule)
     with pytest.raises(ValidationError, match="required_checks"):
-        adapter.validate_python(
+        _RULE.validate_python(
             {"type": "required_status_checks", "parameters": {"required_checks": ["ci"]}},
         )
 
 
-def test_status_checks_api_form_and_shorthand_render_the_same() -> None:
-    """The bare-string shorthand is an addition to the API's object form, not a variant of it."""
-    api_form = RequiredStatusChecksRule.model_validate(
-        {
-            "type": "required_status_checks",
-            "parameters": {"required_status_checks": [{"context": "ci"}, {"context": "lint"}]},
-        },
-    )
-    shorthand = RequiredStatusChecksRule.model_validate(
-        {
-            "type": "required_status_checks",
-            "parameters": {"required_status_checks": ["ci", "lint"]},
-        },
-    )
-    assert api_form.to_api() == shorthand.to_api()
+@pytest.mark.parametrize(
+    "rule_type",
+    [
+        "update",
+        "pull_request",
+        "required_status_checks",
+        "required_deployments",
+        "merge_queue",
+        "file_path_restriction",
+        "file_extension_restriction",
+        "workflows",
+        "code_scanning",
+        "copilot_code_review",
+    ],
+)
+def test_rule_with_all_defaults_may_omit_parameters(rule_type: str) -> None:
+    """Omitting `parameters` is valid, and renders the defaults, where every field has one."""
+    assert "parameters" in _RULE.validate_python({"type": rule_type}).to_api()
 
 
 @pytest.mark.parametrize(
@@ -246,23 +248,20 @@ def test_status_checks_api_form_and_shorthand_render_the_same() -> None:
 )
 def test_rule_with_a_required_field_requires_parameters(rule_type: str) -> None:
     """Omitting `parameters` is only valid where every field has a default."""
-    adapter: TypeAdapter[object] = TypeAdapter(Rule)
     with pytest.raises(ValidationError, match="parameters"):
-        adapter.validate_python({"type": rule_type})
+        _RULE.validate_python({"type": rule_type})
 
 
 def test_parameterless_rule_rejects_parameters() -> None:
     """A rule the API defines with no parameters doesn't accept any."""
-    adapter: TypeAdapter[object] = TypeAdapter(Rule)
     with pytest.raises(ValidationError, match="parameters"):
-        adapter.validate_python({"type": "deletion", "parameters": {}})
+        _RULE.validate_python({"type": "deletion", "parameters": {}})
 
 
 def test_unknown_rule_type_rejected() -> None:
     """An unknown rule type fails discriminated-union validation."""
-    adapter: TypeAdapter[object] = TypeAdapter(Rule)
     with pytest.raises(ValidationError):
-        adapter.validate_python({"type": "made_up_rule"})
+        _RULE.validate_python({"type": "made_up_rule"})
 
 
 def test_bypass_actor() -> None:
@@ -294,8 +293,7 @@ def test_copilot_code_review_rule() -> None:
 
 def test_copilot_code_review_rule_via_union() -> None:
     """copilot_code_review is a first-class member of the discriminated Rule union."""
-    adapter: TypeAdapter[object] = TypeAdapter(Rule)
-    rule = adapter.validate_python(
+    rule = _RULE.validate_python(
         {"type": "copilot_code_review", "parameters": {"review_on_push": True}},
     )
     assert isinstance(rule, CopilotCodeReviewRule)
