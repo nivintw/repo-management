@@ -180,6 +180,13 @@ labels:
   - {name: "priority:medium", color: fbca04, description: Medium priority}
   - {name: "priority:low", color: c5def5, description: Low priority}
 
+  # Applied automatically: `dependencies` by Renovate (.github/renovate.json) and Dependabot,
+  # `python:uv` by Dependabot, which would recreate it on its next PR if it were removed.
+  - {name: dependencies, color: 0366d6, description: Pull requests that update a dependency file}
+  - {name: "python:uv", color: 2b67c6, description: Pull requests that update python:uv code}
+
+  - {name: dry-dock, color: 8B4513, description: Dry-dock overhaul finding — review together}
+
   # release-please's release-state labels. It creates these on repos where its release
   # workflow runs (the scaffold's main.yml); listed here so this authoritative set doesn't
   # prune them out from under it. Fleet-wide per epic #11 (every repo is moving onto the
