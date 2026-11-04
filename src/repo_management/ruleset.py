@@ -7,11 +7,11 @@ Models the full GitHub repository ruleset surface for branch, tag, and push targ
 documented rule type (as a ``type``-discriminated union), bypass actors, and ref-name
 conditions.
 
-Field names mirror the GitHub REST API, so serialization is just pydantic's
-``model_dump(exclude_none=True)`` — an unset optional field is omitted from the request
-body. Rules wrap their fields in the API's ``{type, parameters}`` envelope via
-:meth:`_Rule.to_api`; the only field whose name differs from its API key carries a
-``serialization_alias``.
+The schema mirrors the GitHub REST API, field names and ``{type, parameters}`` rule envelope
+included, so serialization is just pydantic's ``model_dump(exclude_none=True)``: an unset
+optional field is omitted from the request body. Anything the API accepts here keeps the API's
+spelling; conveniences are additions on top of it (a bare string for a required status check,
+``actor_slug`` for a bypass actor), never replacements.
 
 GitHub partitions rule types by target: the four file-oriented rules
 (``file_path_restriction``, ``max_file_path_length``, ``file_extension_restriction``,
@@ -35,21 +35,18 @@ class _ApiModel(Strict):
 
     def to_api(self) -> dict[str, Any]:
         """Render to the API shape, omitting unset optional fields."""
-        return self.model_dump(by_alias=True, exclude_none=True)
+        return self.model_dump(exclude_none=True)
 
 
-class _Rule(Strict):
-    """Base for a single ruleset rule. Subclasses narrow ``type`` to a literal."""
+class _Rule(_ApiModel):
+    """Base for a single ruleset rule, in the API's ``{type, parameters}`` envelope.
+
+    Subclasses narrow ``type`` to a literal and declare ``parameters``. It defaults to all of
+    its fields' defaults wherever every field has one, so ``{type: update}`` is valid; a rule
+    with a required field (a pattern, a size limit) requires ``parameters`` too.
+    """
 
     type: str
-
-    def to_api(self) -> dict[str, Any]:
-        """Render the rule into the API's ``{type, parameters}`` envelope."""
-        rule: dict[str, Any] = {"type": self.type}
-        params = self.model_dump(by_alias=True, exclude_none=True, exclude={"type"})
-        if params:
-            rule["parameters"] = params
-        return rule
 
 
 class SimpleRule(_Rule):
@@ -64,8 +61,17 @@ class SimpleRule(_Rule):
     ]
 
 
+class PatternParameters(_ApiModel):
+    """Parameters shared by the name/email/branch/tag pattern rules."""
+
+    operator: Literal["starts_with", "ends_with", "contains", "regex"]
+    pattern: str
+    name: str | None = None
+    negate: bool = False
+
+
 class PatternRule(_Rule):
-    """A name/email/branch/tag pattern rule sharing operator + pattern parameters."""
+    """A name/email/branch/tag pattern rule."""
 
     type: Literal[
         "commit_message_pattern",
@@ -74,29 +80,38 @@ class PatternRule(_Rule):
         "branch_name_pattern",
         "tag_name_pattern",
     ]
-    operator: Literal["starts_with", "ends_with", "contains", "regex"]
-    pattern: str
-    name: str | None = None
-    negate: bool = False
+    parameters: PatternParameters
+
+
+class UpdateParameters(_ApiModel):
+    """Parameters of the ``update`` rule."""
+
+    update_allows_fetch_and_merge: bool = False
 
 
 class UpdateRule(_Rule):
     """The ``update`` rule (restrict branch updates)."""
 
     type: Literal["update"]
-    update_allows_fetch_and_merge: bool = False
+    parameters: UpdateParameters = Field(default_factory=UpdateParameters)
 
 
-class PullRequestRule(_Rule):
-    """The ``pull_request`` rule (required reviews and merge gating)."""
+class PullRequestParameters(_ApiModel):
+    """Parameters of the ``pull_request`` rule."""
 
-    type: Literal["pull_request"]
     required_approving_review_count: int = 0
     dismiss_stale_reviews_on_push: bool = False
     require_code_owner_review: bool = False
     require_last_push_approval: bool = False
     required_review_thread_resolution: bool = False
     allowed_merge_methods: list[Literal["merge", "squash", "rebase"]] | None = None
+
+
+class PullRequestRule(_Rule):
+    """The ``pull_request`` rule (required reviews and merge gating)."""
+
+    type: Literal["pull_request"]
+    parameters: PullRequestParameters = Field(default_factory=PullRequestParameters)
 
 
 class StatusCheck(_ApiModel):
@@ -106,38 +121,48 @@ class StatusCheck(_ApiModel):
     integration_id: int | None = None
 
 
-class RequiredStatusChecksRule(_Rule):
-    """The ``required_status_checks`` rule."""
+class RequiredStatusChecksParameters(_ApiModel):
+    """Parameters of the ``required_status_checks`` rule."""
 
-    type: Literal["required_status_checks"]
-    required_checks: list[StatusCheck] = Field(
-        default_factory=list,
-        serialization_alias="required_status_checks",
-    )
+    required_status_checks: list[StatusCheck] = Field(default_factory=list)
     strict_required_status_checks_policy: bool = False
     do_not_enforce_on_create: bool = False
 
-    @field_validator("required_checks", mode="before")
+    @field_validator("required_status_checks", mode="before")
     @classmethod
     def _coerce_strings(cls, value: object) -> object:
-        # Allow the ergonomic `required_checks: [ci, lint]` form alongside the full
+        # Accept the shorthand `required_status_checks: [ci, lint]` alongside the API's
         # `{context, integration_id}` object form.
         if isinstance(value, list):
             return [{"context": item} if isinstance(item, str) else item for item in value]
         return value
 
 
+class RequiredStatusChecksRule(_Rule):
+    """The ``required_status_checks`` rule."""
+
+    type: Literal["required_status_checks"]
+    parameters: RequiredStatusChecksParameters = Field(
+        default_factory=RequiredStatusChecksParameters
+    )
+
+
+class RequiredDeploymentsParameters(_ApiModel):
+    """Parameters of the ``required_deployments`` rule."""
+
+    required_deployment_environments: list[str] = Field(default_factory=list)
+
+
 class RequiredDeploymentsRule(_Rule):
     """The ``required_deployments`` rule."""
 
     type: Literal["required_deployments"]
-    required_deployment_environments: list[str] = Field(default_factory=list)
+    parameters: RequiredDeploymentsParameters = Field(default_factory=RequiredDeploymentsParameters)
 
 
-class MergeQueueRule(_Rule):
-    """The ``merge_queue`` rule."""
+class MergeQueueParameters(_ApiModel):
+    """Parameters of the ``merge_queue`` rule."""
 
-    type: Literal["merge_queue"]
     check_response_timeout_minutes: int = 60
     grouping_strategy: Literal["ALLGREEN", "HEADGREEN"] = "ALLGREEN"
     max_entries_to_build: int = 5
@@ -147,32 +172,65 @@ class MergeQueueRule(_Rule):
     min_entries_to_merge_wait_minutes: int = 5
 
 
+class MergeQueueRule(_Rule):
+    """The ``merge_queue`` rule."""
+
+    type: Literal["merge_queue"]
+    parameters: MergeQueueParameters = Field(default_factory=MergeQueueParameters)
+
+
+class FilePathRestrictionParameters(_ApiModel):
+    """Parameters of the ``file_path_restriction`` rule."""
+
+    restricted_file_paths: list[str] = Field(default_factory=list)
+
+
 class FilePathRestrictionRule(_Rule):
     """The ``file_path_restriction`` rule."""
 
     type: Literal["file_path_restriction"]
-    restricted_file_paths: list[str] = Field(default_factory=list)
+    parameters: FilePathRestrictionParameters = Field(default_factory=FilePathRestrictionParameters)
+
+
+class MaxFilePathLengthParameters(_ApiModel):
+    """Parameters of the ``max_file_path_length`` rule."""
+
+    max_file_path_length: int
 
 
 class MaxFilePathLengthRule(_Rule):
     """The ``max_file_path_length`` rule."""
 
     type: Literal["max_file_path_length"]
-    max_file_path_length: int
+    parameters: MaxFilePathLengthParameters
+
+
+class FileExtensionRestrictionParameters(_ApiModel):
+    """Parameters of the ``file_extension_restriction`` rule."""
+
+    restricted_file_extensions: list[str] = Field(default_factory=list)
 
 
 class FileExtensionRestrictionRule(_Rule):
     """The ``file_extension_restriction`` rule."""
 
     type: Literal["file_extension_restriction"]
-    restricted_file_extensions: list[str] = Field(default_factory=list)
+    parameters: FileExtensionRestrictionParameters = Field(
+        default_factory=FileExtensionRestrictionParameters
+    )
+
+
+class MaxFileSizeParameters(_ApiModel):
+    """Parameters of the ``max_file_size`` rule (megabytes)."""
+
+    max_file_size: int
 
 
 class MaxFileSizeRule(_Rule):
-    """The ``max_file_size`` rule (megabytes)."""
+    """The ``max_file_size`` rule."""
 
     type: Literal["max_file_size"]
-    max_file_size: int
+    parameters: MaxFileSizeParameters
 
 
 class Workflow(_ApiModel):
@@ -184,12 +242,18 @@ class Workflow(_ApiModel):
     sha: str | None = None
 
 
+class WorkflowsParameters(_ApiModel):
+    """Parameters of the ``workflows`` rule."""
+
+    workflows: list[Workflow] = Field(default_factory=list)
+    do_not_enforce_on_create: bool = False
+
+
 class WorkflowsRule(_Rule):
     """The ``workflows`` rule (required workflows that must pass)."""
 
     type: Literal["workflows"]
-    workflows: list[Workflow] = Field(default_factory=list)
-    do_not_enforce_on_create: bool = False
+    parameters: WorkflowsParameters = Field(default_factory=WorkflowsParameters)
 
 
 class CodeScanningTool(_ApiModel):
@@ -200,11 +264,24 @@ class CodeScanningTool(_ApiModel):
     alerts_threshold: str = "errors"
 
 
+class CodeScanningParameters(_ApiModel):
+    """Parameters of the ``code_scanning`` rule."""
+
+    code_scanning_tools: list[CodeScanningTool] = Field(default_factory=list)
+
+
 class CodeScanningRule(_Rule):
     """The ``code_scanning`` rule."""
 
     type: Literal["code_scanning"]
-    code_scanning_tools: list[CodeScanningTool] = Field(default_factory=list)
+    parameters: CodeScanningParameters = Field(default_factory=CodeScanningParameters)
+
+
+class CopilotCodeReviewParameters(_ApiModel):
+    """Parameters of the ``copilot_code_review`` rule."""
+
+    review_on_push: bool = False
+    review_draft_pull_requests: bool = False
 
 
 class CopilotCodeReviewRule(_Rule):
@@ -215,8 +292,7 @@ class CopilotCodeReviewRule(_Rule):
     """
 
     type: Literal["copilot_code_review"]
-    review_on_push: bool = False
-    review_draft_pull_requests: bool = False
+    parameters: CopilotCodeReviewParameters = Field(default_factory=CopilotCodeReviewParameters)
 
 
 # The four file-oriented rule types GitHub accepts only on a ``push`` ruleset. Every other

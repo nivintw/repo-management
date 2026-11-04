@@ -38,30 +38,42 @@ def test_simple_rule_has_no_parameters() -> None:
 
 def test_pattern_rule() -> None:
     """A pattern rule renders operator/pattern/negate, and name only when set."""
-    rule = PatternRule(type="branch_name_pattern", operator="starts_with", pattern="rel/")
+    rule = PatternRule.model_validate(
+        {
+            "type": "branch_name_pattern",
+            "parameters": {"operator": "starts_with", "pattern": "rel/"},
+        },
+    )
     assert rule.to_api() == {
         "type": "branch_name_pattern",
         "parameters": {"operator": "starts_with", "pattern": "rel/", "negate": False},
     }
-    named = PatternRule(type="commit_message_pattern", operator="regex", pattern="x", name="n")
+    named = PatternRule.model_validate(
+        {
+            "type": "commit_message_pattern",
+            "parameters": {"operator": "regex", "pattern": "x", "name": "n"},
+        },
+    )
     assert named.to_api()["parameters"]["name"] == "n"
 
 
 def test_pull_request_rule() -> None:
     """The pull_request rule renders all review parameters."""
-    params = PullRequestRule(type="pull_request", required_approving_review_count=2).to_api()[
-        "parameters"
-    ]
+    params = PullRequestRule.model_validate(
+        {"type": "pull_request", "parameters": {"required_approving_review_count": 2}},
+    ).to_api()["parameters"]
     assert params["required_approving_review_count"] == 2
     assert params["require_code_owner_review"] is False
 
 
 def test_status_checks_string_coercion() -> None:
-    """required_checks accepts plain strings and the {context, integration_id} form."""
+    """required_status_checks accepts plain strings and the {context, integration_id} form."""
     rule = RequiredStatusChecksRule.model_validate(
         {
             "type": "required_status_checks",
-            "required_checks": ["ci", {"context": "lint", "integration_id": 7}],
+            "parameters": {
+                "required_status_checks": ["ci", {"context": "lint", "integration_id": 7}],
+            },
         },
     )
     checks = rule.to_api()["parameters"]["required_status_checks"]
@@ -71,14 +83,19 @@ def test_status_checks_string_coercion() -> None:
 def test_workflows_rule() -> None:
     """The workflows rule renders workflow references, omitting unset ref/sha."""
     rule = WorkflowsRule.model_validate(
-        {"type": "workflows", "workflows": [{"repository_id": 1, "path": "ci.yml"}]},
+        {
+            "type": "workflows",
+            "parameters": {"workflows": [{"repository_id": 1, "path": "ci.yml"}]},
+        },
     )
     assert rule.to_api()["parameters"]["workflows"] == [{"repository_id": 1, "path": "ci.yml"}]
 
 
 def test_max_file_size_rule() -> None:
     """A scalar-parameter rule renders its single parameter."""
-    rule = MaxFileSizeRule(type="max_file_size", max_file_size=100)
+    rule = MaxFileSizeRule.model_validate(
+        {"type": "max_file_size", "parameters": {"max_file_size": 100}},
+    )
     assert rule.to_api() == {"type": "max_file_size", "parameters": {"max_file_size": 100}}
 
 
@@ -92,38 +109,45 @@ def test_update_rule() -> None:
 
 def test_pull_request_allowed_merge_methods() -> None:
     """allowed_merge_methods is included only when set."""
-    rule = PullRequestRule(type="pull_request", allowed_merge_methods=["squash"])
+    rule = PullRequestRule.model_validate(
+        {"type": "pull_request", "parameters": {"allowed_merge_methods": ["squash"]}},
+    )
     assert rule.to_api()["parameters"]["allowed_merge_methods"] == ["squash"]
 
 
 def test_required_deployments_rule() -> None:
     """The required_deployments rule renders its environment list."""
-    rule = RequiredDeploymentsRule(
-        type="required_deployments",
-        required_deployment_environments=["prod"],
+    rule = RequiredDeploymentsRule.model_validate(
+        {
+            "type": "required_deployments",
+            "parameters": {"required_deployment_environments": ["prod"]},
+        },
     )
     assert rule.to_api()["parameters"] == {"required_deployment_environments": ["prod"]}
 
 
 def test_merge_queue_rule() -> None:
     """The merge_queue rule renders its parameters."""
-    params = MergeQueueRule(type="merge_queue", merge_method="SQUASH").to_api()["parameters"]
+    params = MergeQueueRule.model_validate(
+        {"type": "merge_queue", "parameters": {"merge_method": "SQUASH"}},
+    ).to_api()["parameters"]
     assert params["merge_method"] == "SQUASH"
     assert params["grouping_strategy"] == "ALLGREEN"
 
 
 def test_file_rules() -> None:
     """The file-path/extension/length rules render their parameters."""
-    assert FilePathRestrictionRule(
-        type="file_path_restriction",
-        restricted_file_paths=["secrets/*"],
+    assert FilePathRestrictionRule.model_validate(
+        {"type": "file_path_restriction", "parameters": {"restricted_file_paths": ["secrets/*"]}},
     ).to_api()["parameters"] == {"restricted_file_paths": ["secrets/*"]}
-    assert MaxFilePathLengthRule(type="max_file_path_length", max_file_path_length=200).to_api()[
-        "parameters"
-    ] == {"max_file_path_length": 200}
-    assert FileExtensionRestrictionRule(
-        type="file_extension_restriction",
-        restricted_file_extensions=[".exe"],
+    assert MaxFilePathLengthRule.model_validate(
+        {"type": "max_file_path_length", "parameters": {"max_file_path_length": 200}},
+    ).to_api()["parameters"] == {"max_file_path_length": 200}
+    assert FileExtensionRestrictionRule.model_validate(
+        {
+            "type": "file_extension_restriction",
+            "parameters": {"restricted_file_extensions": [".exe"]},
+        },
     ).to_api()["parameters"] == {"restricted_file_extensions": [".exe"]}
 
 
@@ -132,9 +156,11 @@ def test_workflow_ref_and_sha() -> None:
     rule = WorkflowsRule.model_validate(
         {
             "type": "workflows",
-            "workflows": [
-                {"repository_id": 1, "path": "ci.yml", "ref": "refs/heads/main", "sha": "abc"},
-            ],
+            "parameters": {
+                "workflows": [
+                    {"repository_id": 1, "path": "ci.yml", "ref": "refs/heads/main", "sha": "abc"},
+                ],
+            },
         },
     )
     workflow = rule.to_api()["parameters"]["workflows"][0]
@@ -145,7 +171,7 @@ def test_workflow_ref_and_sha() -> None:
 def test_code_scanning_rule() -> None:
     """The code_scanning rule renders its tool thresholds."""
     rule = CodeScanningRule.model_validate(
-        {"type": "code_scanning", "code_scanning_tools": [{"tool": "CodeQL"}]},
+        {"type": "code_scanning", "parameters": {"code_scanning_tools": [{"tool": "CodeQL"}]}},
     )
     tool = rule.to_api()["parameters"]["code_scanning_tools"][0]
     assert tool == {
@@ -156,11 +182,80 @@ def test_code_scanning_rule() -> None:
 
 
 def test_status_checks_non_list_rejected() -> None:
-    """A non-list required_checks is passed through the coercer and then rejected."""
+    """A non-list required_status_checks is passed through the coercer and then rejected."""
     with pytest.raises(ValidationError):
         RequiredStatusChecksRule.model_validate(
-            {"type": "required_status_checks", "required_checks": "ci"},
+            {"type": "required_status_checks", "parameters": {"required_status_checks": "ci"}},
         )
+
+
+@pytest.mark.parametrize(
+    ("rule_type", "field", "value"),
+    [
+        ("branch_name_pattern", "pattern", "rel/"),
+        ("update", "update_allows_fetch_and_merge", True),
+        ("pull_request", "required_approving_review_count", 1),
+        ("required_status_checks", "required_status_checks", ["ci"]),
+        ("required_status_checks", "strict_required_status_checks_policy", True),
+        ("required_deployments", "required_deployment_environments", ["prod"]),
+        ("merge_queue", "merge_method", "SQUASH"),
+        ("file_path_restriction", "restricted_file_paths", ["a"]),
+        ("max_file_path_length", "max_file_path_length", 200),
+        ("file_extension_restriction", "restricted_file_extensions", [".exe"]),
+        ("max_file_size", "max_file_size", 100),
+        ("workflows", "workflows", []),
+        ("code_scanning", "code_scanning_tools", []),
+        ("copilot_code_review", "review_on_push", True),
+    ],
+)
+def test_flat_rule_field_rejected(rule_type: str, field: str, value: object) -> None:
+    """A field outside `parameters` is a load error, so it can't be silently ignored."""
+    adapter: TypeAdapter[object] = TypeAdapter(Rule)
+    with pytest.raises(ValidationError, match=field):
+        adapter.validate_python({"type": rule_type, field: value})
+
+
+def test_required_checks_name_rejected() -> None:
+    """Only the API's name is accepted for the list of required status checks."""
+    adapter: TypeAdapter[object] = TypeAdapter(Rule)
+    with pytest.raises(ValidationError, match="required_checks"):
+        adapter.validate_python(
+            {"type": "required_status_checks", "parameters": {"required_checks": ["ci"]}},
+        )
+
+
+def test_status_checks_api_form_and_shorthand_render_the_same() -> None:
+    """The bare-string shorthand is an addition to the API's object form, not a variant of it."""
+    api_form = RequiredStatusChecksRule.model_validate(
+        {
+            "type": "required_status_checks",
+            "parameters": {"required_status_checks": [{"context": "ci"}, {"context": "lint"}]},
+        },
+    )
+    shorthand = RequiredStatusChecksRule.model_validate(
+        {
+            "type": "required_status_checks",
+            "parameters": {"required_status_checks": ["ci", "lint"]},
+        },
+    )
+    assert api_form.to_api() == shorthand.to_api()
+
+
+@pytest.mark.parametrize(
+    "rule_type", ["branch_name_pattern", "max_file_path_length", "max_file_size"]
+)
+def test_rule_with_a_required_field_requires_parameters(rule_type: str) -> None:
+    """Omitting `parameters` is only valid where every field has a default."""
+    adapter: TypeAdapter[object] = TypeAdapter(Rule)
+    with pytest.raises(ValidationError, match="parameters"):
+        adapter.validate_python({"type": rule_type})
+
+
+def test_parameterless_rule_rejects_parameters() -> None:
+    """A rule the API defines with no parameters doesn't accept any."""
+    adapter: TypeAdapter[object] = TypeAdapter(Rule)
+    with pytest.raises(ValidationError, match="parameters"):
+        adapter.validate_python({"type": "deletion", "parameters": {}})
 
 
 def test_unknown_rule_type_rejected() -> None:
@@ -185,10 +280,11 @@ def test_bypass_actor() -> None:
 
 def test_copilot_code_review_rule() -> None:
     """The copilot_code_review rule renders its two boolean parameters."""
-    rule = CopilotCodeReviewRule(
-        type="copilot_code_review",
-        review_on_push=True,
-        review_draft_pull_requests=True,
+    rule = CopilotCodeReviewRule.model_validate(
+        {
+            "type": "copilot_code_review",
+            "parameters": {"review_on_push": True, "review_draft_pull_requests": True},
+        },
     )
     assert rule.to_api() == {
         "type": "copilot_code_review",
@@ -199,7 +295,9 @@ def test_copilot_code_review_rule() -> None:
 def test_copilot_code_review_rule_via_union() -> None:
     """copilot_code_review is a first-class member of the discriminated Rule union."""
     adapter: TypeAdapter[object] = TypeAdapter(Rule)
-    rule = adapter.validate_python({"type": "copilot_code_review", "review_on_push": True})
+    rule = adapter.validate_python(
+        {"type": "copilot_code_review", "parameters": {"review_on_push": True}},
+    )
     assert isinstance(rule, CopilotCodeReviewRule)
 
 
@@ -210,7 +308,10 @@ def test_push_ruleset_valid() -> None:
             "name": "no-binaries",
             "target": "push",
             "rules": [
-                {"type": "file_extension_restriction", "restricted_file_extensions": [".exe"]}
+                {
+                    "type": "file_extension_restriction",
+                    "parameters": {"restricted_file_extensions": [".exe"]},
+                },
             ],
         },
     )
@@ -232,7 +333,7 @@ def test_push_only_rule_rejected_on_branch_target() -> None:
             {
                 "name": "bad",
                 "target": "branch",
-                "rules": [{"type": "max_file_size", "max_file_size": 100}],
+                "rules": [{"type": "max_file_size", "parameters": {"max_file_size": 100}}],
             },
         )
 
@@ -253,7 +354,7 @@ def test_push_ruleset_rejects_ref_name_condition() -> None:
                 "name": "bad",
                 "target": "push",
                 "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
-                "rules": [{"type": "max_file_size", "max_file_size": 100}],
+                "rules": [{"type": "max_file_size", "parameters": {"max_file_size": 100}}],
             },
         )
 

@@ -37,8 +37,8 @@ rulesets:
     conditions:
       ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
     rules:
-      - {type: pull_request, required_approving_review_count: 2, require_code_owner_review: true}
-      - {type: required_status_checks, required_checks: [ci, lint]}
+      - {type: pull_request, parameters: {required_approving_review_count: 2, require_code_owner_review: true}}
+      - {type: required_status_checks, parameters: {required_status_checks: [ci, lint]}}
       - {type: required_linear_history}
       - {type: non_fast_forward}
   # A new ruleset (appended to the base's list) protecting release tags.
@@ -50,7 +50,7 @@ rulesets:
     rules:
       - {type: deletion}
       - {type: non_fast_forward}
-      - {type: tag_name_pattern, operator: starts_with, pattern: "v"}
+      - {type: tag_name_pattern, parameters: {operator: starts_with, pattern: "v"}}
 
 collaborators:
   # Add-only by default: octocat is added and held at `push` (including being walked back down

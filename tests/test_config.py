@@ -62,7 +62,7 @@ rulesets:
     conditions:
       ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}
     rules:
-      - {type: pull_request, required_approving_review_count: 1}
+      - {type: pull_request, parameters: {required_approving_review_count: 1}}
       - {type: required_linear_history}
 labels:
   - {name: bug, color: ff0000}
