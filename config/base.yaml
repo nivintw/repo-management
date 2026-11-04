@@ -71,11 +71,10 @@ rulesets:
     rules:
       # Solo-owner baseline: require a PR but allow self-merge (0 approvals). Bump the
       # count and/or add a bypass_actors entry once there are other reviewers.
-      - {
-        type: pull_request,
-        required_approving_review_count: 0,
-        dismiss_stale_reviews_on_push: true,
-      }
+      - type: pull_request
+        parameters:
+          required_approving_review_count: 0
+          dismiss_stale_reviews_on_push: true
     bypass_actors:
       - actor_id: 5 # Repository Admins
         actor_type: RepositoryRole
@@ -97,11 +96,10 @@ rulesets:
       # "ci / lint-and-test", NOT a bare "ci". A repo that doesn't report this context will
       # have its PRs blocked until it does — which is fine here: onboarding a repo includes
       # adding that workflow, and the onboarding PR itself reports the check.
-      - {
-        type: required_status_checks,
-        required_checks: ["ci / lint-and-test"],
-        strict_required_status_checks_policy: true,
-      }
+      - type: required_status_checks
+        parameters:
+          required_status_checks: ["ci / lint-and-test"]
+          strict_required_status_checks_policy: true
     bypass_actors:
       # The release App pushes the signed bump commit directly to the default branch, which
       # never ran this check — so it must bypass, or every app-signed release is rejected

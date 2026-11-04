@@ -32,11 +32,13 @@ rulesets:
         bypass_mode: always
     rules:
       - type: pull_request
-        required_approving_review_count: 1
-        dismiss_stale_reviews_on_push: true
+        parameters:
+          required_approving_review_count: 1
+          dismiss_stale_reviews_on_push: true
       - type: required_status_checks
-        required_checks: [ci, lint]
-        strict_required_status_checks_policy: true
+        parameters:
+          required_status_checks: [ci, lint]
+          strict_required_status_checks_policy: true
 ```
 
 Rulesets merge across `extends:` layers the same way as the config's other keyed lists — by `name`, same-key item replaces in place, new items append. See [composing with extends](config.md#composing-with-extends) in the config reference.
@@ -82,9 +84,11 @@ rulesets:
     enforcement: active
     rules:
       - type: max_file_size
-        max_file_size: 100
+        parameters:
+          max_file_size: 100
       - type: file_extension_restriction
-        restricted_file_extensions: [".exe", ".dll"]
+        parameters:
+          restricted_file_extensions: [".exe", ".dll"]
 ```
 
 ## Matching and drift
@@ -145,7 +149,9 @@ conditions:
 
 ## Rule types
 
-Each entry in `rules:` has a `type` discriminator plus that type's own parameters. The groups below cover every supported type.
+Each entry in `rules:` uses the [GitHub REST API's](https://docs.github.com/en/rest/repos/rules) shape: a `type`, plus that type's fields nested under `parameters`. The tables below list the fields inside `parameters`. You can omit `parameters` when every field in a rule's table has a default, so `- type: update` is valid; a rule with a required field needs it. A field placed directly on the rule is rejected at load.
+
+The groups below cover every supported type.
 
 ### Parameterless
 
@@ -174,9 +180,10 @@ rules:
 ```yaml
 rules:
   - type: commit_message_pattern
-    operator: regex
-    pattern: '^(feat|fix|docs|refactor|chore)(\(.+\))?: .+'
-    name: conventional-commits
+    parameters:
+      operator: regex
+      pattern: '^(feat|fix|docs|refactor|chore)(\(.+\))?: .+'
+      name: conventional-commits
 ```
 
 ### update
@@ -200,15 +207,16 @@ rules:
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `required_checks` | list | `[]` | Bare strings are coerced to `{context: ...}`; entries may also set `integration_id` |
+| `required_status_checks` | list of `{context, integration_id?}` | `[]` | A bare string is also accepted, as shorthand for `{context: ...}` |
 | `strict_required_status_checks_policy` | bool | `false` | |
 | `do_not_enforce_on_create` | bool | `false` | |
 
 ```yaml
 rules:
   - type: required_status_checks
-    required_checks: [ci, lint]      # shorthand for [{context: ci}, {context: lint}]
-    strict_required_status_checks_policy: true
+    parameters:
+      required_status_checks: [ci, lint]   # shorthand for [{context: ci}, {context: lint}]
+      strict_required_status_checks_policy: true
 ```
 
 ### required_deployments
@@ -250,10 +258,11 @@ Four separate rule types, each gating one kind of file-level change. These are v
 ```yaml
 rules:
   - type: workflows
-    workflows:
-      - repository_id: 123456789
-        path: .github/workflows/ci.yml
-        ref: refs/heads/main
+    parameters:
+      workflows:
+        - repository_id: 123456789
+          path: .github/workflows/ci.yml
+          ref: refs/heads/main
 ```
 
 ### code_scanning

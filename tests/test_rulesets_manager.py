@@ -53,6 +53,13 @@ def make_repo(list_data: list[dict[str, Any]], get_data: dict[str, Any] | None =
     return repo
 
 
+def _status_checks(*contexts: str) -> dict[str, Any]:
+    return {
+        "type": "required_status_checks",
+        "parameters": {"required_status_checks": list(contexts)},
+    }
+
+
 def ruleset(**overrides: object) -> Ruleset:
     """A simple desired ruleset for tests."""
     data: dict[str, Any] = {
@@ -103,9 +110,9 @@ def test_matching_ruleset_is_skipped() -> None:
 
 def test_param_order_does_not_cause_diff() -> None:
     """List ordering inside rule parameters doesn't spuriously trigger an update."""
-    desired = ruleset(rules=[{"type": "required_status_checks", "required_checks": ["a", "b"]}])
+    desired = ruleset(rules=[_status_checks("a", "b")])
     current_body = ruleset(
-        rules=[{"type": "required_status_checks", "required_checks": ["b", "a"]}],
+        rules=[_status_checks("b", "a")],
     ).to_api()
     repo = make_repo([{"id": 1, "name": "main"}], {"id": 1, **current_body})
 
@@ -249,8 +256,8 @@ def test_realistic_server_response_is_in_sync() -> None:
             "bypass_actors": [{"actor_type": "OrganizationAdmin"}],
             "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
             "rules": [
-                {"type": "required_status_checks", "required_checks": ["ci"]},
-                {"type": "pull_request", "required_approving_review_count": 1},
+                _status_checks("ci"),
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 1}},
                 {"type": "non_fast_forward"},
             ],
         },

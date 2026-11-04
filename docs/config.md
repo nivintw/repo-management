@@ -60,7 +60,8 @@ rulesets:
     target: branch
     rules:
       - type: pull_request
-        required_approving_review_count: 1
+        parameters:
+          required_approving_review_count: 1
 ```
 
 ## Section authority
