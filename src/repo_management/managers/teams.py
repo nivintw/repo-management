@@ -55,8 +55,7 @@ class TeamsManager:
             msg = "a 'teams' section requires an org-owned repository (teams are org-scoped)"
             raise ConfigError(msg)
 
-        # GitHub team slugs are case-insensitive, so match them that way. Keep the live slug for
-        # a revoke, since that's the one GitHub reported.
+        # Keep the live slug for a revoke: that's the one GitHub reported.
         existing = {team["slug"]: _role(team) for team in self._list(repo)}
         roles = {slug.casefold(): role for slug, role in existing.items()}
         changes: list[Change] = []
@@ -65,8 +64,6 @@ class TeamsManager:
             if change is not None:
                 changes.append(change)
 
-        # Gated on `authoritative` so an unrecognized mode declines to prune — see the note in
-        # CollaboratorsManager.
         if desired.teams_mode != "authoritative":
             return changes
 

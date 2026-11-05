@@ -190,7 +190,6 @@ def _print_plan(plan: RepoPlan) -> None:
     _print_changes(plan.repo_name, plan.changes)
 
 
-# The access-granting sections, paired with the field naming each one's mode.
 _ACCESS_SECTIONS = (
     ("collaborators", "collaborators_mode"),
     ("teams", "teams_mode"),
@@ -199,13 +198,10 @@ _ACCESS_SECTIONS = (
 
 
 def _print_add_only_notice(config: Config) -> None:
-    """Say which declared access sections aren't pruning, before any `in sync` line is believed.
+    """Name the add-only sections, before any `in sync` line is believed.
 
-    Without this, a config declaring `collaborators:` reports `✓ in sync` over a repo carrying a
-    collaborator, team grant, or deploy key that nobody listed — an affirmative all-clear that
-    actually means "no changes I am willing to make". That reads identically to a genuinely
-    clean repo, and it is the reading an operator upgrading from an authoritative 1.x config
-    would take. Naming the mode makes the silence explicit rather than inferred.
+    A declared add-only section reports `✓ in sync` over unlisted access, which reads like a clean
+    repo; naming the mode makes that explicit.
     """
     add_only = [
         section
