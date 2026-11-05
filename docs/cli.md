@@ -74,7 +74,7 @@ and makes `plan` exit non-zero — without hiding the rest of the diff:
 ```
 
 The same line reports declared config that can never take effect on that repository, such as a
-ruleset [allowing fork sync on a non-fork](rulesets.md#update).
+ruleset [setting fork sync on a non-fork](rulesets.md#update).
 
 !!! note
     Secret values are always redacted in output as `***`, regardless of `--force-secrets` — the redaction is unconditional on the change itself, not a function of the flag. `--force-secrets` only controls whether an already-present secret is re-planned for rotation in the first place; it never controls whether a secret's value is printed. Variable values, by contrast, are shown in plaintext, so don't put anything sensitive in a `variables:` entry — use a secret instead.

@@ -648,11 +648,24 @@ def test_allowing_fork_sync_on_a_fork_is_allowed() -> None:
     assert [(change.action, change.unresolved) for change in changes] == [(Action.CREATE, False)]
 
 
-def test_explicit_false_on_a_non_fork_is_not_a_diagnostic() -> None:
-    """Declaring ``false`` on a non-fork is accurate: nothing can sync, so nothing is reported."""
+def test_explicit_false_on_a_non_fork_is_a_diagnostic() -> None:
+    """Declaring the setting does nothing on a non-fork, whichever value it declares."""
     desired = ruleset(rules=[_update_rule(allows=False)])
 
     _, changes = _plan_against_live(desired, [{"type": "update"}])
+
+    assert [change.unresolved for change in changes] == [True]
+    assert "update_allows_fetch_and_merge" in changes[0].describe()
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [{"type": "update"}, {"type": "update", "parameters": {}}],
+    ids=["bare", "empty-parameters"],
+)
+def test_undeclared_setting_on_a_non_fork_is_not_a_diagnostic(rule: dict[str, Any]) -> None:
+    """An ``update`` rule that doesn't declare the setting claims nothing about forks."""
+    _, changes = _plan_against_live(ruleset(rules=[rule]), [{"type": "update"}])
 
     assert changes == []
 
