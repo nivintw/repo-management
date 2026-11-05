@@ -98,7 +98,7 @@ rulesets:
 !!! note
     A ruleset is matched to a live one by `name`. Once matched, every declared list — `rules`, `bypass_actors`, and the ref-name include/exclude patterns in `conditions` — must equal the live list exactly, not just be a subset. A rule someone added by hand in the GitHub UI counts as drift and triggers an update that removes it, same as any other mismatch.
 
-    Server-supplied metadata that the config never sets — a check's `integration_id`, a bypass actor's resolved `actor_id`, timestamps — is ignored when comparing, so values GitHub fills in on its own can't cause spurious churn on every plan. One setting you do declare is also skipped when GitHub doesn't report it: [`update_allows_fetch_and_merge`](#update).
+    Server-supplied metadata that the config never sets — a check's `integration_id`, a bypass actor's resolved `actor_id`, timestamps — is ignored when comparing, so values GitHub fills in on its own can't cause spurious churn on every plan. One setting you do declare counts as `false` when GitHub doesn't report it: [`update_allows_fetch_and_merge`](#update).
 
     Rulesets inherited from an organization or enterprise are never matched or deleted: the listing call uses `includes_parents=false`, so only rulesets defined directly on the repo are ever in scope.
 
@@ -161,6 +161,7 @@ The groups below cover every supported type.
     - the `code_quality`, `code_coverage`, and `license_compliance_scanning` rule types
     - the `pull_request` parameters `required_reviewers`, `dismissal_restriction`, and
       `require_extra_approval_for_unattributed_changes`
+    - the `ignored_file_paths` parameter on `file_path_restriction` and `max_file_size`
     - the `exempt` bypass mode and the `User` bypass actor type
 
 ### Parameterless
@@ -209,10 +210,12 @@ It only exists on forks. GitHub stores, returns, and enforces it there, but on a
 it accepts the value and discards it. GitHub's documentation doesn't mention this, so this tool
 handles it for you:
 
-- `plan` compares the setting only when GitHub reports it, so `false` on a non-fork never shows up
-  as a change.
+- `plan` counts a value GitHub doesn't report as `false`, so `false` on a non-fork never shows up as
+  a change.
 - `true` on a non-fork is reported as an error, and blocks `plan` and `apply`, because it could
-  never take effect. Remove it, or if a shared base sets it, override the ruleset for that repo.
+  never take effect. Remove it, or move that repo to a config that doesn't set it.
+- `true` on a fork that doesn't report the value shows up as a change, because nothing confirms the
+  fork can sync.
 
 This was measured on GitHub's API using a public fork, syncing through the API. Private forks and
 tag rulesets on forks weren't tested.

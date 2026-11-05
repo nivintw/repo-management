@@ -43,7 +43,8 @@ differing only by comment/whitespace can't survive a merge as if they were diffe
 
 `deploy_keys` is one of the three [add-only](../config.md#access-granting-sections-are-add-only-by-default)
 sections. By default a key present on the repo but **not listed** here is left alone; set
-`deploy_keys_mode: authoritative` to delete unlisted keys instead.
+`deploy_keys_mode: authoritative` to delete unlisted keys instead. Under add-only, rotating a key
+leaves the old one live until you delete it in GitHub.
 
 ```yaml
 deploy_keys:
