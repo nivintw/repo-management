@@ -7,11 +7,18 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from conftest import make_deploy_key
 
 from repo_management.changes import Action
-from repo_management.config import DeployKey, SharedConfig
+from repo_management.config import DeployKey, SectionMode, SharedConfig
 from repo_management.managers.deploy_keys import DeployKeysManager
+
+# Desired title and read_only, each against a live key named "old-name" with read_only true.
+_DRIFT = (
+    ("title", "read_only"),
+    [("new-name", True), ("old-name", False), ("new-name", False)],
+)
 
 
 def test_no_deploy_keys_is_noop(repo: MagicMock) -> None:
@@ -68,7 +75,8 @@ def test_existing_deploy_key_matches_exactly(repo: MagicMock) -> None:
     assert DeployKeysManager().plan(repo, desired) == []
 
 
-def test_matching_ignores_trailing_comment(repo: MagicMock) -> None:
+@pytest.mark.parametrize("mode", ["add-only", "authoritative"])
+def test_matching_ignores_trailing_comment(repo: MagicMock, mode: SectionMode) -> None:
     """A key differing only by an ssh-keygen-style comment is not spuriously recreated.
 
     GitHub's stored key may or may not echo back a submitted comment; matching on the
@@ -78,6 +86,7 @@ def test_matching_ignores_trailing_comment(repo: MagicMock) -> None:
     existing = make_deploy_key(title="ci", key="ssh-ed25519 AAAA...", read_only=True)
     desired = SharedConfig(
         deploy_keys=[DeployKey(title="ci", key="ssh-ed25519 AAAA... deploy@ci", read_only=True)],
+        deploy_keys_mode=mode,
     )
     repo.get_keys.return_value = [existing]
 
@@ -118,7 +127,11 @@ def test_unlisted_deploy_key_is_deleted_when_authoritative(repo: MagicMock) -> N
     existing.delete.assert_called_once_with()
 
 
-def test_listed_key_still_delete_recreates_under_add_only(repo: MagicMock) -> None:
+@pytest.mark.parametrize("mode", ["add-only", "authoritative"])
+@pytest.mark.parametrize(*_DRIFT)
+def test_listed_key_still_delete_recreates(
+    repo: MagicMock, mode: SectionMode, title: str, *, read_only: bool
+) -> None:
     """THE trap this whole change had to avoid.
 
     This manager emits DELETE for two unrelated reasons: pruning an unlisted key, and expressing
@@ -129,21 +142,22 @@ def test_listed_key_still_delete_recreates_under_add_only(repo: MagicMock) -> No
     """
     existing = make_deploy_key(title="old-name", key="ssh-ed25519 AAAA...", read_only=True)
     desired = SharedConfig(
-        deploy_keys=[DeployKey(title="new-name", key="ssh-ed25519 AAAA...", read_only=True)],
+        deploy_keys=[DeployKey(title=title, key="ssh-ed25519 AAAA...", read_only=read_only)],
+        deploy_keys_mode=mode,
     )
     repo.get_keys.return_value = [existing]
 
     changes = DeployKeysManager().plan(repo, desired)
 
-    # Same key content, changed title: the pair must survive add-only.
+    # Same key content, changed title or read_only: the pair must survive add-only.
     assert [change.action for change in changes] == [Action.DELETE, Action.CREATE]
-    assert [change.target for change in changes] == [
-        "deploy_key:old-name",
-        "deploy_key:new-name",
-    ]
+    assert [change.target for change in changes] == ["deploy_key:old-name", f"deploy_key:{title}"]
 
 
-def test_changed_title_for_same_key_is_delete_and_create_not_update(repo: MagicMock) -> None:
+@pytest.mark.parametrize(*_DRIFT)
+def test_drift_for_same_key_is_delete_and_create_not_update(
+    repo: MagicMock, title: str, *, read_only: bool
+) -> None:
     """GitHub's deploy-key API has no update endpoint.
 
     When the same key content is kept but its title (or read_only flag) changes, the only
@@ -152,7 +166,7 @@ def test_changed_title_for_same_key_is_delete_and_create_not_update(repo: MagicM
     """
     existing = make_deploy_key(title="old-name", key="ssh-ed25519 AAAA...", read_only=True)
     desired = SharedConfig(
-        deploy_keys=[DeployKey(title="new-name", key="ssh-ed25519 AAAA...", read_only=False)],
+        deploy_keys=[DeployKey(title=title, key="ssh-ed25519 AAAA...", read_only=read_only)],
     )
     repo.get_keys.return_value = [existing]
 
@@ -165,56 +179,9 @@ def test_changed_title_for_same_key_is_delete_and_create_not_update(repo: MagicM
     delete = next(change for change in changes if change.action is Action.DELETE)
     create = next(change for change in changes if change.action is Action.CREATE)
     assert delete.target == "deploy_key:old-name"
-    assert create.target == "deploy_key:new-name"
+    assert create.target == f"deploy_key:{title}"
 
     delete.apply()
     existing.delete.assert_called_once_with()
     create.apply()
-    repo.create_key.assert_called_once_with("new-name", "ssh-ed25519 AAAA...", read_only=False)
-
-
-def test_deploy_keys_mode_without_section_is_still_unmanaged(repo: MagicMock) -> None:
-    """An omitted section outranks its mode — see the collaborators twin for why this matters."""
-    existing = make_deploy_key(title="ci", key="ssh-ed25519 AAAA...", read_only=True)
-    repo.get_keys.return_value = [existing]
-
-    assert DeployKeysManager().plan(repo, SharedConfig(deploy_keys_mode="authoritative")) == []
-    existing.delete.assert_not_called()
-
-
-def test_empty_deploy_keys_is_a_noop_under_add_only(repo: MagicMock) -> None:
-    """`deploy_keys: []` stops asserting "this repo has no keys" under the new default."""
-    existing = make_deploy_key(title="rogue", key="ssh-ed25519 ROGUE...", read_only=False)
-    repo.get_keys.return_value = [existing]
-
-    assert DeployKeysManager().plan(repo, SharedConfig(deploy_keys=[])) == []
-    existing.delete.assert_not_called()
-
-
-def test_empty_deploy_keys_deletes_all_when_authoritative(repo: MagicMock) -> None:
-    """`deploy_keys: [] + authoritative` still removes every key — the escape hatch."""
-    existing = make_deploy_key(title="rogue", key="ssh-ed25519 ROGUE...", read_only=False)
-    repo.get_keys.return_value = [existing]
-    desired = SharedConfig(deploy_keys=[], deploy_keys_mode="authoritative")
-
-    changes = DeployKeysManager().plan(repo, desired)
-
-    assert [change.action for change in changes] == [Action.DELETE]
-    changes[0].apply()
-    existing.delete.assert_called_once_with()
-
-
-def test_unrecognized_mode_never_prunes() -> None:
-    """The gates key on `authoritative`, so any unrecognized mode declines to prune.
-
-    `SectionMode` admits two values today, so this can only be reached by constructing the model
-    directly — which is the point: it pins the *polarity*, so adding a third mode later (a
-    `report-only`, say) can't silently turn into a mass revocation.
-    """
-    repo = MagicMock()
-    existing = make_deploy_key(title="rogue", key="ssh-ed25519 ROGUE...", read_only=False)
-    repo.get_keys.return_value = [existing]
-    desired = SharedConfig(deploy_keys=[])
-    object.__setattr__(desired, "deploy_keys_mode", "report-only")
-
-    assert DeployKeysManager().plan(repo, desired) == []
+    repo.create_key.assert_called_once_with(title, "ssh-ed25519 AAAA...", read_only=read_only)

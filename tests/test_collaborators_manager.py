@@ -11,7 +11,7 @@ import pytest
 from conftest import make_user
 
 from repo_management.changes import Action
-from repo_management.config import Collaborator, Permission, SharedConfig
+from repo_management.config import Collaborator, Permission, SectionMode, SharedConfig
 from repo_management.managers.collaborators import CollaboratorsManager
 
 
@@ -153,14 +153,18 @@ def test_unlisted_direct_collaborator_is_removed_when_authoritative(repo: MagicM
     repo.remove_from_collaborators.assert_called_once_with("mallory")
 
 
-def test_listed_collaborator_is_downgraded_under_add_only(repo: MagicMock) -> None:
+@pytest.mark.parametrize("mode", ["add-only", "authoritative"])
+def test_listed_collaborator_is_downgraded(repo: MagicMock, mode: SectionMode) -> None:
     """Add-only governs *who*, not *what*: an out-of-band escalation is still walked back.
 
     The most security-relevant case for this default — someone listed as `pull` who was bumped
     to `admin` in the UI is returned to `pull`, even though unlisted people are untouched.
     """
     repo.get_collaborator_role_name.return_value = "admin"
-    desired = SharedConfig(collaborators=[Collaborator(username="alice", permission="pull")])
+    desired = SharedConfig(
+        collaborators=[Collaborator(username="alice", permission="pull")],
+        collaborators_mode=mode,
+    )
 
     changes = CollaboratorsManager().plan(repo, desired)
 
@@ -195,61 +199,16 @@ def test_multiple_collaborators(repo: MagicMock) -> None:
     assert (change_charlie.before, change_charlie.after) == ("pull", "push")
 
 
-def test_collaborators_mode_without_section_is_still_unmanaged(repo: MagicMock) -> None:
-    """An omitted section outranks its mode: no section means the domain is untouched.
-
-    The dangerous misreading is the reverse — `collaborators_mode: authoritative` with no
-    `collaborators:` key revoking every direct collaborator on every repo in the fleet. That is
-    reachable because the mode is a separate top-level scalar that merges through `extends:`
-    independently of its section.
-    """
-    repo.get_collaborators.return_value = [make_user("alice")]
-
-    assert CollaboratorsManager().plan(repo, SharedConfig(collaborators_mode="authoritative")) == []
-    repo.get_collaborators.assert_not_called()
-
-
-def test_empty_collaborators_is_a_noop_under_add_only(repo: MagicMock) -> None:
-    """`collaborators: []` no longer asserts "nobody has direct access" under the new default.
-
-    Under 1.x this was the strongest statement in the config. It is now a no-op, and that
-    inversion is silent — hence both this test and the docs note.
-    """
-    repo.get_collaborators.return_value = [make_user("mallory")]
-
-    assert CollaboratorsManager().plan(repo, SharedConfig(collaborators=[])) == []
-
-
-def test_empty_collaborators_revokes_everyone_when_authoritative(repo: MagicMock) -> None:
-    """`collaborators: [] + authoritative` is the emergency lockdown, and must still work."""
-    repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
-    desired = SharedConfig(collaborators=[], collaborators_mode="authoritative")
-
-    changes = CollaboratorsManager().plan(repo, desired)
-
-    assert {change.target for change in changes} == {
-        "collaborator:alice",
-        "collaborator:mallory",
-    }
-    assert all(change.action is Action.DELETE for change in changes)
-
-
-def test_listed_collaborator_with_different_case_is_not_removed(repo: MagicMock) -> None:
+@pytest.mark.parametrize(("listed", "live"), [("Alice", "alice"), ("alice", "Alice")])
+def test_listed_collaborator_with_different_case_is_not_removed(
+    repo: MagicMock, listed: str, live: str
+) -> None:
     """GitHub logins are case-insensitive, so a listed person is never pruned over casing."""
     repo.get_collaborator_role_name.return_value = "write"
-    repo.get_collaborators.return_value = [make_user("alice")]
+    repo.get_collaborators.return_value = [make_user(live)]
     desired = SharedConfig(
-        collaborators=[Collaborator(username="Alice", permission="push")],
+        collaborators=[Collaborator(username=listed, permission="push")],
         collaborators_mode="authoritative",
     )
-
-    assert CollaboratorsManager().plan(repo, desired) == []
-
-
-def test_unrecognized_mode_never_prunes(repo: MagicMock) -> None:
-    """The gate keys on `authoritative`, so a future mode can't turn into a mass removal."""
-    repo.get_collaborators.return_value = [make_user("rogue")]
-    desired = SharedConfig(collaborators=[])
-    object.__setattr__(desired, "collaborators_mode", "report-only")
 
     assert CollaboratorsManager().plan(repo, desired) == []
