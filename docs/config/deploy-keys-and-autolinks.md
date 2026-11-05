@@ -32,7 +32,7 @@ Matching normalizes each key to just its algorithm and base64 body, dropping any
 `ssh-keygen`-style comment and ambient whitespace a YAML block scalar can introduce — so a
 key that's unchanged except for its comment isn't planned as a spurious delete+recreate. The
 same normalizer governs the `extends:` keyed-list merge for this section, so two entries
-differing only by comment/whitespace can't survive a merge as if they were different keys.
+differing only by comment/whitespace can't survive a merge as if they were different keys. Listing the same key twice in one file is a load error.
 
 !!! warning
     Changing `title` or `read_only` for the same key content is planned as a **delete of the
