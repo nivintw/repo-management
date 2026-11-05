@@ -59,7 +59,7 @@ jobs:
     steps:
       # Checkout + uv first (default read-only token) so we can read the configs and derive
       # the exact repo set BEFORE minting the App token — scoping it to just those repos.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # Read-only gate — don't leave the checkout token in .git/config (zizmor artipacked).
           persist-credentials: false
