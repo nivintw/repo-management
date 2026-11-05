@@ -11,6 +11,12 @@
   },
   "packageRules": [
     {
+      "description": "Hold docs-site.yml's pin on this repo's own reusable docs workflow. It sits on the last MkDocs revision on purpose, and every later revision needs an Astro site this repo doesn't have yet (issue #161). Digest updates auto-merge, so without this Renovate would bump it and break the docs deploy. Remove this rule as part of that migration.",
+      "matchFileNames": [".github/workflows/docs-site.yml"],
+      "matchPackageNames": ["nivintw/repo-management"],
+      "enabled": false
+    },
+    {
       "description": "Group Ruff bumps so a new rule under extend-select=ALL lands as one reviewable PR, not a surprise red.",
       "matchManagers": ["pre-commit"],
       "matchPackageNames": ["astral-sh/ruff-pre-commit"],
