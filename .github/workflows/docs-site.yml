@@ -8,9 +8,9 @@
 # requires the CALLING workflow to grant the permissions a reusable workflow's jobs use.
 #
 # Pinned to a commit (zizmor's blanket unpinned-uses policy), not a tag — repo-management
-# has no release process for this workflow, so Renovate tracks and bumps the digest instead,
-# same as it does for every other `uses:` pin in this file (see main.yml/docs on Renovate's
-# GitHub Actions digest-pinning).
+# has no release process for this workflow. Renovate would normally track the digest, but
+# this pin is held on purpose: see the warning below and the matching rule in
+# .github/renovate.json.
 #
 # Named (and filed) distinctly from `docs.yml` — this repo is the unusual case where that
 # filename is already taken by the *reusable* workflow every other fleet repo calls, so this
