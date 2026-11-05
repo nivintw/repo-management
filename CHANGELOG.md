@@ -7,6 +7,34 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.0.0](https://github.com/nivintw/repo-management/compare/v1.15.0...v2.0.0) (2026-11-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **rulesets:** Rule fields now nest under `parameters`, and `required_checks` is now `required_status_checks`. The flat form fails at load. Omitting `parameters` stays valid where every field has a default, such as
+* **config:** `collaborators`, `teams`, and `deploy_keys` no longer remove entries absent from config. A deployment relying on that pruning must now set `collaborators_mode`, `teams_mode`, or `deploy_keys_mode` to `authoritative` explicitly. Repositories are otherwise unaffected, and no other section changes.
+
+### Features
+
+* **config:** Make membership sections add-only by default ([a02c659](https://github.com/nivintw/repo-management/commit/a02c6594490a8ae00c41976f9b5d8cbf41382aee))
+* **rulesets:** Use the GitHub API shape as the rule schema ([1bc8361](https://github.com/nivintw/repo-management/commit/1bc83611fd9fbe42cba06a221ac19953029a5ec9))
+
+
+### Bug Fixes
+
+* **cli:** Report blocking diagnostics as problems ([781213e](https://github.com/nivintw/repo-management/commit/781213ed32e577bf5299c7c1d48cebb8783298b5))
+* **collaborators:** Stop treating public-repo read access as a grant ([d557606](https://github.com/nivintw/repo-management/commit/d5576062b1fadb0ff053414dc0f532ec824cf940))
+* **config:** Close the review findings on add-only membership ([ea288ec](https://github.com/nivintw/repo-management/commit/ea288ec38d80f538ad691ec2b07aa3399ecf4ff9))
+* **config:** Declare the labels that automation and dry-dock rely on ([dcf4db5](https://github.com/nivintw/repo-management/commit/dcf4db5d8878f8e1e4e85c70590af3966586fcfa))
+* **config:** Reject duplicate entries that merging would hide ([d4bd712](https://github.com/nivintw/repo-management/commit/d4bd712425bd237d525e39f0aa2c89ff2fe7bfde))
+* **config:** Treat logins and team slugs as case-insensitive ([106f4c1](https://github.com/nivintw/repo-management/commit/106f4c176367dfafbd44ad97269bef6d6d4ec744))
+* **labels:** Compare colors case-insensitively ([152c78a](https://github.com/nivintw/repo-management/commit/152c78a977395a79c53996b6c66b33c74d313210))
+* **plan:** Show what differs in ruleset update lines ([0338200](https://github.com/nivintw/repo-management/commit/03382001a597e2357023e077fec8a8a9402a4ea7))
+* **rulesets:** Compare the fork sync setting only where GitHub reports it ([60c7730](https://github.com/nivintw/repo-management/commit/60c7730de1964d9abb93f2bb5fbd4caa6ae075fc))
+* **rulesets:** Count an unreported fork sync setting as false ([42b7d49](https://github.com/nivintw/repo-management/commit/42b7d49a3c32948fce985509f848deed808ad44c))
+* **rulesets:** Flag the fork-sync setting on any non-fork ([3c4202d](https://github.com/nivintw/repo-management/commit/3c4202d7e849540ee8d42b870b3db569e96a9514))
+
 ## [1.15.0](https://github.com/nivintw/repo-management/compare/v1.14.0...v1.15.0) (2026-07-24)
 
 
