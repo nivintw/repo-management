@@ -13,9 +13,7 @@ the config, and repo-level rulesets absent from the config are deleted. Listing 
 deleted through the repo.
 
 ``update_allows_fetch_and_merge`` only exists on forks: GitHub stores, returns, and enforces it
-there, but on any other repository it accepts the value and discards it. So the comparison counts
-an unreported value as ``false``, and declaring the setting on a non-fork, with either value, is a
-diagnostic: it can't do anything there.
+there, but on any other repository it accepts the value and discards it.
 """
 
 from __future__ import annotations
@@ -317,24 +315,19 @@ def _declares_fork_sync(ruleset: Ruleset) -> bool:
     )
 
 
-def _comparable(desired: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+def _with_unreported_fork_sync_as_false(current: dict[str, Any]) -> dict[str, Any]:
     """Count an ``update`` rule's unreported fork-sync setting as ``false``.
 
-    GitHub reports the setting only on a fork. Anywhere else there is no live value to compare
-    against, so requiring one would report a change on every plan that no write could ever clear.
-    A ``true`` stays in the comparison: it only gets this far on a fork, where an unreported value
-    means nothing confirms the fork can actually sync.
+    Anywhere but a fork there is no live value to compare against, so requiring one would report a
+    change on every plan that no write could ever clear.
     """
-    live_rules = current.get("rules") or []
-    if not any(rule["type"] == "update" and "parameters" not in rule for rule in live_rules):
-        return desired
     rules = [
-        {"type": "update"}
-        if rule["type"] == "update" and not rule["parameters"]["update_allows_fetch_and_merge"]
+        {**rule, "parameters": {"update_allows_fetch_and_merge": False}}
+        if rule["type"] == "update" and "parameters" not in rule
         else rule
-        for rule in desired["rules"]
+        for rule in current.get("rules") or []
     ]
-    return {**desired, "rules": rules}
+    return {**current, "rules": rules}
 
 
 def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
@@ -351,23 +344,16 @@ def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     pins by id (literally, or resolved from an ``actor_slug`` before this compares) must match
     the live actor's id, while an actor that sets no id (``OrganizationAdmin``) ignores whatever
     id the server attached — which is exactly why a slug resolving to the live id is a NOOP.
-
-    One setting GitHub doesn't report on every repository has its own rule; see
-    :func:`_comparable`.
     """
-    return _satisfied(_comparable(desired, current), current)
+    return not any(_differences(desired, current))
 
 
 def _differences(desired: dict[str, Any], current: dict[str, Any]) -> tuple[dict, dict]:
-    """Reduce a mismatched ruleset to the parts that differ, as ``(live, desired)`` for the plan.
-
-    This is built on the same matching as :func:`_matches`, so it shows exactly what made the
-    ruleset drift: server metadata and anything already in sync stay out of the line.
-    """
-    comparable = _comparable(desired, current)
-    rest = {key: value for key, value in comparable.items() if key != "rules"}
-    before, after = _map_differences(rest, current)
-    missing, extra = _unmatched(comparable["rules"], current.get("rules") or [])
+    """Reduce a ruleset to the parts that differ, as ``(live, desired)``; both empty if none do."""
+    live = _with_unreported_fork_sync_as_false(current)
+    rest = {key: value for key, value in desired.items() if key != "rules"}
+    before, after = _map_differences(rest, live)
+    missing, extra = _unmatched(desired["rules"], live["rules"])
     if missing or extra:
         before["rules"], after["rules"] = _rule_differences(missing, extra)
     return before, after
@@ -396,18 +382,12 @@ def _rule_differences(
     missing: list[dict[str, Any]], extra: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Key the rules that differ by type: changed fields if on both sides, else the whole rule."""
-    live_by_type = {rule["type"]: rule for rule in extra}
-    before: dict[str, Any] = {}
-    after: dict[str, Any] = {}
-    for rule in missing:
-        kind = rule["type"]
-        live = live_by_type.pop(kind, None)
-        if live is None:
-            before[kind], after[kind] = None, rule
-        else:
-            before[kind], after[kind] = _map_differences(rule, live)
-    for kind, live in live_by_type.items():
-        before[kind], after[kind] = live, None
+    wanted = {rule["type"]: rule for rule in missing}
+    live = {rule["type"]: rule for rule in extra}
+    before, after = _map_differences(wanted, live)
+    for kind, rule in live.items():
+        if kind not in wanted:
+            before[kind], after[kind] = rule, None
     return before, after
 
 
