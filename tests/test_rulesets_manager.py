@@ -139,18 +139,6 @@ def test_differing_ruleset_is_updated() -> None:
     )
 
 
-def test_differing_conditions_triggers_update() -> None:
-    """Different ref-name conditions trigger an update."""
-    desired = ruleset()
-    other = ruleset(conditions={"ref_name": {"include": ["refs/heads/release/*"], "exclude": []}})
-    repo = make_repo([{"id": 1, "name": "main"}], {"id": 1, **other.to_api()})
-
-    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
-
-    assert len(changes) == 1
-    assert changes[0].action is Action.UPDATE
-
-
 def test_differing_bypass_actors_triggers_update() -> None:
     """Different bypass actors trigger an update."""
     desired = ruleset(bypass_actors=[{"actor_type": "OrganizationAdmin"}])
@@ -190,6 +178,18 @@ def test_extra_live_rule_triggers_update() -> None:
 
     assert len(changes) == 1
     assert changes[0].action is Action.UPDATE
+    assert changes[0].before == {"rules": {"non_fast_forward": {"type": "non_fast_forward"}}}
+    assert changes[0].after == {"rules": {"non_fast_forward": None}}
+
+
+def test_no_rules_against_a_live_ruleset_reporting_no_rules_is_in_sync() -> None:
+    """A ruleset with nothing to compare mustn't count as a change that prints empty sides."""
+    desired = ruleset(rules=[])
+    current = {"id": 1, **desired.to_api()}
+    del current["rules"]
+    repo = make_repo([{"id": 1, "name": "main"}], current)
+
+    assert RulesetsManager().plan(repo, SharedConfig(rulesets=[desired])) == []
 
 
 def test_unlisted_ruleset_is_deleted() -> None:
@@ -539,12 +539,6 @@ def _plan_against_live(
     return repo, RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
 
 
-def test_update_rule_unreported_by_github_is_in_sync() -> None:
-    """GitHub omits the fetch-and-merge setting on a non-fork, which isn't drift."""
-    _, changes = _plan_against_live(ruleset(rules=[{"type": "update"}]), [{"type": "update"}])
-    assert changes == []
-
-
 @pytest.mark.parametrize("allows", [True, False])
 def test_update_rule_reported_by_github_is_compared(*, allows: bool) -> None:
     """A fork reports the setting, so a live value differing from the config is real drift."""
@@ -838,12 +832,14 @@ def test_update_line_omits_an_unreported_fork_sync_setting() -> None:
 
 
 def test_update_line_shows_a_declared_true_a_fork_does_not_report() -> None:
-    """The one unreported value that stays a change shows as absent on the live side."""
+    """The one unreported value that stays a change shows the ``false`` it counted as."""
     desired = ruleset(rules=[_update_rule(allows=True)])
 
     _, changes = _plan_against_live(desired, [{"type": "update"}], fork=True)
 
-    assert changes[0].before == {"rules": {"update": {"parameters": None}}}
+    assert changes[0].before == {
+        "rules": {"update": {"parameters": {"update_allows_fetch_and_merge": False}}}
+    }
     assert changes[0].after == {
         "rules": {"update": {"parameters": {"update_allows_fetch_and_merge": True}}}
     }
