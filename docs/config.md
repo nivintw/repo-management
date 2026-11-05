@@ -102,6 +102,13 @@ whose **direct** grant was bumped to `admin` is returned to `pull`. What add-onl
 that the section stops asserting anything about principals it doesn't name, so granting access
 through the GitHub UI is no longer undone at the next apply.
 
+!!! warning "Under add-only, removing a line doesn't revoke access"
+    Deleting someone from `collaborators:` or a team from `teams:` leaves their access in place,
+    and the plan says nothing about them. Rotating a deploy key adds the new key and leaves the
+    **old key live**, so a compromised key stays usable until you delete it. To revoke access,
+    remove it in GitHub or set the section's `*_mode` to `authoritative`, which removes everything
+    unlisted on every repo in that config.
+
 !!! warning "An escalation inherited from a team or org role can't be walked back this way"
     GitHub reports a collaborator's **effective** permission — the highest of their direct,
     team, and org grants. So if someone listed here as `pull` is *also* an org owner, or sits
@@ -128,6 +135,16 @@ collaborators_mode: authoritative   # removes every direct collaborator
 ```
 
 The same applies to `teams: []` and `deploy_keys: []`.
+
+Three limits apply to this idiom, and to `authoritative` generally:
+
+- **`extends:` can't clear a list.** Lists merge by key, so a child's `collaborators: []` keeps
+  everything from its base. Declare the empty list in a config that doesn't inherit one.
+- **Pending invitations survive.** They aren't collaborators yet, so an invitation to someone
+  unlisted isn't cancelled and can still be accepted
+  ([issue #175](https://github.com/nivintw/repo-management/issues/175)).
+- **The owner counts as a direct collaborator on a personal repo.** List them, or the plan includes
+  removing them.
 
 ### A mode without its section does nothing
 
@@ -240,9 +257,9 @@ collaborators:
 ```
 
 !!! note
-    Only **direct** collaborators (GitHub affiliation `direct`) are managed. Access
-    inherited from an organization or a team is never inspected or touched, so this section
-    can't accidentally revoke org-level access.
+    Only **direct** collaborators (GitHub affiliation `direct`) can be removed. Access
+    inherited from an organization or a team is never touched, so this section can't
+    accidentally revoke org-level access.
 
     By default (`collaborators_mode: add-only`) a direct collaborator this section doesn't list
     is also left alone — see [Access-granting sections](#access-granting-sections-are-add-only-by-default).
@@ -252,6 +269,14 @@ GitHub's legacy permission field collapses `maintain` into `write` and `triage` 
 collaborator's granular `role_name` and maps only `read`/`write` back to `pull`/`push`
 (`triage`, `maintain`, and `admin` are reported verbatim), so a config declaring `triage` or
 `maintain` reconciles correctly instead of endlessly re-applying.
+
+Usernames match case-insensitively, as they do on GitHub, and so do team slugs under `teams:`:
+`Alice` in config is the live `alice`, an override through `extends:` replaces the entry whatever
+its case, and listing one person twice is a load error.
+
+!!! warning "Personal-account repositories don't have per-collaborator permissions"
+    GitHub documents the add-collaborator `permission` value as valid only on organization-owned
+    repositories. On a personal repo, don't expect a declared level such as `pull` to hold.
 
 ## Teams
 
