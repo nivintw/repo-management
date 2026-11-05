@@ -68,7 +68,7 @@ flag.
 
 -   **[Rulesets](rulesets.md)**
 
-    Branch and tag rulesets: every rule type, conditions, and bypass actors.
+    Branch, tag, and push rulesets: rule types, conditions, and bypass actors.
 
 </div>
 
@@ -98,7 +98,7 @@ every section lives in the [config reference](config.md).
 
 -   **`rulesets`**
 
-    Repository rulesets (branch/tag) with the full rule set, bypass actors, and ref-name
+    Repository rulesets (branch, tag, and push) with their rules, bypass actors, and ref-name
     conditions.
 
 -   **`labels`**
