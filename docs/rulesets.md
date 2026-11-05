@@ -217,10 +217,12 @@ it accepts the value and discards it. GitHub's documentation doesn't mention thi
 handles it for you:
 
 - Setting it on a non-fork, to either value, is reported as an error and blocks `plan` and `apply`,
-  because it does nothing there. Remove it, or move that repo to a config that doesn't set it. A
-  bare `- type: update` doesn't set it, so it's fine anywhere.
-- `plan` counts a value GitHub doesn't report as `false`, so a bare `update` rule never shows up as
-  a change.
+  because it does nothing there. Remove it, or move that repo to a config that doesn't set it.
+- A bare `- type: update` doesn't set it, so it's allowed on any repository. On a fork it means
+  `false`, which is also how GitHub reads an omitted value, so the fork can't sync and an apply
+  changes a live `true` back to `false`. To let a fork sync, set `true`.
+- `plan` counts a value GitHub doesn't report as `false`, so a bare `update` rule on a non-fork
+  never shows up as a change.
 - `true` on a fork that doesn't report the value shows up as a change, because nothing confirms the
   fork can sync.
 
