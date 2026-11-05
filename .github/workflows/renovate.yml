@@ -30,6 +30,10 @@
 #     - Issues: write         — Renovate's dependency dashboard issue + PR labels. (The App
 #                               already holds Issues for apply-config's label management, so this
 #                               needs no extra grant beyond Workflows.)
+#     - Commit statuses: write — minimumReleaseAge makes Renovate set a status on each branch it
+#                               updates. Without this, the write fails and Renovate reports
+#                               "Repository has changed during renovation", abandoning that repo
+#                               while the workflow stays green. (Granted on the App out-of-band.)
 #
 # SAFE UNTIL CONFIGURED: a preflight reports whether CI_CLIENT_ID + CI_APP_PRIVATE_KEY are
 # present; every step gates on it, so the workflow SKIPS cleanly (green, no writes) until the
@@ -134,6 +138,7 @@ jobs:
           permission-pull-requests: write
           permission-workflows: write
           permission-issues: write
+          permission-statuses: write
 
       - name: Run Renovate across the fleet
         if: steps.preflight.outputs.enabled == 'true'
