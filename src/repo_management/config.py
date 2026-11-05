@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy
 import os
 import re
+from collections import Counter
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
@@ -583,14 +584,24 @@ class SharedConfig(Strict):
         # GitHub logins and team slugs are case-insensitive, so two entries differing only by case
         # name one principal. Each would reconcile them to its own permission, flipping it on
         # every apply.
-        for section, names in (
-            ("collaborators", [item.username for item in self.collaborators or []]),
-            ("teams", [item.slug for item in self.teams or []]),
+        # A deploy key's identity ignores its comment, so two entries differing only by comment are
+        # one key, and each apply would swap between their titles and read_only flags.
+        for section, entries in (
+            (
+                "collaborators",
+                [(item.username, item.username) for item in self.collaborators or []],
+            ),
+            ("teams", [(item.slug, item.slug) for item in self.teams or []]),
+            ("deploy_keys", [(item.title, item.key) for item in self.deploy_keys or []]),
         ):
-            folded = [name.casefold() for name in names]
-            duplicates = sorted({name for name in names if folded.count(name.casefold()) > 1})
+            normalize = _KEY_NORMALIZERS[(section,)]
+            identities = Counter(normalize(raw) for _, raw in entries)
+            duplicates = sorted({label for label, raw in entries if identities[normalize(raw)] > 1})
             if duplicates:
-                msg = f"{section} lists {duplicates} more than once (names are case-insensitive)"
+                msg = (
+                    f"{section} lists {duplicates} more than once "
+                    "(names ignore case, and deploy keys ignore their comment)"
+                )
                 raise ValueError(msg)
         return self
 
@@ -834,6 +845,11 @@ def _merge_by_key(
     Relies on dict insertion order: reassigning an existing key keeps its position, so a
     same-key override item replaces in place while new items land at the end.
     """
+    if normalize:
+        # Merging keeps one entry per normalized key, which would pick a winner among duplicates
+        # within one file before the schema's own duplicate check could see them.
+        _reject_duplicates(base, key, normalize)
+        _reject_duplicates(override, key, normalize)
     merged: dict[Any, Any] = {}
     for index, item in enumerate([*base, *override]):
         # Only match on a plain string key; a missing, malformed, or non-string key value
@@ -846,6 +862,18 @@ def _merge_by_key(
             item_key = (index, "_unkeyed")
         merged[item_key] = item
     return list(merged.values())
+
+
+def _reject_duplicates(items: list[Any], key: str, normalize: Callable[[str], str]) -> None:
+    """Raise if two entries in one list share a normalized ``key``."""
+    raw_keys = [
+        item[key] for item in items if isinstance(item, dict) and isinstance(item.get(key), str)
+    ]
+    identities = Counter(normalize(raw) for raw in raw_keys)
+    duplicates = sorted({raw for raw in raw_keys if identities[normalize(raw)] > 1})
+    if duplicates:
+        msg = f"{key} {duplicates} listed more than once"
+        raise ConfigError(msg)
 
 
 def _deep_merge(
