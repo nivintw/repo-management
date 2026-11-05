@@ -475,3 +475,10 @@ def test_ruleset_to_api_full() -> None:
     assert body["conditions"] == {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}
     assert body["rules"] == [{"type": "non_fast_forward"}]
     assert body["bypass_actors"] == [{"actor_type": "OrganizationAdmin", "bypass_mode": "always"}]
+
+
+@pytest.mark.parametrize("slug", [".", ".."])
+def test_bypass_actor_slug_rejects_dot_segments(slug: str) -> None:
+    """A dot segment would be normalized out of the lookup path, resolving the wrong object."""
+    with pytest.raises(ValidationError, match="'actor_slug' must not be"):
+        BypassActor(actor_type="Team", actor_slug=slug)

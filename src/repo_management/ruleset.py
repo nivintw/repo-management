@@ -368,6 +368,10 @@ class BypassActor(_ApiModel):
         if any(char in value for char in "/\r\n"):
             msg = "'actor_slug' must not contain '/', a carriage return, or a newline"
             raise ValueError(msg)
+        # Percent-encoding leaves dots alone, so a dot segment would still change the path.
+        if value in {".", ".."}:
+            msg = "'actor_slug' must not be '.' or '..'"
+            raise ValueError(msg)
         return value
 
     @model_validator(mode="after")

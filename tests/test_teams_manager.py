@@ -9,9 +9,10 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from repo_management.changes import Action
-from repo_management.config import ConfigError, SharedConfig, TeamAccess
+from repo_management.config import ConfigError, SectionMode, SharedConfig, TeamAccess
 from repo_management.managers.teams import TeamsManager, _role
 
 URL = "https://api.github.com/repos/acme/widget"
@@ -209,3 +210,49 @@ def test_empty_teams_revokes_all_when_authoritative() -> None:
 
     assert {change.target for change in changes} == {"team:legacy", "team:sre"}
     assert all(change.action is Action.DELETE for change in changes)
+
+
+@pytest.mark.parametrize("mode", ["add-only", "authoritative"])
+def test_listed_team_with_different_case_is_in_sync(mode: SectionMode) -> None:
+    """GitHub team slugs are case-insensitive, so casing causes neither a grant nor a revoke."""
+    repo = make_repo([_team("platform", "push")])
+    desired = SharedConfig(
+        teams=[TeamAccess(slug="Platform", permission="push")],
+        teams_mode=mode,
+    )
+
+    assert TeamsManager().plan(repo, desired) == []
+
+
+def test_unlisted_team_is_revoked_by_its_live_slug() -> None:
+    """Authoritative pruning still revokes an unlisted team, using the slug GitHub reported."""
+    repo = make_repo([_team("Rogue", "push")])
+    desired = SharedConfig(teams=[], teams_mode="authoritative")
+
+    changes = TeamsManager().plan(repo, desired)
+
+    assert [(change.action, change.target) for change in changes] == [(Action.DELETE, "team:Rogue")]
+
+
+def test_unrecognized_mode_never_revokes() -> None:
+    """The gate keys on `authoritative`, so a future mode can't turn into a mass revocation."""
+    repo = make_repo([_team("rogue", "push")])
+    desired = SharedConfig(teams=[])
+    object.__setattr__(desired, "teams_mode", "report-only")
+
+    assert TeamsManager().plan(repo, desired) == []
+
+
+@pytest.mark.parametrize(
+    "slug", ["../../repos/o/other/collaborators/evil?", "..", "a/b", "a b", ""]
+)
+def test_team_slug_that_could_redirect_the_request_is_rejected(slug: str) -> None:
+    """A slug is interpolated into an API path, so one that changes the path fails at load."""
+    with pytest.raises(ValidationError, match="not a valid team slug"):
+        TeamAccess(slug=slug)
+
+
+@pytest.mark.parametrize("slug", ["platform", "Platform", "my_team", "team-1", "a.b"])
+def test_real_team_slugs_are_accepted(slug: str) -> None:
+    """Ordinary slugs load, including underscores, which GitHub's login charset doesn't allow."""
+    assert TeamAccess(slug=slug).slug == slug

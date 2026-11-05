@@ -54,6 +54,11 @@ SectionMode = Literal["add-only", "authoritative"]
 # value redirecting that request to an unintended API path.
 _GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
 
+# GitHub team-slug charset. Wider than the login charset above, since a slug can carry an
+# underscore, but it still can't change the REST path it's interpolated into: no separator, no
+# query or fragment marker, and no leading dot to form a `.` or `..` segment.
+_TEAM_SLUG = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
+
 _DEPLOY_KEY_FIELDS = 2  # algorithm + base64 body; an optional trailing comment is field 3+.
 
 
@@ -90,6 +95,9 @@ _KEYED_LISTS: dict[tuple[str, ...], str] = {
 # string is the identity (the common case).
 _KEY_NORMALIZERS: dict[tuple[str, ...], Callable[[str], str]] = {
     ("deploy_keys",): normalize_deploy_key,
+    # GitHub logins and team slugs are case-insensitive, so `Alice` overrides `alice`.
+    ("collaborators",): str.casefold,
+    ("teams",): str.casefold,
 }
 
 
@@ -167,7 +175,8 @@ class Label(Strict):
     @field_validator("color")
     @classmethod
     def _normalize_color(cls, value: str) -> str:
-        # GitHub stores hex colors lowercased and without a leading '#'.
+        # A canonical form for config. GitHub returns a color in the case it was created with,
+        # so the labels manager compares case-insensitively.
         return value.lstrip("#").lower()
 
 
@@ -244,6 +253,14 @@ class TeamAccess(Strict):
 
     slug: str
     permission: Permission = "push"
+
+    @field_validator("slug")
+    @classmethod
+    def _valid_slug(cls, value: str) -> str:
+        if not _TEAM_SLUG.fullmatch(value):
+            msg = f"{value!r} is not a valid team slug"
+            raise ValueError(msg)
+        return value
 
 
 class _EnvValued(Strict):
@@ -560,6 +577,22 @@ class SharedConfig(Strict):
     autolinks: list[Autolink] | None = None
     environments: list[Environment] | None = None
     pages: Pages | None = None
+
+    @model_validator(mode="after")
+    def _one_entry_per_principal(self) -> SharedConfig:
+        # GitHub logins and team slugs are case-insensitive, so two entries differing only by case
+        # name one principal. Each would reconcile them to its own permission, flipping it on
+        # every apply.
+        for section, names in (
+            ("collaborators", [item.username for item in self.collaborators or []]),
+            ("teams", [item.slug for item in self.teams or []]),
+        ):
+            folded = [name.casefold() for name in names]
+            duplicates = sorted({name for name in names if folded.count(name.casefold()) > 1})
+            if duplicates:
+                msg = f"{section} lists {duplicates} more than once (names are case-insensitive)"
+                raise ValueError(msg)
+        return self
 
     def env_sources(self) -> set[str]:
         """Return every environment-variable name this config reads a value from.
