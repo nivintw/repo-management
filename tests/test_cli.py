@@ -63,6 +63,28 @@ def test_plan_shows_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert "1 change(s)" in result.stdout
 
 
+def test_plan_prints_brackets_in_a_change_literally(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A branch pattern's brackets are data, and must not be swallowed as console markup."""
+    change = Change(
+        "rulesets",
+        Action.UPDATE,
+        "ruleset:main",
+        "refs/heads/old",
+        "refs/heads/[a-z]*",
+        lambda: None,
+    )
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(
+        cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [change])]
+    )
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
+
+    assert "refs/heads/[a-z]*" in result.stdout
+
+
 def test_plan_in_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Plan reports an in-sync repo."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())

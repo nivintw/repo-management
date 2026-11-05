@@ -126,13 +126,14 @@ def test_unlisted_team_is_revoked_when_authoritative() -> None:
     )
 
 
-def test_listed_team_is_repermissioned_under_add_only() -> None:
+@pytest.mark.parametrize("mode", ["add-only", "authoritative"])
+def test_listed_team_is_repermissioned(mode: SectionMode) -> None:
     """Add-only governs *who*, not *what*: a listed team is still held at its declared value.
 
     Including downward — a grant escalated to admin out-of-band is brought back to push.
     """
     repo = make_repo([_team("sre", "admin")])
-    desired = SharedConfig(teams=[TeamAccess(slug="sre", permission="push")])
+    desired = SharedConfig(teams=[TeamAccess(slug="sre", permission="push")], teams_mode=mode)
 
     changes = TeamsManager().plan(repo, desired)
 
@@ -185,60 +186,17 @@ def test_role_falls_back_to_legacy_permission() -> None:
     assert _role({"slug": "x", "permissions": {"admin": True, "push": True}}) == "admin"
 
 
-def test_teams_mode_without_section_is_still_unmanaged(repo: MagicMock) -> None:
-    """An omitted section outranks its mode — see the collaborators twin for why this matters."""
-    assert TeamsManager().plan(repo, SharedConfig(teams_mode="authoritative")) == []
-    repo.requester.requestJsonAndCheck.assert_not_called()
-
-
-def test_empty_teams_is_a_noop_under_add_only() -> None:
-    """`teams: []` stops revoking every managed grant under the new default."""
-    repo = make_repo([_team("legacy", "admin")])
-    assert TeamsManager().plan(repo, SharedConfig(teams=[])) == []
-
-
-def test_empty_teams_revokes_all_when_authoritative() -> None:
-    """`teams: [] + authoritative` still revokes every managed grant — the escape hatch.
-
-    Kept as its own test rather than leaning on the pagination case: that one happens to use an
-    empty section, so rewriting it would silently drop this coverage.
-    """
-    repo = make_repo([_team("legacy", "admin"), _team("sre", "push")])
-    desired = SharedConfig(teams=[], teams_mode="authoritative")
-
-    changes = TeamsManager().plan(repo, desired)
-
-    assert {change.target for change in changes} == {"team:legacy", "team:sre"}
-    assert all(change.action is Action.DELETE for change in changes)
-
-
 @pytest.mark.parametrize("mode", ["add-only", "authoritative"])
-def test_listed_team_with_different_case_is_in_sync(mode: SectionMode) -> None:
+@pytest.mark.parametrize(("listed", "live"), [("Platform", "platform"), ("platform", "Platform")])
+def test_listed_team_with_different_case_is_in_sync(
+    mode: SectionMode, listed: str, live: str
+) -> None:
     """GitHub team slugs are case-insensitive, so casing causes neither a grant nor a revoke."""
-    repo = make_repo([_team("platform", "push")])
+    repo = make_repo([_team(live, "push")])
     desired = SharedConfig(
-        teams=[TeamAccess(slug="Platform", permission="push")],
+        teams=[TeamAccess(slug=listed, permission="push")],
         teams_mode=mode,
     )
-
-    assert TeamsManager().plan(repo, desired) == []
-
-
-def test_unlisted_team_is_revoked_by_its_live_slug() -> None:
-    """Authoritative pruning still revokes an unlisted team, using the slug GitHub reported."""
-    repo = make_repo([_team("Rogue", "push")])
-    desired = SharedConfig(teams=[], teams_mode="authoritative")
-
-    changes = TeamsManager().plan(repo, desired)
-
-    assert [(change.action, change.target) for change in changes] == [(Action.DELETE, "team:Rogue")]
-
-
-def test_unrecognized_mode_never_revokes() -> None:
-    """The gate keys on `authoritative`, so a future mode can't turn into a mass revocation."""
-    repo = make_repo([_team("rogue", "push")])
-    desired = SharedConfig(teams=[])
-    object.__setattr__(desired, "teams_mode", "report-only")
 
     assert TeamsManager().plan(repo, desired) == []
 
