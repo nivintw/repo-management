@@ -13,9 +13,9 @@ the config, and repo-level rulesets absent from the config are deleted. Listing 
 deleted through the repo.
 
 ``update_allows_fetch_and_merge`` only exists on forks: GitHub stores, returns, and enforces it
-there, but on any other repository it accepts the value and discards it. So the comparison skips
-the setting when GitHub doesn't report it, and declaring ``true`` on a non-fork is a diagnostic
-rather than a write that could never take effect.
+there, but on any other repository it accepts the value and discards it. So the comparison counts
+an unreported value as ``false``, and declaring ``true`` on a non-fork is a diagnostic rather than
+a write that could never take effect.
 """
 
 from __future__ import annotations
@@ -60,7 +60,8 @@ class RulesetsManager:
                         f"ruleset:{ruleset.name}",
                         "update_allows_fetch_and_merge: true has no effect because this "
                         "repository is not a fork: GitHub discards the setting, and there is no "
-                        "upstream to sync from. Remove it or override this ruleset for this repo",
+                        "upstream to sync from. Remove it, or move this repo to a config that "
+                        "doesn't set it",
                     )
                 )
                 continue
@@ -312,15 +313,22 @@ def _allows_fork_sync(ruleset: Ruleset) -> bool:
 
 
 def _comparable(desired: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
-    """Drop the ``update`` rule's parameters from ``desired`` when GitHub doesn't report them.
+    """Count an ``update`` rule's unreported fork-sync setting as ``false``.
 
-    GitHub reports them only on a fork. Anywhere else there is no live value to compare against,
-    so requiring one would report a change on every plan that no write could ever clear.
+    GitHub reports the setting only on a fork. Anywhere else there is no live value to compare
+    against, so requiring one would report a change on every plan that no write could ever clear.
+    A declared ``true`` stays in the comparison: it only gets this far on a fork, where an
+    unreported value means nothing confirms the fork can actually sync.
     """
     live_rules = current.get("rules") or []
     if not any(rule["type"] == "update" and "parameters" not in rule for rule in live_rules):
         return desired
-    rules = [{"type": "update"} if rule["type"] == "update" else rule for rule in desired["rules"]]
+    rules = [
+        {"type": "update"}
+        if rule["type"] == "update" and not rule["parameters"]["update_allows_fetch_and_merge"]
+        else rule
+        for rule in desired["rules"]
+    ]
     return {**desired, "rules": rules}
 
 
@@ -339,7 +347,8 @@ def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     the live actor's id, while an actor that sets no id (``OrganizationAdmin``) ignores whatever
     id the server attached — which is exactly why a slug resolving to the live id is a NOOP.
 
-    One setting GitHub doesn't report on every repository is skipped; see :func:`_comparable`.
+    One setting GitHub doesn't report on every repository has its own rule; see
+    :func:`_comparable`.
     """
     return _satisfied(_comparable(desired, current), current)
 

@@ -655,3 +655,32 @@ def test_explicit_false_on_a_non_fork_is_not_a_diagnostic() -> None:
     _, changes = _plan_against_live(desired, [{"type": "update"}])
 
     assert changes == []
+
+
+def test_unreported_true_on_a_fork_is_drift() -> None:
+    """Nothing confirms a declared ``true`` that GitHub doesn't report, so it stays visible."""
+    desired = ruleset(rules=[_update_rule(allows=True)])
+
+    _, changes = _plan_against_live(desired, [{"type": "update"}], fork=True)
+
+    assert [change.action for change in changes] == [Action.UPDATE]
+
+
+def test_unreported_false_on_a_fork_is_in_sync() -> None:
+    """An unreported value counts as ``false``, whichever kind of repository reports it."""
+    desired = ruleset(rules=[_update_rule(allows=False)])
+
+    _, changes = _plan_against_live(desired, [{"type": "update"}], fork=True)
+
+    assert changes == []
+
+
+def test_an_unreported_update_rule_does_not_hide_a_declared_true() -> None:
+    """One bare live rule mustn't let a ``true`` that appears nowhere live pass as in sync."""
+    desired = ruleset(rules=[_update_rule(allows=True), _update_rule(allows=False)])
+
+    _, changes = _plan_against_live(
+        desired, [_update_rule(allows=False), {"type": "update"}], fork=True
+    )
+
+    assert [change.action for change in changes] == [Action.UPDATE]
