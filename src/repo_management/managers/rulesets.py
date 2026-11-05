@@ -131,12 +131,13 @@ class RulesetsManager:
         def apply() -> None:
             repo.requester.requestJsonAndCheck("PUT", url, input=body)
 
+        before, after = _differences(body, current)
         return Change(
             domain=self.domain,
             action=Action.UPDATE,
             target=f"ruleset:{name}",
-            before=_summary(current),
-            after=_summary(body),
+            before=before,
+            after=after,
             apply=apply,
         )
 
@@ -291,7 +292,7 @@ def _require_name(role: dict[str, Any]) -> str:
 
 
 def _summary(api: dict[str, Any]) -> dict[str, Any]:
-    """A concise, readable view of a ruleset for plan output."""
+    """A concise, readable view of a ruleset being created, for plan output."""
     rules = api.get("rules") or []
     return {
         "target": api.get("target"),
@@ -357,6 +358,72 @@ def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     return _satisfied(_comparable(desired, current), current)
 
 
+def _differences(desired: dict[str, Any], current: dict[str, Any]) -> tuple[dict, dict]:
+    """Reduce a mismatched ruleset to the parts that differ, as ``(live, desired)`` for the plan.
+
+    This is built on the same matching as :func:`_matches`, so it shows exactly what made the
+    ruleset drift: server metadata and anything already in sync stay out of the line.
+    """
+    comparable = _comparable(desired, current)
+    rest = {key: value for key, value in comparable.items() if key != "rules"}
+    before, after = _map_differences(rest, current)
+    missing, extra = _unmatched(comparable["rules"], current.get("rules") or [])
+    if missing or extra:
+        before["rules"], after["rules"] = _rule_differences(missing, extra)
+    return before, after
+
+
+def _map_differences(desired: dict[str, Any], current: dict[str, Any]) -> tuple[dict, dict]:
+    """Keep the keys ``current`` doesn't satisfy, with ``None`` marking an absent one.
+
+    A list shows whole on both sides. Showing only its differing items would read as the result:
+    removing the only differing bypass actor would look like none were left.
+    """
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    for key, value in desired.items():
+        live = current.get(key)
+        if key in current and _satisfied(value, live):
+            continue
+        if isinstance(value, dict) and isinstance(live, dict):
+            before[key], after[key] = _map_differences(value, live)
+        else:
+            before[key], after[key] = live, value
+    return before, after
+
+
+def _rule_differences(
+    missing: list[dict[str, Any]], extra: list[dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Key the rules that differ by type: changed fields if on both sides, else the whole rule."""
+    live_by_type = {rule["type"]: rule for rule in extra}
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    for rule in missing:
+        kind = rule["type"]
+        live = live_by_type.pop(kind, None)
+        if live is None:
+            before[kind], after[kind] = None, rule
+        else:
+            before[kind], after[kind] = _map_differences(rule, live)
+    for kind, live in live_by_type.items():
+        before[kind], after[kind] = live, None
+    return before, after
+
+
+def _unmatched(desired: list[Any], current: list[Any]) -> tuple[list[Any], list[Any]]:
+    """Pair each desired item with a distinct live item it matches; return what's left of each."""
+    missing: list[Any] = []
+    remaining: list[Any] = list(current)
+    for item in desired:
+        match = next((c for c in remaining if _satisfied(item, c)), _UNMATCHED)
+        if match is _UNMATCHED:
+            missing.append(item)
+        else:
+            remaining.remove(match)
+    return missing, remaining
+
+
 def _satisfied(desired: object, current: object) -> bool:
     """Whether ``current`` matches ``desired``: dicts by subset, lists exactly."""
     if isinstance(desired, dict):
@@ -368,14 +435,8 @@ def _satisfied(desired: object, current: object) -> bool:
             for key, value in desired.items()
         )
     if isinstance(desired, list):
-        if not isinstance(current, list) or len(current) != len(desired):
+        if not isinstance(current, list):
             return False
-        # Order-insensitive: pair each desired item with a distinct live item it matches.
-        remaining: list[Any] = list(current)
-        for item in desired:
-            match = next((c for c in remaining if _satisfied(item, c)), _UNMATCHED)
-            if match is _UNMATCHED:
-                return False
-            remaining.remove(match)
-        return True
+        # Order-insensitive: every item on each side must pair with a distinct one on the other.
+        return _unmatched(desired, current) == ([], [])
     return desired == current

@@ -100,6 +100,12 @@ rulesets:
 
     Server-supplied metadata that the config never sets — a check's `integration_id`, a bypass actor's resolved `actor_id`, timestamps — is ignored when comparing, so values GitHub fills in on its own can't cause spurious churn on every plan. One setting you do declare counts as `false` when GitHub doesn't report it: [`update_allows_fetch_and_merge`](#update).
 
+    An update line in `plan` shows only what differs, as `live -> config`. Rules are keyed by type, so a changed rule shows just its changed fields, and a rule being added or removed shows whole, with `None` on the side it's absent from. A list that differs shows whole on both sides, such as `bypass_actors`, or the `include` patterns in `conditions`:
+
+    ```text
+    ~ [rulesets] ruleset:protect tags: {'conditions': {'ref_name': {'include': ['refs/tags/v*']}}, 'rules': {'deletion': {'type': 'deletion'}}} -> {'conditions': {'ref_name': {'include': ['refs/tags/x*']}}, 'rules': {'deletion': None}}
+    ```
+
     Rulesets inherited from an organization or enterprise are never matched or deleted: the listing call uses `includes_parents=false`, so only rulesets defined directly on the repo are ever in scope.
 
 !!! warning
