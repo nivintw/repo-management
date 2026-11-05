@@ -86,14 +86,14 @@ class CollaboratorsManager:
         repo: Repository,
         collaborator: Collaborator,
     ) -> Change | None:
-        # The legacy permission field collapses maintain->write and triage->read, which
-        # would never converge for those roles; role_name reports the granular role. A
-        # non-collaborator reports permission "none".
-        if repo.get_collaborator_permission(collaborator.username) == _NONE:
-            current = _NONE
-        else:
+        # Check membership separately: on a public repo, the permission endpoints report anyone at
+        # all as "read". role_name is the granular role, since the legacy permission field
+        # collapses maintain->write and triage->read and would never converge for those roles.
+        if repo.has_in_collaborators(collaborator.username):
             role = repo.get_collaborator_role_name(collaborator.username)
             current = _API_TO_CONFIG.get(role, role)
+        else:
+            current = _NONE
         want = collaborator.permission
         if current == want:
             return None
