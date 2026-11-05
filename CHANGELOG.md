@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.0.2](https://github.com/nivintw/repo-management/compare/v2.0.1...v2.0.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **renovate:** Let the token write commit statuses ([d88a8e7](https://github.com/nivintw/repo-management/commit/d88a8e7c51c849e38f65b48e8587988dcfc2e5a0))
+
 ## [2.0.1](https://github.com/nivintw/repo-management/compare/v2.0.0...v2.0.1) (2026-11-05)
 
 
