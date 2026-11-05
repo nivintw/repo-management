@@ -14,8 +14,8 @@ deleted through the repo.
 
 ``update_allows_fetch_and_merge`` only exists on forks: GitHub stores, returns, and enforces it
 there, but on any other repository it accepts the value and discards it. So the comparison counts
-an unreported value as ``false``, and declaring ``true`` on a non-fork is a diagnostic rather than
-a write that could never take effect.
+an unreported value as ``false``, and declaring the setting on a non-fork, with either value, is a
+diagnostic: it can't do anything there.
 """
 
 from __future__ import annotations
@@ -53,15 +53,14 @@ class RulesetsManager:
         resolve_slug = _BypassActorResolver(repo)
         changes: list[Change] = []
         for ruleset in desired.rulesets:
-            if _allows_fork_sync(ruleset) and not repo.fork:
+            if _declares_fork_sync(ruleset) and not repo.fork:
                 changes.append(
                     Change.diagnostic(
                         self.domain,
                         f"ruleset:{ruleset.name}",
-                        "update_allows_fetch_and_merge: true has no effect because this "
-                        "repository is not a fork: GitHub discards the setting, and there is no "
-                        "upstream to sync from. Remove it, or move this repo to a config that "
-                        "doesn't set it",
+                        "update_allows_fetch_and_merge has no effect because this repository is "
+                        "not a fork: GitHub discards the setting, and there is no upstream to "
+                        "sync from. Remove it, or move this repo to a config that doesn't set it",
                     )
                 )
                 continue
@@ -304,10 +303,15 @@ def _summary(api: dict[str, Any]) -> dict[str, Any]:
 _UNMATCHED = object()
 
 
-def _allows_fork_sync(ruleset: Ruleset) -> bool:
-    """Whether the ruleset declares an ``update`` rule that lets a fork sync from upstream."""
+def _declares_fork_sync(ruleset: Ruleset) -> bool:
+    """Whether an ``update`` rule sets ``update_allows_fetch_and_merge`` in the config.
+
+    Asks what the config set rather than what the value is, because a bare ``update`` rule renders
+    the same ``false`` as one that declares it, and only the declaration claims anything.
+    """
     return any(
-        isinstance(rule, UpdateRule) and rule.parameters.update_allows_fetch_and_merge
+        isinstance(rule, UpdateRule)
+        and "update_allows_fetch_and_merge" in rule.parameters.model_fields_set
         for rule in ruleset.rules
     )
 
@@ -317,8 +321,8 @@ def _comparable(desired: dict[str, Any], current: dict[str, Any]) -> dict[str, A
 
     GitHub reports the setting only on a fork. Anywhere else there is no live value to compare
     against, so requiring one would report a change on every plan that no write could ever clear.
-    A declared ``true`` stays in the comparison: it only gets this far on a fork, where an
-    unreported value means nothing confirms the fork can actually sync.
+    A ``true`` stays in the comparison: it only gets this far on a fork, where an unreported value
+    means nothing confirms the fork can actually sync.
     """
     live_rules = current.get("rules") or []
     if not any(rule["type"] == "update" and "parameters" not in rule for rule in live_rules):

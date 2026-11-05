@@ -210,10 +210,11 @@ It only exists on forks. GitHub stores, returns, and enforces it there, but on a
 it accepts the value and discards it. GitHub's documentation doesn't mention this, so this tool
 handles it for you:
 
-- `plan` counts a value GitHub doesn't report as `false`, so `false` on a non-fork never shows up as
+- Setting it on a non-fork, to either value, is reported as an error and blocks `plan` and `apply`,
+  because it does nothing there. Remove it, or move that repo to a config that doesn't set it. A
+  bare `- type: update` doesn't set it, so it's fine anywhere.
+- `plan` counts a value GitHub doesn't report as `false`, so a bare `update` rule never shows up as
   a change.
-- `true` on a non-fork is reported as an error, and blocks `plan` and `apply`, because it could
-  never take effect. Remove it, or move that repo to a config that doesn't set it.
 - `true` on a fork that doesn't report the value shows up as a change, because nothing confirms the
   fork can sync.
 
