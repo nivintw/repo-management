@@ -211,7 +211,7 @@ def test_plan_hard_errors_on_unresolved_but_shows_the_rest(
     # line, diagnostics and ordinary changes alike — a pre-existing display quirk, not this fix's).
     assert "variable:REGION: unset" in result.stdout
     assert "1 change(s)" in result.stdout  # the diagnostic isn't counted as a change
-    assert "unresolved value(s)" in result.stderr
+    assert "problem(s)" in result.stderr
 
 
 def test_apply_refuses_when_a_value_is_unresolved(
@@ -228,7 +228,7 @@ def test_apply_refuses_when_a_value_is_unresolved(
     result = runner.invoke(cli.app, ["apply", "--config", str(write(tmp_path)), "--yes"])
 
     assert result.exit_code == 1
-    assert "unresolved value(s)" in result.stderr
+    assert "problem(s)" in result.stderr
     assert called == []  # nothing was applied
 
 

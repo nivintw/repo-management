@@ -127,13 +127,13 @@ def _print_changes(title: str, changes: list[Change]) -> None:
     if not changes:
         console.print(f"[green]✓[/green] [bold]{title}[/bold]: in sync")
         return
-    # Count real changes and unresolved-value diagnostics separately — a diagnostic is a `!`
+    # Count real changes and diagnostics separately — a diagnostic is a `!`
     # problem line, not a change, so folding it into the change count would mislead.
     actionable = sum(1 for change in changes if not change.unresolved)
     problems = sum(1 for change in changes if change.unresolved)
     header = f"{actionable} change(s)"
     if problems:
-        header += f", {problems} unresolved"
+        header += f", {problems} problem(s)"
     console.print(f"[bold]{title}[/bold] — {header}:")
     for change in changes:
         console.print(f"  {escape(change.describe())}")
@@ -141,12 +141,12 @@ def _print_changes(title: str, changes: list[Change]) -> None:
 
 def _apply_changes(changes: list[Change], *, yes: bool) -> None:
     """Confirm (unless ``yes``), apply each change, and report — or note nothing to do."""
-    # Refuse a plan carrying an unresolvable value, before writing anything — the same gate
+    # Refuse a plan carrying a diagnostic, before writing anything — the same gate
     # the per-repo `apply` holds. A diagnostic's own apply() raises RuntimeError, so without
     # this the confirm prompt would count it as a change and blow up partway through.
     problems = [change for change in changes if change.unresolved]
     if problems:
-        msg = f"{len(problems)} unresolved value(s) — resolve them and re-run; nothing was applied."
+        msg = f"{len(problems)} problem(s) — fix them and re-run; nothing was applied."
         raise _fail(msg)
     if not changes:
         console.print("\n[green]nothing to do[/green]")
@@ -290,7 +290,7 @@ def plan(
     # aborting the plan mid-build; report the count and exit non-zero so it's a hard failure.
     problems = sum(len(item.problems) for item in plans)
     if problems:
-        msg = f"{problems} unresolved value(s) — see the ! line(s) above."
+        msg = f"{problems} problem(s) — see the ! line(s) above."
         raise _fail(msg)
 
 
@@ -309,11 +309,11 @@ def apply(
     plans = _plans(selected, token, force_secrets=force_secrets)
     for repo_plan in plans:
         _print_plan(repo_plan)
-    # Refuse to apply a plan with any unresolvable value — fail fast before writing anything,
+    # Refuse to apply a plan with any diagnostic — fail fast before writing anything,
     # rather than resolving the rest and blowing up partway through.
     problems = sum(len(item.problems) for item in plans)
     if problems:
-        msg = f"{problems} unresolved value(s) — resolve them and re-run; nothing was applied."
+        msg = f"{problems} problem(s) — fix them and re-run; nothing was applied."
         raise _fail(msg)
     total = sum(len(item.actionable) for item in plans)
     if total == 0:
@@ -398,10 +398,10 @@ def projects_plan(
     _print_changes(label, changes)
     problems = [change for change in changes if change.unresolved]
     console.print(f"\n{len(changes) - len(problems)} change(s).")
-    # Exit non-zero on an unresolvable value, as the per-repo `plan` does — otherwise a board
+    # Exit non-zero on a diagnostic, as the per-repo `plan` does — otherwise a board
     # that can never reach desired state still reports success.
     if problems:
-        msg = f"{len(problems)} unresolved value(s) — see the ! line(s) above."
+        msg = f"{len(problems)} problem(s) — see the ! line(s) above."
         raise _fail(msg)
 
 

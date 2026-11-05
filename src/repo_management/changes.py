@@ -12,8 +12,8 @@ A change may also carry a ``preflight`` — a side-effect-free callable that res
 write's payload (e.g. a secret value from the environment) so ``apply`` can validate every
 write *before* performing the first one, keeping a failed run from leaving a half-applied
 fleet. And a *diagnostic* :class:`Change` (built via :meth:`Change.diagnostic`) represents a
-desired value that couldn't be resolved at all — it is reported and blocks the run, never
-applied.
+desired value that can't be applied, such as one that can't be resolved or has no effect — it is
+reported and blocks the run, never applied.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class Change:
             ``preflight`` before the first write so a missing value aborts with nothing applied.
             ``None`` when there's no payload to resolve (deletes, already-resolved variables).
         error: When set, this is a *diagnostic*, not a change to apply — a desired value that
-            could not be resolved (see :attr:`unresolved` and :meth:`diagnostic`). Build one only
+            can't be applied (see :attr:`unresolved` and :meth:`diagnostic`). Build one only
             via :meth:`diagnostic`, which keeps the payload inert and the ``apply`` fail-loud.
     """
 
@@ -79,7 +79,7 @@ class Change:
 
     @classmethod
     def diagnostic(cls, domain: str, target: str, error: str) -> Change:
-        """Build a diagnostic: a desired value that couldn't be resolved, not a change to apply.
+        """Build a diagnostic: a desired value that can't be applied, not a change to apply.
 
         Renders as a ``!`` line (:meth:`describe`), partitions into ``RepoPlan.problems``, and
         blocks the run — the CLI reports it and exits non-zero for ``plan``, and refuses to write
@@ -88,14 +88,14 @@ class Change:
         """
 
         def _apply() -> None:
-            msg = f"refusing to apply an unresolved value: {error}"
+            msg = f"refusing to apply a diagnostic: {error}"
             raise RuntimeError(msg)
 
         return cls(domain, Action.UPDATE, target, None, None, _apply, error=error)
 
     @property
     def unresolved(self) -> bool:
-        """Whether this is a diagnostic for an unresolvable value, not a change to apply."""
+        """Whether this is a diagnostic, not a change to apply."""
         return self.error is not None
 
     def describe(self) -> str:
