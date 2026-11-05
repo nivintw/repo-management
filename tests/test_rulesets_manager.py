@@ -41,6 +41,7 @@ def make_repo(list_data: list[dict[str, Any]], get_data: dict[str, Any] | None =
     """Build a mock repo whose requester answers list/get and records writes."""
     repo = MagicMock()
     repo.url = URL
+    repo.fork = False
 
     def request(verb: str, url: str, **_kwargs: object) -> tuple[dict, Any]:
         if verb == "GET" and url.split("?", maxsplit=1)[0] == f"{URL}/rulesets":
@@ -522,3 +523,135 @@ def test_satisfied_branches() -> None:
     assert _satisfied([1, 2], [1]) is False  # missing item
     assert _satisfied([1], "not-a-list") is False  # list vs scalar
     assert _satisfied("x", "y") is False  # scalar inequality
+
+
+def _update_rule(*, allows: bool) -> dict[str, Any]:
+    return {"type": "update", "parameters": {"update_allows_fetch_and_merge": allows}}
+
+
+def _plan_against_live(
+    desired: Ruleset, live_rules: list[dict[str, Any]], *, fork: bool = False
+) -> tuple[MagicMock, list[Any]]:
+    """Plan ``desired`` against a live ruleset of the same shape carrying ``live_rules``."""
+    current = {"id": 1, "source": "Repository", **desired.to_api(), "rules": live_rules}
+    repo = make_repo([{"id": 1, "name": desired.name}], current)
+    repo.fork = fork
+    return repo, RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
+
+
+def test_update_rule_unreported_by_github_is_in_sync() -> None:
+    """GitHub omits the fetch-and-merge setting on a non-fork, which isn't drift."""
+    _, changes = _plan_against_live(ruleset(rules=[{"type": "update"}]), [{"type": "update"}])
+    assert changes == []
+
+
+@pytest.mark.parametrize("allows", [True, False])
+def test_update_rule_reported_by_github_is_compared(*, allows: bool) -> None:
+    """A fork reports the setting, so a live value differing from the config is real drift."""
+    desired = ruleset(rules=[_update_rule(allows=allows)])
+
+    _, changes = _plan_against_live(desired, [_update_rule(allows=not allows)], fork=True)
+
+    assert [change.action for change in changes] == [Action.UPDATE]
+
+
+@pytest.mark.parametrize("allows", [True, False])
+def test_update_rule_matching_on_a_fork_is_in_sync(*, allows: bool) -> None:
+    """A fork reporting the configured value yields no change."""
+    desired = ruleset(rules=[_update_rule(allows=allows)])
+
+    _, changes = _plan_against_live(desired, [_update_rule(allows=allows)], fork=True)
+
+    assert changes == []
+
+
+def test_missing_update_rule_is_still_drift() -> None:
+    """Only the setting is skipped when unreported: a live ruleset lacking the rule is drift."""
+    desired = ruleset(rules=[{"type": "update"}, {"type": "deletion"}])
+
+    _, changes = _plan_against_live(desired, [{"type": "deletion"}])
+
+    assert [change.action for change in changes] == [Action.UPDATE]
+
+
+def test_other_rule_missing_parameters_is_still_drift() -> None:
+    """The skip is specific to the update rule: other rules' missing parameters are drift."""
+    desired = ruleset(rules=[{"type": "pull_request"}, {"type": "update"}])
+
+    _, changes = _plan_against_live(desired, [{"type": "pull_request"}, {"type": "update"}])
+
+    assert [change.action for change in changes] == [Action.UPDATE]
+
+
+def test_update_still_sends_the_configured_setting() -> None:
+    """The skip only affects comparison: a real update still sends the setting to GitHub."""
+    desired = ruleset(rules=[{"type": "update"}, {"type": "deletion"}])
+
+    repo, changes = _plan_against_live(desired, [{"type": "update"}])
+    changes[0].apply()
+
+    repo.requester.requestJsonAndCheck.assert_any_call(
+        "PUT", f"{URL}/rulesets/1", input=desired.to_api()
+    )
+    assert desired.to_api()["rules"][0] == _update_rule(allows=False)
+
+
+def test_allowing_fork_sync_on_a_non_fork_is_a_diagnostic() -> None:
+    """Allowing fork sync on a non-fork is reported and blocks the run, with nothing to write."""
+    desired = ruleset(rules=[_update_rule(allows=True)])
+
+    repo, changes = _plan_against_live(desired, [{"type": "update"}])
+
+    assert [change.target for change in changes] == ["ruleset:main"]
+    assert changes[0].unresolved
+    assert "update_allows_fetch_and_merge" in changes[0].describe()
+    assert "fork" in changes[0].describe()
+    with pytest.raises(RuntimeError, match="refusing to apply"):
+        changes[0].apply()
+    verbs = [call.args[0] for call in repo.requester.requestJsonAndCheck.call_args_list]
+    assert set(verbs) == {"GET"}
+
+
+def test_new_ruleset_allowing_fork_sync_on_a_non_fork_is_a_diagnostic() -> None:
+    """The check also covers a ruleset that doesn't exist yet."""
+    repo = make_repo([])
+    desired = SharedConfig(rulesets=[ruleset(rules=[_update_rule(allows=True)])])
+
+    changes = RulesetsManager().plan(repo, desired)
+
+    assert [change.unresolved for change in changes] == [True]
+
+
+def test_diagnosed_ruleset_is_not_deleted_and_others_still_plan() -> None:
+    """A diagnosed ruleset stays declared, so it isn't deleted, and other rulesets still plan."""
+    repo = make_repo([{"id": 1, "name": "main"}])
+    desired = SharedConfig(
+        rulesets=[ruleset(rules=[_update_rule(allows=True)]), ruleset(name="other")]
+    )
+
+    changes = RulesetsManager().plan(repo, desired)
+
+    assert [(change.target, change.unresolved) for change in changes] == [
+        ("ruleset:main", True),
+        ("ruleset:other", False),
+    ]
+
+
+def test_allowing_fork_sync_on_a_fork_is_allowed() -> None:
+    """On a fork the setting works, so allowing sync is an ordinary write."""
+    repo = make_repo([])
+    repo.fork = True
+    desired = SharedConfig(rulesets=[ruleset(rules=[_update_rule(allows=True)])])
+
+    changes = RulesetsManager().plan(repo, desired)
+
+    assert [(change.action, change.unresolved) for change in changes] == [(Action.CREATE, False)]
+
+
+def test_explicit_false_on_a_non_fork_is_not_a_diagnostic() -> None:
+    """Declaring ``false`` on a non-fork is accurate: nothing can sync, so nothing is reported."""
+    desired = ruleset(rules=[_update_rule(allows=False)])
+
+    _, changes = _plan_against_live(desired, [{"type": "update"}])
+
+    assert changes == []

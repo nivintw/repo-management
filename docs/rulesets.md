@@ -190,7 +190,22 @@ rules:
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `update_allows_fetch_and_merge` | bool | `false` | |
+| `update_allows_fetch_and_merge` | bool | `false` | Forks only; see below |
+
+`update_allows_fetch_and_merge` controls whether a fork can sync the matching branch from its
+upstream. It doesn't affect ordinary pushes, which the rule blocks either way.
+
+It only exists on forks. GitHub stores, returns, and enforces it there, but on any other repository
+it accepts the value and discards it. GitHub's documentation doesn't mention this, so this tool
+handles it for you:
+
+- `plan` compares the setting only when GitHub reports it, so `false` on a non-fork never shows up
+  as a change.
+- `true` on a non-fork is reported as an error, and blocks `plan` and `apply`, because it could
+  never take effect. Remove it, or if a shared base sets it, override the ruleset for that repo.
+
+This was measured on GitHub's API using a public fork, syncing through the API. Private forks and
+tag rulesets on forks weren't tested.
 
 ### pull_request
 

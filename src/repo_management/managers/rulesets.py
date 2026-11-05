@@ -11,6 +11,11 @@ A declared ``rulesets`` section is authoritative: rulesets are created and updat
 the config, and repo-level rulesets absent from the config are deleted. Listing passes
 ``includes_parents=false`` so inherited org/enterprise rulesets are never matched or
 deleted through the repo.
+
+``update_allows_fetch_and_merge`` only exists on forks: GitHub stores, returns, and enforces it
+there, but on any other repository it accepts the value and discards it. So the comparison skips
+the setting when GitHub doesn't report it, and declaring ``true`` on a non-fork is a diagnostic
+rather than a write that could never take effect.
 """
 
 from __future__ import annotations
@@ -22,11 +27,13 @@ from urllib.parse import quote
 from github import GithubException
 
 from repo_management.changes import Action, Change
+from repo_management.ruleset import UpdateRule
 
 if TYPE_CHECKING:
     from github.Repository import Repository
 
     from repo_management.config import SharedConfig
+    from repo_management.ruleset import Ruleset
 
 # GitHub's list-rulesets page cap; requesting the max minimizes round-trips.
 _PER_PAGE = 100
@@ -46,6 +53,17 @@ class RulesetsManager:
         resolve_slug = _BypassActorResolver(repo)
         changes: list[Change] = []
         for ruleset in desired.rulesets:
+            if _allows_fork_sync(ruleset) and not repo.fork:
+                changes.append(
+                    Change.diagnostic(
+                        self.domain,
+                        f"ruleset:{ruleset.name}",
+                        "update_allows_fetch_and_merge: true has no effect because this "
+                        "repository is not a fork: GitHub discards the setting, and there is no "
+                        "upstream to sync from. Remove it or override this ruleset for this repo",
+                    )
+                )
+                continue
             body = ruleset.to_api(resolve_slug)
             ruleset_id = existing.get(ruleset.name)
             if ruleset_id is None:
@@ -285,6 +303,27 @@ def _summary(api: dict[str, Any]) -> dict[str, Any]:
 _UNMATCHED = object()
 
 
+def _allows_fork_sync(ruleset: Ruleset) -> bool:
+    """Whether the ruleset declares an ``update`` rule that lets a fork sync from upstream."""
+    return any(
+        isinstance(rule, UpdateRule) and rule.parameters.update_allows_fetch_and_merge
+        for rule in ruleset.rules
+    )
+
+
+def _comparable(desired: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Drop the ``update`` rule's parameters from ``desired`` when GitHub doesn't report them.
+
+    GitHub reports them only on a fork. Anywhere else there is no live value to compare against,
+    so requiring one would report a change on every plan that no write could ever clear.
+    """
+    live_rules = current.get("rules") or []
+    if not any(rule["type"] == "update" and "parameters" not in rule for rule in live_rules):
+        return desired
+    rules = [{"type": "update"} if rule["type"] == "update" else rule for rule in desired["rules"]]
+    return {**desired, "rules": rules}
+
+
 def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     """Whether the live ruleset already matches the desired spec.
 
@@ -299,8 +338,10 @@ def _matches(desired: dict[str, Any], current: dict[str, Any]) -> bool:
     pins by id (literally, or resolved from an ``actor_slug`` before this compares) must match
     the live actor's id, while an actor that sets no id (``OrganizationAdmin``) ignores whatever
     id the server attached — which is exactly why a slug resolving to the live id is a NOOP.
+
+    One setting GitHub doesn't report on every repository is skipped; see :func:`_comparable`.
     """
-    return _satisfied(desired, current)
+    return _satisfied(_comparable(desired, current), current)
 
 
 def _satisfied(desired: object, current: object) -> bool:
