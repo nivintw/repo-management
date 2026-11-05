@@ -66,6 +66,7 @@ def test_plan_shows_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_plan_in_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Plan reports an in-sync repo."""
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
 
     result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path))])
@@ -272,6 +273,7 @@ def test_apply_preflight_refuses_missing_secret_with_zero_writes(
 
 def test_apply_nothing_to_do(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Apply on an in-sync repo does nothing."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(cli, "get_client", lambda _token: object())
     monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
     called: list[str] = []
@@ -802,3 +804,54 @@ def test_projects_plan_survives_an_unbalanced_markup_tag_in_a_title(
     assert result.exit_code == 0
     assert result.exception is None
     assert "Roadmap [/]" in result.output
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        ("collaborators: []\n", ["collaborators"]),
+        ("teams: []\n", ["teams"]),
+        ("deploy_keys: []\n", ["deploy_keys"]),
+        ("collaborators: []\ndeploy_keys: []\n", ["collaborators", "deploy_keys"]),
+    ],
+)
+def test_add_only_notice_names_declared_sections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: str, expected: list[str]
+) -> None:
+    """`in sync` over an add-only section says the section isn't asserting unlisted entries."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path, VALID + extra))])
+
+    assert result.exit_code == 0
+    assert f"{', '.join(expected)} add-only" in " ".join(result.stdout.split())
+
+
+@pytest.mark.parametrize(
+    "extra",
+    ["", "collaborators: []\ncollaborators_mode: authoritative\n", "teams_mode: authoritative\n"],
+)
+def test_add_only_notice_is_silent_when_nothing_is_add_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: str
+) -> None:
+    """No notice for an authoritative section, or for a section the config doesn't declare."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
+
+    result = runner.invoke(cli.app, ["plan", "--config", str(write(tmp_path, VALID + extra))])
+
+    assert result.exit_code == 0
+    assert "add-only" not in result.stdout
+
+
+def test_apply_prints_the_add_only_notice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`apply` carries the same notice, since it can report `nothing to do` too."""
+    monkeypatch.setattr(cli, "get_client", lambda _token: object())
+    monkeypatch.setattr(cli, "plan_config", lambda _c, _cfg, **_kw: [RepoPlan("owner/repo", [])])
+    path = str(write(tmp_path, VALID + "deploy_keys: []\n"))
+
+    result = runner.invoke(cli.app, ["apply", "--config", path, "--yes"])
+
+    assert result.exit_code == 0
+    assert "deploy_keys add-only" in " ".join(result.stdout.split())
