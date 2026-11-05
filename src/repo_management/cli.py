@@ -407,7 +407,8 @@ def apply(
 
     Each repo stands alone. One that couldn't be fully planned, or whose payloads won't resolve,
     is skipped and reported while every healthy repo still applies; a failed write costs its own
-    change rather than the rest of its repo. Anything short of a clean sweep exits non-zero.
+    change and the rest of that domain, not the repo's other domains. Anything short of a clean
+    sweep exits non-zero.
     """
     selected = _select(_load(config), repo)
     _print_add_only_notice(selected)
