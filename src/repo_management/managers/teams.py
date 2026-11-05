@@ -23,6 +23,7 @@ the authenticated requester: the org-scoped ``PUT``/``DELETE
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from repo_management.changes import Action, Change
 from repo_management.config import ConfigError
@@ -40,12 +41,12 @@ _ROLES = ("admin", "maintain", "push", "triage", "pull")
 
 
 class TeamsManager:
-    """Grant, update, and revoke team access to match the config."""
+    """Grant and re-permission listed teams; revoke unlisted ones only when authoritative."""
 
     domain = "teams"
 
     def plan(self, repo: Repository, desired: SharedConfig) -> list[Change]:
-        """Return changes to grant, re-permission, and revoke team access to match config."""
+        """Return changes to grant and re-permission teams, and (if authoritative) revoke."""
         if desired.teams is None:
             return []
 
@@ -54,10 +55,13 @@ class TeamsManager:
             msg = "a 'teams' section requires an org-owned repository (teams are org-scoped)"
             raise ConfigError(msg)
 
+        # GitHub team slugs are case-insensitive, so match them that way. Keep the live slug for
+        # a revoke, since that's the one GitHub reported.
         existing = {team["slug"]: _role(team) for team in self._list(repo)}
+        roles = {slug.casefold(): role for slug, role in existing.items()}
         changes: list[Change] = []
         for team in desired.teams:
-            change = self._grant_change(repo, org.login, team, existing.get(team.slug))
+            change = self._grant_change(repo, org.login, team, roles.get(team.slug.casefold()))
             if change is not None:
                 changes.append(change)
 
@@ -66,9 +70,11 @@ class TeamsManager:
         if desired.teams_mode != "authoritative":
             return changes
 
-        wanted = {team.slug for team in desired.teams}
+        wanted = {team.slug.casefold() for team in desired.teams}
         changes.extend(
-            self._revoke(repo, org.login, slug) for slug in existing if slug not in wanted
+            self._revoke(repo, org.login, slug)
+            for slug in existing
+            if slug.casefold() not in wanted
         )
         return changes
 
@@ -94,7 +100,7 @@ class TeamsManager:
         if current == team.permission:
             return None
 
-        url = f"/orgs/{org_login}/teams/{team.slug}/repos/{repo.full_name}"
+        url = f"/orgs/{org_login}/teams/{quote(team.slug, safe='')}/repos/{repo.full_name}"
 
         def apply() -> None:
             repo.requester.requestJsonAndCheck("PUT", url, input={"permission": team.permission})
@@ -110,7 +116,7 @@ class TeamsManager:
         )
 
     def _revoke(self, repo: Repository, org_login: str, slug: str) -> Change:
-        url = f"/orgs/{org_login}/teams/{slug}/repos/{repo.full_name}"
+        url = f"/orgs/{org_login}/teams/{quote(slug, safe='')}/repos/{repo.full_name}"
 
         def apply() -> None:
             repo.requester.requestJsonAndCheck("DELETE", url)

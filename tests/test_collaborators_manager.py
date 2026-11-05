@@ -222,3 +222,25 @@ def test_empty_collaborators_revokes_everyone_when_authoritative(repo: MagicMock
         "collaborator:mallory",
     }
     assert all(change.action is Action.DELETE for change in changes)
+
+
+def test_listed_collaborator_with_different_case_is_not_removed(repo: MagicMock) -> None:
+    """GitHub logins are case-insensitive, so a listed person is never pruned over casing."""
+    repo.get_collaborator_permission.return_value = "write"
+    repo.get_collaborator_role_name.return_value = "write"
+    repo.get_collaborators.return_value = [make_user("alice")]
+    desired = SharedConfig(
+        collaborators=[Collaborator(username="Alice", permission="push")],
+        collaborators_mode="authoritative",
+    )
+
+    assert CollaboratorsManager().plan(repo, desired) == []
+
+
+def test_unrecognized_mode_never_prunes(repo: MagicMock) -> None:
+    """The gate keys on `authoritative`, so a future mode can't turn into a mass removal."""
+    repo.get_collaborators.return_value = [make_user("rogue")]
+    desired = SharedConfig(collaborators=[])
+    object.__setattr__(desired, "collaborators_mode", "report-only")
+
+    assert CollaboratorsManager().plan(repo, desired) == []

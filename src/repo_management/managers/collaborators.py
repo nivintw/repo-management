@@ -57,13 +57,14 @@ class CollaboratorsManager:
             # for it means add-only works with a token that can't enumerate collaborators.
             return changes
 
-        wanted = {collaborator.username for collaborator in desired.collaborators}
+        # GitHub logins are case-insensitive: `Alice` in config is the live `alice`.
+        wanted = {collaborator.username.casefold() for collaborator in desired.collaborators}
         # affiliation="direct" excludes access inherited via org/team membership, which the
         # repo collaborator API can't revoke anyway.
         changes.extend(
             self._remove(repo, user.login)
             for user in repo.get_collaborators(affiliation="direct")
-            if user.login not in wanted
+            if user.login.casefold() not in wanted
         )
         return changes
 

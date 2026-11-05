@@ -645,3 +645,35 @@ def test_section_mode_overrides_through_extends(tmp_path: Path) -> None:
     assert config.teams_mode == "add-only"  # the child's override wins...
     assert config.collaborators_mode == "authoritative"  # ...and leaves its sibling alone
     assert config.deploy_keys_mode == "add-only"  # untouched by either file
+
+
+@pytest.mark.parametrize(("section", "key"), [("collaborators", "username"), ("teams", "slug")])
+def test_extends_override_with_different_case_replaces_the_base_entry(
+    tmp_path: Path, section: str, key: str
+) -> None:
+    """A case-variant override must replace the base entry, or both survive and fight."""
+    write(tmp_path, f"{section}:\n  - {{{key}: alice, permission: admin}}\n", name="base.yaml")
+    path = write(
+        tmp_path,
+        f"extends: base.yaml\nrepos: [o/r]\n{section}:\n  - {{{key}: Alice, permission: pull}}\n",
+    )
+
+    entries = getattr(load_config(path), section)
+
+    assert [(getattr(entry, key), entry.permission) for entry in entries] == [("Alice", "pull")]
+
+
+@pytest.mark.parametrize(("section", "key"), [("collaborators", "username"), ("teams", "slug")])
+def test_case_insensitive_duplicate_access_entries_are_rejected(
+    tmp_path: Path, section: str, key: str
+) -> None:
+    """Two entries for one principal would flip their permission on every apply."""
+    path = write(
+        tmp_path,
+        f"repos: [o/r]\n{section}:\n"
+        f"  - {{{key}: alice, permission: admin}}\n"
+        f"  - {{{key}: Alice, permission: pull}}\n",
+    )
+
+    with pytest.raises(ConfigError, match="more than once"):
+        load_config(path)
