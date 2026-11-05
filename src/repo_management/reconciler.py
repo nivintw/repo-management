@@ -33,19 +33,19 @@ class RepoPlan:
     def in_sync(self) -> bool:
         """Whether the repository already matches the desired config.
 
-        False if there's anything to apply *or* any unresolved value — a plan that couldn't
+        False if there's anything to apply *or* any diagnostic — a plan that couldn't
         resolve a value isn't "in sync", we just couldn't compute its diff.
         """
         return not self.actionable and not self.problems
 
     @property
     def actionable(self) -> list[Change]:
-        """The changes to apply — everything but unresolved-value diagnostics."""
+        """The changes to apply — everything but diagnostics."""
         return [change for change in self.changes if not change.unresolved]
 
     @property
     def problems(self) -> list[Change]:
-        """The unresolved-value diagnostics — values that couldn't be resolved for the diff."""
+        """The diagnostics — desired values that can't be applied."""
         return [change for change in self.changes if change.unresolved]
 
 
@@ -100,7 +100,7 @@ def _has_env_sourced_secret(config: Config) -> bool:
 def apply_plan(plan: RepoPlan) -> None:
     """Apply every actionable change in a plan, in order.
 
-    Skips unresolved-value diagnostics (they carry no write); the CLI refuses to apply a plan
+    Skips diagnostics (they carry no write); the CLI refuses to apply a plan
     that has any before reaching here, so this only ever sees actionable changes in practice.
     """
     for change in plan.actionable:
