@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 from github import GithubException
 
-from repo_management.changes import Action
+from repo_management.changes import Action, Change
 from repo_management.config import SharedConfig
 from repo_management.managers.rulesets import RulesetsManager, _BypassActorResolver, _satisfied
 from repo_management.ruleset import Ruleset
@@ -697,3 +697,153 @@ def test_an_unreported_update_rule_does_not_hide_a_declared_true() -> None:
     )
 
     assert [change.action for change in changes] == [Action.UPDATE]
+
+
+def _planned_update(desired: Ruleset, **live: object) -> Change:
+    """Plan ``desired`` against a live copy with ``live`` overriding its fields."""
+    current = {
+        "id": 1,
+        "node_id": "RRS_x",
+        "source": "Repository",
+        "created_at": "2026-01-01T00:00:00Z",
+        "_links": {"self": {"href": "https://example.test"}},
+        **desired.to_api(),
+        **live,
+    }
+    repo = make_repo([{"id": 1, "name": desired.name}], current)
+    changes = RulesetsManager().plan(repo, SharedConfig(rulesets=[desired]))
+    assert [change.action for change in changes] == [Action.UPDATE]
+    return changes[0]
+
+
+def _pull_request(**parameters: object) -> dict[str, Any]:
+    return {"type": "pull_request", "parameters": parameters}
+
+
+def test_update_line_shows_only_the_changed_rule_parameters() -> None:
+    """A weakened review requirement is visible, without the parameters that didn't change."""
+    desired = ruleset(rules=[_pull_request(required_approving_review_count=0)])
+    live_rule = desired.to_api()["rules"][0]
+    live_rule["parameters"] = {
+        **live_rule["parameters"],
+        "required_approving_review_count": 2,
+        "require_code_owner_review": True,
+    }
+
+    change = _planned_update(desired, rules=[live_rule])
+
+    assert change.before == {
+        "rules": {
+            "pull_request": {
+                "parameters": {
+                    "required_approving_review_count": 2,
+                    "require_code_owner_review": True,
+                }
+            }
+        }
+    }
+    assert change.after == {
+        "rules": {
+            "pull_request": {
+                "parameters": {
+                    "required_approving_review_count": 0,
+                    "require_code_owner_review": False,
+                }
+            }
+        }
+    }
+    assert "'required_approving_review_count': 2" in change.describe()
+    assert "'required_approving_review_count': 0" in change.describe()
+
+
+def test_update_line_shows_whole_bypass_lists() -> None:
+    """Both whole lists show, so removing one actor can't read as removing them all."""
+    kept = {"actor_id": 5, "actor_type": "Team", "bypass_mode": "always"}
+    removed = {"actor_id": 9, "actor_type": "Integration", "bypass_mode": "always"}
+    desired = ruleset(bypass_actors=[kept])
+
+    change = _planned_update(desired, bypass_actors=[kept, removed])
+
+    assert change.before == {"bypass_actors": [kept, removed]}
+    assert change.after == {"bypass_actors": [kept]}
+
+
+def test_update_line_shows_changed_conditions() -> None:
+    """A change to only the ref patterns shows the patterns that changed."""
+    desired = ruleset()
+
+    change = _planned_update(
+        desired, conditions={"ref_name": {"include": ["refs/heads/old"], "exclude": []}}
+    )
+
+    assert change.before == {"conditions": {"ref_name": {"include": ["refs/heads/old"]}}}
+    assert change.after == {"conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}}}
+
+
+def test_update_line_shows_changed_enforcement() -> None:
+    """A top-level field change shows on its own."""
+    change = _planned_update(ruleset(enforcement="active"), enforcement="disabled")
+
+    assert change.before == {"enforcement": "disabled"}
+    assert change.after == {"enforcement": "active"}
+
+
+def test_update_line_shows_a_rule_being_added_and_one_being_removed() -> None:
+    """A rule on only one side shows whole, with ``None`` marking the side it's absent from."""
+    desired = ruleset(rules=[{"type": "required_linear_history"}, {"type": "non_fast_forward"}])
+
+    change = _planned_update(
+        desired, rules=[{"type": "required_linear_history"}, {"type": "deletion"}]
+    )
+
+    assert change.before == {
+        "rules": {"non_fast_forward": None, "deletion": {"type": "deletion"}},
+    }
+    assert change.after == {
+        "rules": {"non_fast_forward": {"type": "non_fast_forward"}, "deletion": None},
+    }
+
+
+def test_update_line_omits_server_metadata_and_matching_rules() -> None:
+    """Fields the config never sets, and rules that match, stay out of the line."""
+    desired = ruleset(
+        enforcement="active",
+        rules=[{"type": "required_linear_history"}, _status_checks("ci")],
+    )
+    live_rules = [
+        {"type": "required_linear_history"},
+        {
+            "type": "required_status_checks",
+            "parameters": {
+                **desired.to_api()["rules"][1]["parameters"],
+                "required_status_checks": [{"context": "ci", "integration_id": 7}],
+            },
+        },
+    ]
+
+    change = _planned_update(desired, enforcement="disabled", rules=live_rules)
+
+    assert change.before == {"enforcement": "disabled"}
+    assert change.after == {"enforcement": "active"}
+
+
+def test_update_line_omits_an_unreported_fork_sync_setting() -> None:
+    """A setting GitHub doesn't report on a non-fork can't appear as part of a real change."""
+    desired = ruleset(enforcement="active", rules=[{"type": "update"}])
+
+    change = _planned_update(desired, enforcement="disabled", rules=[{"type": "update"}])
+
+    assert change.before == {"enforcement": "disabled"}
+    assert change.after == {"enforcement": "active"}
+
+
+def test_update_line_shows_a_declared_true_a_fork_does_not_report() -> None:
+    """The one unreported value that stays a change shows as absent on the live side."""
+    desired = ruleset(rules=[_update_rule(allows=True)])
+
+    _, changes = _plan_against_live(desired, [{"type": "update"}], fork=True)
+
+    assert changes[0].before == {"rules": {"update": {"parameters": None}}}
+    assert changes[0].after == {
+        "rules": {"update": {"parameters": {"update_allows_fetch_and_merge": True}}}
+    }
