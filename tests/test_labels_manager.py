@@ -124,3 +124,11 @@ def test_color_normalized_no_phantom_diff(repo: MagicMock) -> None:
     repo.get_labels.return_value = [existing]
 
     assert LabelsManager().plan(repo, desired) == []
+
+
+def test_color_differing_only_by_case_is_in_sync(repo: MagicMock) -> None:
+    """Hex colors are case-insensitive, and GitHub returns the case a label was created with."""
+    repo.get_labels.return_value = [make_label(name="bug", color="8B4513", description="d")]
+    desired = SharedConfig(labels=[Label(name="bug", color="8B4513", description="d")])
+
+    assert LabelsManager().plan(repo, desired) == []
