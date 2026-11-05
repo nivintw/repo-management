@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from conftest import make_user
 
 from repo_management.changes import Action
-from repo_management.config import Collaborator, SharedConfig
+from repo_management.config import Collaborator, Permission, SharedConfig
 from repo_management.managers.collaborators import CollaboratorsManager
 
 
@@ -21,8 +22,8 @@ def test_no_collaborators_is_noop(repo: MagicMock) -> None:
 
 
 def test_new_collaborator_produces_create(repo: MagicMock) -> None:
-    """A non-collaborator (permission 'none') yields a create that calls add_to_collaborators."""
-    repo.get_collaborator_permission.return_value = "none"
+    """A non-collaborator yields a create that calls add_to_collaborators."""
+    repo.has_in_collaborators.return_value = False
     desired = SharedConfig(
         collaborators=[Collaborator(username="alice", permission="push")],
     )
@@ -39,9 +40,25 @@ def test_new_collaborator_produces_create(repo: MagicMock) -> None:
     repo.add_to_collaborators.assert_called_once_with("alice", "push")
 
 
+@pytest.mark.parametrize("permission", ["pull", "push"])
+def test_non_collaborator_on_a_public_repo_is_created(
+    repo: MagicMock, permission: Permission
+) -> None:
+    """A public repo reports anyone as "read", which mustn't pass for an existing grant."""
+    repo.has_in_collaborators.return_value = False
+    repo.get_collaborator_permission.return_value = "read"
+    repo.get_collaborator_role_name.return_value = "read"
+    desired = SharedConfig(collaborators=[Collaborator(username="alice", permission=permission)])
+
+    changes = CollaboratorsManager().plan(repo, desired)
+
+    assert [(change.action, change.before, change.after) for change in changes] == [
+        (Action.CREATE, None, permission)
+    ]
+
+
 def test_existing_write_and_desired_push_produces_no_change(repo: MagicMock) -> None:
     """An existing 'write' role with desired 'push' yields no change."""
-    repo.get_collaborator_permission.return_value = "write"
     repo.get_collaborator_role_name.return_value = "write"
     desired = SharedConfig(
         collaborators=[Collaborator(username="alice", permission="push")],
@@ -51,7 +68,6 @@ def test_existing_write_and_desired_push_produces_no_change(repo: MagicMock) -> 
 
 def test_existing_read_and_desired_push_produces_update(repo: MagicMock) -> None:
     """An existing 'read' role with desired 'push' yields one update change."""
-    repo.get_collaborator_permission.return_value = "read"
     repo.get_collaborator_role_name.return_value = "read"
     desired = SharedConfig(
         collaborators=[Collaborator(username="alice", permission="push")],
@@ -69,7 +85,6 @@ def test_existing_read_and_desired_push_produces_update(repo: MagicMock) -> None
 
 def test_existing_admin_and_desired_admin_produces_no_change(repo: MagicMock) -> None:
     """An existing 'admin' role with desired 'admin' yields no change."""
-    repo.get_collaborator_permission.return_value = "admin"
     repo.get_collaborator_role_name.return_value = "admin"
     desired = SharedConfig(
         collaborators=[Collaborator(username="alice", permission="admin")],
@@ -79,7 +94,6 @@ def test_existing_admin_and_desired_admin_produces_no_change(repo: MagicMock) ->
 
 def test_maintain_converges(repo: MagicMock) -> None:
     """Regression: 'maintain' (legacy permission reports 'write') must converge via role_name."""
-    repo.get_collaborator_permission.return_value = "write"  # legacy collapse of maintain
     repo.get_collaborator_role_name.return_value = "maintain"
     desired = SharedConfig(
         collaborators=[Collaborator(username="alice", permission="maintain")],
@@ -89,7 +103,6 @@ def test_maintain_converges(repo: MagicMock) -> None:
 
 def test_existing_triage_and_desired_maintain_produces_update(repo: MagicMock) -> None:
     """An existing 'triage' role with desired 'maintain' yields one update change."""
-    repo.get_collaborator_permission.return_value = "read"  # legacy collapse of triage
     repo.get_collaborator_role_name.return_value = "triage"
     desired = SharedConfig(
         collaborators=[Collaborator(username="alice", permission="maintain")],
@@ -111,7 +124,6 @@ def test_unlisted_direct_collaborator_is_left_alone_by_default(repo: MagicMock) 
     Also asserts the listing is never requested — nothing unlisted is acted on, so add-only
     works with a token that can't enumerate collaborators at all.
     """
-    repo.get_collaborator_permission.return_value = "write"
     repo.get_collaborator_role_name.return_value = "write"
     repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
     desired = SharedConfig(collaborators=[Collaborator(username="alice", permission="push")])
@@ -122,7 +134,6 @@ def test_unlisted_direct_collaborator_is_left_alone_by_default(repo: MagicMock) 
 
 def test_unlisted_direct_collaborator_is_removed_when_authoritative(repo: MagicMock) -> None:
     """collaborators_mode=authoritative restores the complete-set behaviour."""
-    repo.get_collaborator_permission.return_value = "write"
     repo.get_collaborator_role_name.return_value = "write"
     repo.get_collaborators.return_value = [make_user("alice"), make_user("mallory")]
     desired = SharedConfig(
@@ -148,7 +159,6 @@ def test_listed_collaborator_is_downgraded_under_add_only(repo: MagicMock) -> No
     The most security-relevant case for this default — someone listed as `pull` who was bumped
     to `admin` in the UI is returned to `pull`, even though unlisted people are untouched.
     """
-    repo.get_collaborator_permission.return_value = "admin"
     repo.get_collaborator_role_name.return_value = "admin"
     desired = SharedConfig(collaborators=[Collaborator(username="alice", permission="pull")])
 
@@ -163,7 +173,7 @@ def test_listed_collaborator_is_downgraded_under_add_only(repo: MagicMock) -> No
 
 def test_multiple_collaborators(repo: MagicMock) -> None:
     """Several collaborators with different states produce the correct changes."""
-    repo.get_collaborator_permission.side_effect = ["none", "write", "read", "admin"]
+    repo.has_in_collaborators.side_effect = [False, True, True, True]
     repo.get_collaborator_role_name.side_effect = ["write", "read", "admin"]
     desired = SharedConfig(
         collaborators=[
@@ -226,7 +236,6 @@ def test_empty_collaborators_revokes_everyone_when_authoritative(repo: MagicMock
 
 def test_listed_collaborator_with_different_case_is_not_removed(repo: MagicMock) -> None:
     """GitHub logins are case-insensitive, so a listed person is never pruned over casing."""
-    repo.get_collaborator_permission.return_value = "write"
     repo.get_collaborator_role_name.return_value = "write"
     repo.get_collaborators.return_value = [make_user("alice")]
     desired = SharedConfig(
