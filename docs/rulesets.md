@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT
 
 # Rulesets reference
 
-Repository rulesets — branch or tag protection rules — are declared under a config's `rulesets:` section. Each entry is matched to a live ruleset by `name` and updated to exactly the declared spec.
+Repository rulesets — branch, tag, or push protection rules — are declared under a config's `rulesets:` section. Each entry is matched to a live ruleset by `name` and updated to exactly the declared spec.
 
 ## Ruleset shape
 
@@ -77,6 +77,8 @@ GitHub partitions rule types by target. A `push` ruleset accepts *only* the four
 
 A push ruleset selects no refs, so it must *not* carry a `conditions.ref_name` include/exclude — declaring one is rejected at load.
 
+GitHub only allows push rulesets on repositories owned by an organization. On a personal repository the config still loads, and GitHub rejects the ruleset at apply.
+
 ```yaml
 rulesets:
   - name: block-binaries-and-large-files
@@ -96,7 +98,7 @@ rulesets:
 !!! note
     A ruleset is matched to a live one by `name`. Once matched, every declared list — `rules`, `bypass_actors`, and the ref-name include/exclude patterns in `conditions` — must equal the live list exactly, not just be a subset. A rule someone added by hand in the GitHub UI counts as drift and triggers an update that removes it, same as any other mismatch.
 
-    Server-supplied metadata that the config never sets — a check's `integration_id`, a bypass actor's resolved `actor_id`, timestamps — is ignored when comparing, so values GitHub fills in on its own can't cause spurious churn on every plan.
+    Server-supplied metadata that the config never sets — a check's `integration_id`, a bypass actor's resolved `actor_id`, timestamps — is ignored when comparing, so values GitHub fills in on its own can't cause spurious churn on every plan. One setting you do declare is also skipped when GitHub doesn't report it: [`update_allows_fetch_and_merge`](#update).
 
     Rulesets inherited from an organization or enterprise are never matched or deleted: the listing call uses `includes_parents=false`, so only rulesets defined directly on the repo are ever in scope.
 
@@ -152,6 +154,14 @@ conditions:
 Each entry in `rules:` uses the [GitHub REST API's](https://docs.github.com/en/rest/repos/rules) shape: a `type`, plus that type's fields nested under `parameters`. The tables below list the fields inside `parameters`. You can omit `parameters` when every field in a rule's table has a default, so `- type: update` is valid; a rule with a required field needs it. A field placed directly on the rule is rejected at load.
 
 The groups below cover every supported type.
+
+!!! note "Not supported yet"
+    A few settings in GitHub's API aren't modelled yet, and a config using one fails to load:
+
+    - the `code_quality`, `code_coverage`, and `license_compliance_scanning` rule types
+    - the `pull_request` parameters `required_reviewers`, `dismissal_restriction`, and
+      `require_extra_approval_for_unattributed_changes`
+    - the `exempt` bypass mode and the `User` bypass actor type
 
 ### Parameterless
 
