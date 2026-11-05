@@ -5,12 +5,9 @@
 
 A declared ``deploy_keys`` section manages the keys it lists. Whether a key present on the repo
 but absent from the section is deleted is governed by ``deploy_keys_mode``, which defaults to
-``add-only`` (leave it alone); ``authoritative`` restores the complete-set behaviour.
+``add-only`` (leave it alone); ``authoritative`` prunes them.
 
-Note the gate applies **only** to that prune. A *listed* key whose ``title`` or ``read_only``
-changed is still reconciled under add-only — and, per the API limitation below, that
-reconciliation is itself expressed as a delete plus a create. The two kinds of delete this
-manager emits are not interchangeable. The natural key for the diff is the
+The natural key for the diff is the
 key's content (the ``key`` field), not its ``title`` -- GitHub allows duplicate titles,
 but key content is the real identity of a deploy key. Matching normalizes to just the
 algorithm and base64 body (see :func:`~repo_management.config.normalize_deploy_key`): an

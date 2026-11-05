@@ -3,17 +3,8 @@
 
 """Manager for repository collaborators.
 
-A declared ``collaborators`` section manages the people it lists: each is added if missing and
-has their permission reconciled — in both directions, so a grant escalated out-of-band is
-brought back to the declared value.
-
-What happens to *unlisted* direct collaborators is governed by ``collaborators_mode``. It
-defaults to ``add-only``, which leaves them entirely alone: adding someone through the GitHub
-UI is a legitimate way to grant access, and this tool won't revoke it at the next apply. Set
-``authoritative`` to restore the complete-set behaviour, removing anyone unlisted.
-
-Either way, only directly-granted access is managed — access inherited from org/team membership
-is never listed and so is never touched.
+Manages listed people, reconciling permissions in both directions. Unlisted direct collaborators
+follow ``collaborators_mode`` (see ``SectionMode``). Only directly-granted access is managed.
 """
 
 from __future__ import annotations
@@ -49,15 +40,9 @@ class CollaboratorsManager:
             if change is not None:
                 changes.append(change)
 
-        # Gated on `authoritative`, not on `add-only`, so any mode this code doesn't recognize
-        # declines to prune. With two Literal values today the spellings are equivalent; the
-        # polarity is what keeps a future third mode from mass-revoking by accident.
         if desired.collaborators_mode != "authoritative":
-            # Nothing unlisted is touched, so the listing isn't needed at all — and not asking
-            # for it means add-only works with a token that can't enumerate collaborators.
             return changes
 
-        # GitHub logins are case-insensitive: `Alice` in config is the live `alice`.
         wanted = {collaborator.username.casefold() for collaborator in desired.collaborators}
         # affiliation="direct" excludes access inherited via org/team membership, which the
         # repo collaborator API can't revoke anyway.

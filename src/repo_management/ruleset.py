@@ -12,9 +12,6 @@ optional field is omitted from the request body. Anything the API accepts here k
 spelling; conveniences are additions on top of it (a bare string for a required status check,
 ``actor_slug`` for a bypass actor), never replacements.
 
-A rule's ``parameters`` defaults wherever every field in it has a default, so ``{type: update}``
-is valid; a rule with a required field (a pattern, a size limit) requires ``parameters`` too.
-
 GitHub partitions rule types by target: the four file-oriented rules
 (``file_path_restriction``, ``max_file_path_length``, ``file_extension_restriction``,
 ``max_file_size``) attach only to a ``push`` ruleset, and every other rule type attaches only

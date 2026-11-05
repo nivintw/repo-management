@@ -45,19 +45,20 @@ Permission = Literal["pull", "triage", "push", "maintain", "admin"]
 #
 # The distinction is about *who*, not *what*: a listed entity is reconciled to exactly its
 # declared state under both modes, including reducing a permission that drifted upward
-# out-of-band. Add-only stops the section asserting anything about entities it doesn't name; it
-# does not stop it asserting the state of the ones it does.
+# out-of-band. Add-only is the default because granting access in the GitHub UI is legitimate,
+# and shouldn't be revoked at the next apply.
 SectionMode = Literal["add-only", "authoritative"]
 
-# GitHub login / team-slug charset: alphanumeric and hyphens, no leading/trailing hyphen.
+# GitHub login charset (also still applied to Reviewer.slug): alphanumeric and hyphens, no
+# leading/trailing hyphen.
 # Rejects '/' in particular -- a Reviewer's login/slug is interpolated directly into a raw
 # REST path (see managers/environments.py), so this is a hard boundary against a crafted
 # value redirecting that request to an unintended API path.
 _GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
 
-# GitHub team-slug charset. Wider than the login charset above, since a slug can carry an
-# underscore, but it still can't change the REST path it's interpolated into: no separator, no
-# query or fragment marker, and no leading dot to form a `.` or `..` segment.
+# GitHub team-slug charset. Wider than the login charset (underscore, dot, leading hyphen), but
+# still path-safe: no separator, no query or fragment marker, and no leading dot to form a `.` or
+# `..` segment.
 _TEAM_SLUG = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
 
 _DEPLOY_KEY_FIELDS = 2  # algorithm + base64 body; an optional trailing comment is field 3+.
@@ -176,8 +177,6 @@ class Label(Strict):
     @field_validator("color")
     @classmethod
     def _normalize_color(cls, value: str) -> str:
-        # A canonical form for config. GitHub returns a color in the case it was created with,
-        # so the labels manager compares case-insensitively.
         return value.lstrip("#").lower()
 
 
@@ -556,9 +555,6 @@ class SharedConfig(Strict):
     rulesets: list[Ruleset] | None = None
     labels: list[Label] | None = None
     collaborators: list[Collaborator] | None = None
-    # Access-granting sections default to `add-only`: this tool manages the principals it names
-    # and never revokes anyone else's access. Set `authoritative` to make the section the
-    # complete set, removing anyone unlisted. See `SectionMode`.
     collaborators_mode: SectionMode = "add-only"
     teams: list[TeamAccess] | None = None
     teams_mode: SectionMode = "add-only"
@@ -571,9 +567,7 @@ class SharedConfig(Strict):
     secrets: list[Secret] | None = None
     variables: list[Variable] | None = None
     deploy_keys: list[DeployKey] | None = None
-    # Deploy keys are machine access, so they follow the same default as human access. Note this
-    # gates only the removal of *unlisted* keys: a listed key whose title or read_only drifted is
-    # still reconciled, which GitHub's API forces to be expressed as a delete-then-recreate pair.
+    # Machine access, so same default as human access.
     deploy_keys_mode: SectionMode = "add-only"
     autolinks: list[Autolink] | None = None
     environments: list[Environment] | None = None
