@@ -677,3 +677,53 @@ def test_case_insensitive_duplicate_access_entries_are_rejected(
 
     with pytest.raises(ConfigError, match="more than once"):
         load_config(path)
+
+
+@pytest.mark.parametrize(("section", "key"), [("collaborators", "username"), ("teams", "slug")])
+def test_case_duplicates_in_an_extending_config_are_rejected(
+    tmp_path: Path, section: str, key: str
+) -> None:
+    """Merging keeps one entry per name, so it must not silently pick a winner among duplicates."""
+    write(tmp_path, f"{section}:\n  - {{{key}: zed, permission: pull}}\n", name="base.yaml")
+    path = write(
+        tmp_path,
+        f"extends: base.yaml\nrepos: [o/r]\n{section}:\n"
+        f"  - {{{key}: Alice, permission: pull}}\n"
+        f"  - {{{key}: alice, permission: admin}}\n",
+    )
+
+    with pytest.raises(ConfigError, match="more than once"):
+        load_config(path)
+
+
+@pytest.mark.parametrize(("section", "key"), [("collaborators", "username"), ("teams", "slug")])
+def test_case_duplicates_in_a_base_config_are_rejected_when_merged(
+    tmp_path: Path, section: str, key: str
+) -> None:
+    """A child declaring the section mustn't hide a duplicate pair in its base."""
+    write(
+        tmp_path,
+        f"{section}:\n  - {{{key}: Alice, permission: pull}}\n"
+        f"  - {{{key}: alice, permission: admin}}\n",
+        name="base.yaml",
+    )
+    path = write(
+        tmp_path,
+        f"extends: base.yaml\nrepos: [o/r]\n{section}:\n  - {{{key}: zed, permission: pull}}\n",
+    )
+
+    with pytest.raises(ConfigError, match="more than once"):
+        load_config(path)
+
+
+def test_deploy_keys_differing_only_by_comment_are_rejected(tmp_path: Path) -> None:
+    """Both entries name one key, so each apply would swap its title and read_only."""
+    path = write(
+        tmp_path,
+        "repos: [o/r]\ndeploy_keys:\n"
+        "  - {title: reader, key: ssh-ed25519 AAAA one, read_only: true}\n"
+        "  - {title: writer, key: ssh-ed25519 AAAA two, read_only: false}\n",
+    )
+
+    with pytest.raises(ConfigError, match=r"deploy_keys lists \['reader', 'writer'\]"):
+        load_config(path)
