@@ -96,7 +96,8 @@ class LabelsManager:
 
 def _label_differs(current: GhLabel, item: Label) -> bool:
     """Whether a label needs updating. An unset description is left unmanaged."""
-    if current.color != item.color:
+    # Hex colors are case-insensitive, and GitHub returns the case a label was created with.
+    if current.color.lower() != item.color:
         return True
     return item.description is not None and current.description != item.description
 
