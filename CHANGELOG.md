@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.0.1](https://github.com/nivintw/repo-management/compare/v2.0.0...v2.0.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **publish:** Bump twine so the release build check passes ([e9fbcd9](https://github.com/nivintw/repo-management/commit/e9fbcd91881a89d1397ca9bbf214ff3a8a29744a))
+
 ## [2.0.0](https://github.com/nivintw/repo-management/compare/v1.15.0...v2.0.0) (2026-11-05)
 
 
