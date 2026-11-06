@@ -75,8 +75,9 @@ theme:
 # so wiring them unconditionally 404s both requests on every page of any docs site that hasn't
 # embedded a cast yet (nivintw/copier-everything#172). Embedding a cast is an opt-in step that
 # adds the two vendored asset files AND their extra_css/extra_javascript lines together (see
-# castify's embedding.md reference doc) — never one without the other. tests/test_docs_site.py
-# guards against a #196-style "restore the missing wiring" change reintroducing the 404.
+# castify's embedding.md reference doc) — never one without the other. The copier-everything
+# template's own test suite guards against a "restore the missing wiring" change reintroducing
+# the 404.
 extra_css:
   - stylesheets/extra.css
 
