@@ -1,0 +1,136 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# dependabot-auto-merge — the SECURITY FLOOR half of this fleet's Dependabot-floor /
+# Renovate-ceiling model. Dependabot owns the fast, event-driven security-remediation path;
+# Renovate (the central runner) owns broad scheduled freshness. For a security fix to LAND fast
+# (not just open fast), its Dependabot PR must auto-merge — this workflow does that, severity-gated.
+#
+# WHAT IT DOES: on a Dependabot PR, look up the associated security advisory's CVSS via
+# dependabot/fetch-metadata, and for a CRITICAL/HIGH security update (CVSS >= 7.0) enable
+# GitHub-native auto-merge (`--rebase`), so the PR lands the moment its required checks pass.
+# Everything else — Medium/Low security PRs, and any non-security version update — is left
+# untouched: it opens and waits for CI + the release-age hold / a human, never instant-merged.
+#
+# NO dependabot.yml SHIPS WITH THIS TEMPLATE — the floor is SECURITY updates only; version
+# freshness is Renovate's job (a version-updates dependabot.yml would collide with it). This
+# workflow simply stays inert until you enable "Dependabot security updates" in repo settings.
+#
+# TOKEN / SETUP: reading a security advisory's CVSS (fetch-metadata `alert-lookup`) needs a
+# token with Dependabot alerts: read — the default GITHUB_TOKEN cannot have it. So this reuses
+# the release GitHub App (the same CI_CLIENT_ID variable + CI_APP_PRIVATE_KEY secret main.yml
+# uses); grant that App "Dependabot alerts: read" alongside its Contents/Pull-requests
+# permissions. Until CI_CLIENT_ID is set the workflow self-disables (clean warning, green run) —
+# the same fail-closed posture as approve-bot-prs.yml.
+#
+# WHY pull_request_target (and why it's safe here): a Dependabot-triggered `pull_request` run
+# gets a read-only token and NO access to Actions secrets, so it could neither mint the App
+# token nor enable auto-merge. pull_request_target runs in the trusted BASE context, restoring
+# the write token + secret access. That trigger is the "pwn request" risk ONLY when you check
+# out and execute the PR's code — this workflow does neither (no checkout; it reads metadata and
+# calls the API), exactly like approve-bot-prs.yml. See the zizmor suppression below.
+
+name: dependabot-auto-merge
+
+# zizmor's ignore comment must be a trailing comment on `on:` itself. pull_request_target is
+# safe here: no checkout, no PR code executed — only a same-repo/Dependabot trust check, an
+# advisory lookup, and an auto-merge call (see WHY pull_request_target above).
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    # `synchronize` (every push to the Dependabot branch, e.g. a rebase) is deliberate, not
+    # redundant with `opened`: enabling auto-merge can FAIL on the first run for a recoverable
+    # reason — "Allow auto-merge" not yet turned on, the App not yet configured, or a transient
+    # API error — and a later rebase is what re-arms it, so a critical security fix isn't left
+    # stranded unmerged (the exact failure this floor exists to prevent). Re-runs on an
+    # already-enabled PR are cheap and collapsed by the concurrency group below.
+    types: [opened, reopened, synchronize]
+
+# The workflow's own token stays minimal; the App token minted below carries the pull-requests
+# write (to enable auto-merge) and Dependabot alerts read (for the advisory lookup).
+permissions:
+  pull-requests: read
+
+# One pass per PR at a time, newest event wins — a Dependabot rebase burst doesn't need N
+# overlapping runs against already-superseded heads.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    # Only Dependabot's own same-repo PRs. Fail closed: anything else never matches the gate,
+    # and an unconfigured repo (no CI_CLIENT_ID) self-disables at the token step below.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Note when the release App isn't configured (fail closed — no lookup, no merge)
+        if: vars.CI_CLIENT_ID == ''
+        run: |
+          echo "::warning::dependabot-auto-merge is inert — set CI_CLIENT_ID (variable) + CI_APP_PRIVATE_KEY (secret) for a GitHub App with 'Dependabot alerts: read' to enable severity-gated auto-merge of security PRs."
+
+      - name: Mint an App token that can read Dependabot alerts
+        id: app-token
+        if: vars.CI_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # `app-id` accepts the App's Client ID as well as the numeric App ID; it's non-secret.
+          app-id: ${{ vars.CI_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          # Exactly what this job needs: read the advisory (vulnerability-alerts) and enable
+          # auto-merge (pull-requests). Nothing else.
+          permission-pull-requests: write
+          permission-vulnerability-alerts: read
+
+      - name: Fetch Dependabot metadata (with the security-advisory lookup)
+        id: meta
+        if: steps.app-token.outcome == 'success'
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          # The App token, not GITHUB_TOKEN: alert-lookup reads the security advisory, which
+          # GITHUB_TOKEN has no permission for.
+          github-token: ${{ steps.app-token.outputs.token }}
+          alert-lookup: true
+
+      - name: Auto-merge a critical/high security PR (leave everything else open)
+        if: steps.meta.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          GHSA: ${{ steps.meta.outputs.ghsa-id }}
+          CVSS: ${{ steps.meta.outputs.cvss }}
+        run: |
+          set -euo pipefail
+          # Empty ghsa-id = no resolved advisory. Since this template ships no dependabot.yml,
+          # every Dependabot PR reaching here should be a security update WITH an advisory — so an
+          # empty id means the lookup came back empty (a stray version update, or a transient /
+          # unmapped advisory), not a routine skip. Warn (not a bare echo) so a floor that quietly
+          # didn't engage is visible in the run annotations, and leave the PR open either way.
+          if [ -z "${GHSA}" ]; then
+            echo "::warning::Dependabot PR #${PR} has no resolved security advisory (empty ghsa-id) — not auto-merging, leaving it open. If it is a security update, check the advisory lookup and that the App has 'Dependabot alerts: read'."
+            exit 0
+          fi
+          # Severity gate on CVSS v3 buckets — Critical >= 9.0, High 7.0-8.9. Instant-merge High+
+          # only; Medium/Low security PRs open and wait (CI + the release-age hold / a human).
+          # awk does the float compare (bash can't); -v keeps CVSS out of the program text; the
+          # `c + 0` coercion turns an empty/odd value into 0, so an unparseable score fails closed
+          # toward "don't instant-merge".
+          if ! awk -v c="${CVSS}" 'BEGIN { exit !(c + 0 >= 7.0) }'; then
+            echo "::notice::Dependabot security PR #${PR} is below High (CVSS ${CVSS:-0}, ${GHSA}) — leaving it open for CI + the release-age hold rather than instant-merging."
+            exit 0
+          fi
+          # Tolerate the documented setup gaps — "Allow auto-merge" OR "Allow rebase merging" off
+          # — with a clean warning; BOTH gate `gh pr merge --auto --rebase` (a disabled rebase
+          # merge method makes the command error), and every other failure stays loud under set -e
+          # (same posture as main.yml). One API call, both flags.
+          repo_json="$(gh api "repos/${GH_REPO}")"
+          auto_merge_allowed="$(printf '%s' "$repo_json" | jq -r '.allow_auto_merge')"
+          rebase_allowed="$(printf '%s' "$repo_json" | jq -r '.allow_rebase_merge')"
+          if [ "${auto_merge_allowed}" != "true" ] || [ "${rebase_allowed}" != "true" ]; then
+            echo "::warning::Auto-merge or rebase merging is off for ${GH_REPO} (allow_auto_merge=${auto_merge_allowed}, allow_rebase_merge=${rebase_allowed}); left critical/high Dependabot security PR #${PR} (CVSS ${CVSS}, ${GHSA}) open. Enable 'Allow auto-merge' + 'Allow rebase merging'."
+            exit 0
+          fi
+          gh pr merge "${PR}" --auto --rebase
+          echo "Enabled auto-merge on critical/high Dependabot security PR #${PR} (CVSS ${CVSS}, ${GHSA})."
