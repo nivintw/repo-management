@@ -83,6 +83,10 @@ runtime-evaluated-base-classes = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.ruff.lint.flake8-copyright]
+# Also accept the SPDX header form (`SPDX-FileCopyrightText: © 2026 ...`) used on every file.
+notice-rgx = '(?i)Copyright(?:Text:)?\s+((?:\(C\)|©)\s+)?\d{4}((-|,\s)\d{4})*'
+
 [tool.ruff.lint.per-file-ignores]
 # CLI scripts print to the user (T201) and aren't an importable package (INP001).
 "scripts/**" = ["T201", "INP001"]
