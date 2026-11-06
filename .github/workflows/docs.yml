@@ -71,7 +71,7 @@ jobs:
       # pin. Node 22 is the conservative Active-LTS floor Astro supports; Renovate advances it.
       NODE_VERSION: "22.12.0"
       # renovate: datasource=npm depName=pnpm
-      PNPM_VERSION: "11.7.0"
+      PNPM_VERSION: "11.28.10"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
