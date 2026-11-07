@@ -4,13 +4,16 @@
 # Main pipeline: on every push to main, run the SAME quality gate as PRs, then — only
 # here — release-please (gated by `needs: ci`).
 #
-# RELEASE FLOW (release-please, manifest mode — single package):
+# RELEASE FLOW (release-please, manifest mode, separate-pull-requests: true — N-package
+# generic; this template scaffolds a single package "." by default, the N=1 case of the
+# same mechanism):
 #   1. On push to main, release-please scans Conventional Commits since the last release
-#      and maintains a "Release PR" that bumps the version (.config/.release-please-manifest.json,
-#      mirrored into the version-of-record via .config/release-please-config.json's extra-files)
-#      + CHANGELOG.md.
-#   2. That Release PR is auto-merged (`--auto --rebase`) once its required checks pass, so
-#      releases are continuous; release-please then cuts the `vX.Y.Z` tag + GitHub Release.
+#      and maintains one Release PR per package that bumps that package's version
+#      (.config/.release-please-manifest.json, mirrored into the version-of-record via
+#      .config/release-please-config.json's extra-files) + CHANGELOG.md.
+#   2. Every open Release PR is auto-merged (`--auto --rebase`) once its required checks
+#      pass, so releases are continuous; release-please then cuts each package's `vX.Y.Z`
+#      tag + GitHub Release.
 #   3. The action authenticates as the release GitHub App (see below). An App token is a
 #      distinct actor, so — unlike the default GITHUB_TOKEN — the Release PR runs CI and
 #      merging it triggers downstream workflows.
@@ -96,7 +99,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      - name: Run release-please (Release PR, tag, release)
+      - name: Run release-please (Release PRs, tags, releases)
         id: release
         uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
@@ -104,34 +107,110 @@ jobs:
           config-file: .config/release-please-config.json
           manifest-file: .config/.release-please-manifest.json
 
-      # Continuous release: enable auto-merge on the Release PR so it lands (rebase) once
-      # required checks pass. On the next run (release cut, no PR) `pr` is empty and this
-      # skips. PR JSON travels via env, never inline `${{ }}`, to dodge script injection.
-      # GH_REPO tells gh which repo to act on: this job has no checkout, so without it
-      # `gh pr merge` probes the working dir for a git remote and dies ("not a git
-      # repository"). gh reads GH_REPO natively, so no `actions/checkout` is needed.
+      # release-please's default changelog renderer normalizes EVERY issue reference in a
+      # bundled commit (a `Refs #N`, a bare `#N`, anything) into a `closes #N` entry in the
+      # Release PR body — regardless of the keyword the author actually used. When this PR
+      # auto-merges below, GitHub's native parser would then close every one of those issues,
+      # including ones a commit merely *referenced*. The genuine closes already fired from the
+      # feature PRs at their own merge time, so the Release PR body's closing keywords are all
+      # redundant here: defuse them before auto-merge by rewriting any closing keyword that
+      # precedes an issue reference to the non-keyword "refs". Only the PR BODY is touched (what
+      # GitHub parses for auto-close); CHANGELOG.md keeps its `closes [#N]` links, since GitHub
+      # never parses the changelog. Runs every push right after release-please regenerates the
+      # body, so the body is always defused at the moment auto-merge lands it. `prs` travels via
+      # env (never inline `${{ }}`), same as the auto-merge step.
+      - name: Defuse closing keywords in the Release PR bodies (don't auto-close referenced issues)
+        if: ${{ steps.release.outputs.prs && steps.release.outputs.prs != '[]' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PRS: ${{ steps.release.outputs.prs }}
+        run: |
+          set -euo pipefail
+          # A closing keyword sitting directly before an issue reference — every shape GitHub's
+          # native auto-close acts on: `#N` / `[#N]` (what release-please emits), a `GH-N`, a
+          # cross-repo `owner/repo#N`, or a full issues URL. Used twice below: the perl rewrite
+          # neutralizes the `#N`/`[#N]` forms release-please actually produces (plus an optional
+          # `:` trailer), and this same pattern is the CANARY that fails the step loud if ANY
+          # closing keyword+ref survives the rewrite — a form we don't cover, or a future
+          # release-please format change — rather than letting auto-merge wrongly close a
+          # merely-referenced issue. Matched with perl below (not grep -E, whose `\b` support
+          # isn't portable), so `\b`/`[[:space:]]` behave the same everywhere.
+          close_ref='\b(clos(e|es|ed)|fix(es|ed)?|resolv(e|es|ed))\b:?[[:space:]]+(\[?#[0-9]|GH-[0-9]|[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]|https?://[^[:space:]]+/issues/[0-9])'
+          # Capture jq's output first (not `jq | while`) so a jq failure trips set -e loudly
+          # instead of being swallowed by the pipe (same rationale as the auto-merge step below).
+          numbers="$(printf '%s' "$RELEASE_PRS" | jq -r '.[].number')"
+          for num in $numbers; do
+            body="$(gh pr view "$num" --json body --jq '.body')"
+            # Rewrite each closing keyword (close/closes/closed, fix/fixes/fixed,
+            # resolve/resolves/resolved), with an optional `:` trailer, that immediately precedes a
+            # `#N` or `[#N]` reference to the non-keyword "refs". \b stops it mangling words like
+            # "prefixes"; only a keyword+ref pair is touched, so the PR's own `([#N])` self-link
+            # (no keyword) is left intact. Body passed via --body-file on stdin, never interpolated.
+            defused="$(printf '%s' "$body" | perl -0777 -pe 's/\b(clos(?:e|es|ed)|fix(?:es|ed)?|resolv(?:e|es|ed))\b:?(\s+\[?#\d)/refs$2/gi')"
+            if [ "$defused" != "$body" ]; then
+              printf '%s' "$defused" | gh pr edit "$num" --body-file -
+              echo "Defused closing keywords in Release PR #${num} (referenced issues won't auto-close on merge)."
+            fi
+            # CANARY: after the rewrite, no closing keyword may still sit before an issue reference.
+            # If one survives, FAIL LOUD — the erroring step makes the `if:`-less auto-merge step
+            # below skip (it's implicitly `success()`-gated), so the Release PR is left open for a
+            # human instead of auto-closing a referenced issue. Checked with perl (grep -E's `\b`
+            # isn't portable); perl exits 0 on a match. The pattern travels via the environment so
+            # its own `/` characters can't break the match delimiter.
+            if printf '%s' "$defused" | CLOSE_REF="$close_ref" perl -0777 -ne 'exit($_ =~ /$ENV{CLOSE_REF}/i ? 0 : 1)'; then
+              echo "::error::Release PR #${num} still has a closing keyword before an issue reference after defusing (an unhandled form, or a release-please format change). Refusing to auto-merge and wrongly close a referenced issue — update the defuse step's regex." >&2
+              exit 1
+            fi
+          done
+
+      # Continuous release: enable auto-merge on EVERY open Release PR, so each lands
+      # (rebase) once required checks pass. Because separate-pull-requests is on,
+      # release-please emits `prs` (a JSON array of every Release PR touched this run) —
+      # iterating it is what makes this generic across however many packages the config
+      # declares, from this template's default of one up to however many a consumer adds
+      # by hand. On the next run (a release was cut, no PR) `prs` is unset and this skips.
+      # PR JSON travels via env, never inline `${{ }}`, to dodge script injection. GH_REPO
+      # tells gh which repo to act on: this job has no checkout, so without it `gh pr merge`
+      # probes the working dir for a git remote and dies ("not a git repository"). gh reads
+      # GH_REPO natively, so no `actions/checkout` is needed.
       # Tolerate ONLY the documented setup gap — a repo that hasn't turned on "Allow
       # auto-merge" — by detecting it up front (the repo's allow_auto_merge flag) and warning
       # cleanly. Every OTHER failure (gh API 5xx, auth, a missing required check on main)
       # then reddens the job under `set -euo pipefail`, so a stalled release is loud instead
       # of hiding as a ::warning:: on an otherwise-green run.
-      - name: Auto-merge the Release PR
-        if: ${{ steps.release.outputs.pr }}
+      # `!= '[]'` is defensive belt-and-suspenders, not load-bearing today: verified against
+      # release-please-action v4.4.1's source that `prs` is only ever set (never to `"[]"`)
+      # when at least one PR exists — but the action isn't pinned by version, just by commit
+      # SHA that Renovate bumps, so this guards against a future release changing that.
+      - name: Auto-merge the Release PRs
+        if: ${{ steps.release.outputs.prs && steps.release.outputs.prs != '[]' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_PR: ${{ steps.release.outputs.pr }}
+          RELEASE_PRS: ${{ steps.release.outputs.prs }}
         run: |
           set -euo pipefail
-          num="$(printf '%s' "$RELEASE_PR" | jq -r '.number')"
+          # Capture jq's output first (not `jq | while`): under `set -e` a jq failure (null /
+          # non-array `prs`) aborts the step loudly instead of being swallowed by the pipe and
+          # silently enabling auto-merge on nothing. Computed before the auto_merge_allowed
+          # check too, so a disabled-auto-merge warning can name the exact PR(s) to merge
+          # manually instead of pointing at a discovery step.
+          numbers="$(printf '%s' "$RELEASE_PRS" | jq -r '.[].number')"
           # Read the setting in its own statement so a gh API failure here (5xx/auth) trips
           # set -e and reddens the job, rather than the empty result masquerading as "off".
           auto_merge_allowed="$(gh api "repos/${GH_REPO}" --jq '.allow_auto_merge')"
           if [ "$auto_merge_allowed" != "true" ]; then
-            echo "::warning::Auto-merge is off for ${GH_REPO}, so Release PR #${num} was left open. Enable 'Allow auto-merge' + 'Allow rebase merging' and require a status check on main, then merge it (manually for now)."
+            # `paste -d` treats a multi-char delimiter as a cycling set of characters, not a
+            # literal string, so it'd alternate ',' and ' ' across 3+ items — join on a single
+            # char first, then widen it to ", ".
+            pr_list="$(echo "$numbers" | sed 's/^/#/' | paste -sd, - | sed 's/,/, /g')"
+            echo "::warning::Auto-merge is off for ${GH_REPO}, so Release PR(s) ${pr_list} were left open (merge manually once ready). Enable 'Allow auto-merge' + 'Allow rebase merging' and require a status check on main to automate this."
             exit 0
           fi
-          gh pr merge "$num" --auto --rebase
+          for num in $numbers; do
+            gh pr merge "$num" --auto --rebase
+          done
 
       # This template's own release-please-config.json.jinja always scaffolds a single
       # package by default, so this never fires against a freshly-generated repo as-is —
@@ -207,7 +286,8 @@ jobs:
             # commit — it stays the release bot's login either way).
             # Fail SAFE (leave open) on any degraded shape this check can't verify, resolving it
             # to a non-empty "unknown-authors" marker rather than an empty string:
-            #   - a null/absent `.commits` (whole response degraded), and
+            #   - a null/absent OR empty `.commits` (whole response degraded — a real PR always
+            #     has >=1 commit, so `[]` is a shape we can't trust, not "verified bot-only"), and
             #   - a commit whose `.authors` is empty/null/absent (per-commit degraded) — without
             #     this, that commit's authors iterate to nothing, the list collapses to "", and
             #     the [ -n ] check below reads "" as "verified bot-only" and auto-closes the PR,
@@ -218,7 +298,7 @@ jobs:
             # guard both null and "" on EACH field before falling through, or a `login: null,
             # email: ""` human commit would collapse to "" and be misread as bot-only.
             non_bot_logins="$(printf '%s' "$commits_json" | jq -r --arg app "${CI_APP_SLUG}[bot]" \
-              'if .commits == null then "unknown-authors (commits field missing from API response)" elif any(.commits[]; (.authors // []) | length == 0) then "unknown-authors (a commit is missing author data)" else ([.commits[].authors[]? | select(.login != $app) | ((.login | select(. != null and . != "")) // (.email | select(. != null and . != "")) // .name // "unknown-author")] | unique | join(", ")) end')"
+              'if .commits == null or (.commits | length) == 0 then "unknown-authors (commits field missing or empty in API response)" elif any(.commits[]; (.authors // []) | length == 0) then "unknown-authors (a commit is missing author data)" else ([.commits[].authors[]? | select(.login != $app) | ((.login | select(. != null and . != "")) // (.email | select(. != null and . != "")) // .name // "unknown-author")] | unique | join(", ")) end')"
             if [ -n "$non_bot_logins" ]; then
               # Strip CR/LF from the (attacker-influenceable) author string before echoing it
               # into a ::warning:: — a forged commit author name containing a newline could

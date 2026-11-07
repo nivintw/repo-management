@@ -30,10 +30,10 @@
 # workflow file at BASE_REF, so a pin that legitimately MOVED between files (a workflow
 # restructuring, or a `copier update` renaming a generated workflow) is still recognized as the
 # same continuous pin and its gate still fires — closing the bypass where a pure file rename
-# made a same-version/changed-hash swap look like a brand-new pin. The postUpgradeTask command
-# computes BASE_REF inline via `git merge-base` against the default branch (and fails loudly if
-# that computation itself fails), so the gate is always active on the automated path. Without
-# BASE_REF (a human running it locally after a deliberate bump) it just recomputes every pin.
+# made a same-version/changed-hash swap look like a brand-new pin. On the automated path the
+# central Renovate runner sets BASE_REF=origin/HEAD for every repo, and a BASE_REF that doesn't
+# resolve fails the run. Without BASE_REF (a human running it locally after a deliberate bump)
+# it just recomputes every pin.
 #
 # Requirements: bash 3.2+ (stays parseable/runnable on macOS's system bash 3.2.57 — no
 # associative arrays, no `${var,,}`, no `inherit_errexit`), curl, sha256sum (or shasum), sed,
