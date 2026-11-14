@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# Daily report of dependency-bot PRs that have been open for 7 days or more anywhere in the
+# fleet. Renovate and Dependabot PRs normally merge on their own once CI is green, so one that
+# sits for a week is stuck: red CI, a held update (hash-pin), or a conflict. The report is a
+# single issue in this repo, rewritten each run and closed when nothing is stuck.
+#
+# AUTH: reads PRs across the fleet, including private repos, so it mints a CI App token scoped
+# to the fleet (the repos in config/*.yml) with read-only pull-request access plus issue write.
+
+name: stuck-bot-prs
+
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stuck-bot-prs
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: vars.CI_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv (+ managed Python)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+
+      - name: Derive the fleet repo set from config
+        id: fleet
+        run: echo "names=$(uv run repo-management list-repos --format names)" >>"$GITHUB_OUTPUT"
+
+      - name: Mint a CI App token scoped to the fleet
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.CI_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          repositories: ${{ steps.fleet.outputs.names }}
+          permission-pull-requests: read
+          permission-issues: write
+
+      - name: Write the report issue
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          NAMES: ${{ steps.fleet.outputs.names }}
+          REPORT_REPO: ${{ github.repository }}
+          TITLE: Stuck dependency-bot PRs
+          MIN_DAYS: "7"
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d "-${MIN_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)"
+          rows=""
+          count=0
+          IFS=, read -ra repos <<<"$NAMES"
+          for r in "${repos[@]}"; do
+            # Renovate (its own App, and the CI App it ran as before) and Dependabot.
+            while IFS=$'\t' read -r num created title url; do
+              [ -n "$num" ] || continue
+              days=$(( ( $(date -u +%s) - $(date -u -d "$created" +%s) ) / 86400 ))
+              rows+="| $r | [#${num}](${url}) | ${title//|/\\|} | ${days} |"$'\n'
+              count=$((count + 1))
+            done < <(gh pr list --repo "$OWNER/$r" --state open --limit 200 \
+              --json number,createdAt,title,url,author \
+              --jq ".[] | select(.author.login | test(\"^app/(nivintw-renovate-app|nivintw-ci-app|dependabot)$\")) | select(.createdAt < \"$cutoff\") | [.number, .createdAt, .title, .url] | @tsv")
+          done
+
+          existing="$(gh issue list --repo "$REPORT_REPO" --state open --search "\"$TITLE\" in:title" --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)"
+
+          if [ "$count" -eq 0 ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPORT_REPO" --comment "No dependency-bot PR has been open ${MIN_DAYS}+ days as of $(date -u +%F)."
+            fi
+            echo "::notice::No stuck bot PRs."
+            exit 0
+          fi
+
+          body="$(printf '%s\n' \
+            "Dependency-bot PRs open ${MIN_DAYS} days or more, as of $(date -u +%F). Rewritten daily by \`stuck-bot-prs.yml\`; closed automatically when the list is empty." \
+            "" \
+            "| Repo | PR | Title | Days open |" \
+            "|---|---|---|---|" \
+            "$rows")"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$REPORT_REPO" --body "$body"
+          else
+            gh issue create --repo "$REPORT_REPO" --title "$TITLE" --body "$body"
+          fi
+          echo "::notice::$count stuck bot PR(s) reported."

@@ -54,8 +54,8 @@ def test_ddns_resolves_to_standardised_credentials() -> None:
     assert config.secrets is not None
     assert config.variables is not None
 
-    assert _names(config.secrets) == {"CI_APP_PRIVATE_KEY", "GIST_PAT"}
-    assert _names(config.variables) == {"CI_CLIENT_ID", "CI_APP_SLUG"}
+    assert _names(config.secrets) == {"CI_APP_PRIVATE_KEY", "GIST_PAT", "RENOVATE_APP_PRIVATE_KEY"}
+    assert _names(config.variables) == {"CI_CLIENT_ID", "CI_APP_SLUG", "RENOVATE_CLIENT_ID"}
 
 
 def test_repo_management_vault_holds_every_injected_secret() -> None:

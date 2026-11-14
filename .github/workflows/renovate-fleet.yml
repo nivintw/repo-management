@@ -1,6 +1,13 @@
 # SPDX-FileCopyrightText: © 2026 Tyler Nivin
 # SPDX-License-Identifier: MIT
 
+# TRANSITIONAL. Central self-hosted Renovate runner for the repos that haven't adopted the
+# per-repo model yet. Each managed repo now runs Renovate itself: its copier-placed
+# .github/workflows/renovate.yml calls reusable-renovate.yml in this repo at a tag. This runner
+# skips every repo whose renovate.yml already does that (see "Skip repos that run Renovate
+# themselves"), so a repo always has exactly one Renovate. Delete this file and
+# .github/renovate-global.json once every repo has adopted.
+#
 # Central self-hosted Renovate runner for the managed-repo fleet. This control-plane repo runs
 # Renovate on a schedule, authenticated as its own dedicated Renovate GitHub App, and opens dependency PRs across
 # every managed repo — replacing reliance on the Mend hosted Renovate app. Running it ourselves
@@ -41,7 +48,7 @@
 # App is wired up. First-run safety: dispatch manually with dryRun=true to log the discovered
 # scope and proposed changes WITHOUT opening any PRs.
 
-name: renovate
+name: renovate-fleet
 
 on:
   schedule:
@@ -143,11 +150,35 @@ jobs:
           permission-checks: write
           permission-administration: read
 
-      - name: Run Renovate across the fleet
+      - name: Skip repos that run Renovate themselves
+        id: remaining
         if: steps.preflight.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          NAMES: ${{ steps.fleet.outputs.names }}
+        run: |
+          set -euo pipefail
+          remaining=()
+          IFS=, read -ra all <<<"$NAMES"
+          for r in "${all[@]}"; do
+            caller="$(gh api "repos/$OWNER/$r/contents/.github/workflows/renovate.yml" --jq .content 2>/dev/null | base64 -d || true)"
+            if grep -q 'reusable-renovate\.yml' <<<"$caller"; then
+              echo "::notice::$r runs its own Renovate; skipped here"
+            else
+              remaining+=("$OWNER/$r")
+            fi
+          done
+          # An empty autodiscoverFilter would mean "no filter", so an empty list must skip the run.
+          echo "count=${#remaining[@]}" >>"$GITHUB_OUTPUT"
+          echo "filter=$(printf '%s\n' "${remaining[@]+"${remaining[@]}"}" | jq -Rnc '[inputs | select(length > 0)]')" >>"$GITHUB_OUTPUT"
+
+      - name: Run Renovate across the fleet
+        if: steps.preflight.outputs.enabled == 'true' && steps.remaining.outputs.count != '0'
         uses: renovatebot/github-action@dd5302ec17783b2fc721b19ae7209b57b1587765 # v46.1.17
         env:
           LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          RENOVATE_AUTODISCOVER_FILTER: ${{ steps.remaining.outputs.filter }}
         with:
           token: ${{ steps.app-token.outputs.token }}
           configurationFile: .github/renovate-global.json

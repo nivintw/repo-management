@@ -3,7 +3,7 @@
   "description": [
     "Global (self-hosted admin) config for the central Renovate runner — NOT this repo's own",
     "dependency config (that stays in .github/renovate.json). Loaded by .github/workflows/",
-    "renovate.yml; see its header comment for the full auth/token-scope rationale.",
+    "renovate-fleet.yml; see its header comment for the full auth/token-scope rationale.",
     "customEnvVariables.BASE_REF arms the supply-chain tamper gate in the binary-checksum",
     "postUpgradeTask fleet-wide: scripts/refresh-binary-checksums.sh only activates its gate",
     "when BASE_REF is set, so it then re-pins a *_SHA256 only when the adjacent *_VERSION",

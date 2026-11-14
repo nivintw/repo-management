@@ -1,0 +1,202 @@
+// SPDX-FileCopyrightText: © 2026 Tyler Nivin
+// SPDX-License-Identifier: MIT
+//
+// The fleet's shared Renovate config. Every managed repo's .github/renovate.json5 is a shim
+// that extends this file pinned to a release tag of nivintw/repo-management:
+//
+//   { "extends": ["github>nivintw/repo-management//renovate/default.json5#vX.Y.Z"] }
+//
+// A repo-management release changes this file; Renovate then opens a PR in each repo to move
+// the tag, and that PR merges like any other update. Admin-only settings (allowedCommands,
+// customEnvVariables, onboarding) live in .github/workflows/reusable-renovate.yml, not here.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    ":semanticCommits",
+    // Every Renovate commit is chore(deps), so a dependency bump never cuts a release on its own.
+    ":semanticCommitTypeAll(chore)",
+    "helpers:pinGitHubActionDigests",
+  ],
+  labels: ["dependencies"],
+
+  // GitHub's native auto-merge does the merging. Safe because the fleet requires no approvals and
+  // the Renovate App is on no ruleset bypass list, so GitHub enforces the required CI checks on
+  // every merge. (Native auto-merge never uses bypass rights, which is why it can't merge a PR
+  // that needs an approval; that doesn't apply here.)
+  automerge: true,
+  platformAutomerge: true,
+
+  // No rate or concurrency limits: the triggers in each repo's renovate.yml are the only pacing.
+  prHourlyLimit: 0,
+  prConcurrentLimit: 0,
+  branchConcurrentLimit: 0,
+
+  // 24-hour release-age wait by default (longer for Actions and two privileged actions, below).
+  // internalChecksFilter=strict means no branch or PR exists until the wait has passed, so platform
+  // automerge can never merge an update early. It's already Renovate's default; set it explicitly
+  // so it can't drift.
+  minimumReleaseAge: "1 day",
+  internalChecksFilter: "strict",
+
+  // Dependabot is the security floor; Renovate must not open a second PR for the same advisory.
+  vulnerabilityAlerts: { enabled: false },
+
+  "pre-commit": { enabled: true },
+
+  // The lock refresh is its own PR, opened or updated only before 06:00 UTC. uv enforces the age
+  // wait itself through [tool.uv] exclude-newer, so Renovate doesn't hold this branch for one.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 6am"],
+  },
+  minimumReleaseAgePackageManagerSync: true,
+
+  // Renovate ran as the fleet CI App before it got its own App, so older renovate/* branches carry
+  // that App's commits. Without this, Renovate treats them as human edits and stops managing them.
+  gitIgnoredAuthors: ["181674222+nivintw-ci-app[bot]@users.noreply.github.com"],
+
+  packageRules: [
+    // ----- Grouping: one non-major group per ecosystem; majors stay one PR per package -----
+    {
+      description: "GitHub Actions non-major updates, grouped. The two release-privilege actions and this repo's own pins are excluded (rules below).",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      matchPackageNames: [
+        "!actions/create-github-app-token",
+        "!googleapis/release-please-action",
+        "!nivintw/repo-management",
+      ],
+      groupName: "GitHub Actions (non-major)",
+    },
+    {
+      description: "pre-commit hook non-major updates, grouped. Ruff keeps its own group (below).",
+      matchManagers: ["pre-commit"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "pre-commit hooks (non-major)",
+    },
+    {
+      description: "Python dependency non-major updates, grouped.",
+      matchManagers: ["pep621", "pip_requirements", "pip-compile"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "Python dependencies (non-major)",
+    },
+    {
+      description: "Docker image non-major updates, grouped.",
+      matchManagers: ["dockerfile", "docker-compose"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "Docker images (non-major)",
+    },
+    {
+      description: "Ansible role and collection non-major updates, grouped.",
+      matchManagers: ["ansible", "ansible-galaxy"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "Ansible (non-major)",
+    },
+    {
+      description: "Terraform non-major updates, grouped.",
+      matchManagers: ["terraform", "terraform-version", "tflint-plugin"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "Terraform (non-major)",
+    },
+    {
+      description: "Ruff keeps its own group: extend-select=ALL means a new rule can turn CI red on unchanged code, and that shouldn't hold up every other pre-commit hook. Covers the pre-commit hook and the PyPI package.",
+      matchPackageNames: ["astral-sh/ruff-pre-commit", "ruff"],
+      groupName: "ruff",
+    },
+
+    // ----- Release-age waits -----
+    {
+      description: "GitHub Actions wait 3 days.",
+      matchManagers: ["github-actions"],
+      minimumReleaseAge: "3 days",
+    },
+    {
+      description: "Both actions are handed the fleet App's private key at runtime (create-github-app-token mints installation tokens from it; release-please-action cuts releases with it), and the App is a ruleset bypass actor, so a compromised release would inherit real privilege. The longer wait gives the community time to flag a bad release. Majors included.",
+      matchPackageNames: ["actions/create-github-app-token", "googleapis/release-please-action"],
+      minimumReleaseAge: "14 days",
+    },
+
+    // ----- This repo's own pins: the shared config and the reusable workflow, at a tag -----
+    {
+      description: "The shim's preset tag and the reusable workflow's tag must move together, in one PR, with no wait: they're our own releases.",
+      matchManagers: ["renovate-config", "github-actions"],
+      matchPackageNames: ["nivintw/repo-management"],
+      groupName: "nivintw/repo-management shared Renovate config",
+      minimumReleaseAge: null,
+    },
+    {
+      description: "Keep reusable-workflow calls on their tag; helpers:pinGitHubActionDigests would otherwise pin them to a SHA, which the renovate-config preset tag can't follow.",
+      matchDepTypes: ["workflow"],
+      pinDigests: false,
+    },
+
+    // ----- Python ranges -----
+    {
+      description: "Widen Python version ranges, never narrow them. The copier template writes the initial bounds via [tool.uv] add-bounds (upper bounds for applications, floors only for libraries); Renovate keeps whatever form a range already has.",
+      matchManagers: ["pep621"],
+      rangeStrategy: "widen",
+    },
+
+    // ----- Checksum-pinned release binaries -----
+    {
+      description: "Refresh the adjacent *_SHA256 / *_COMMIT pin only when one of these tools changed. scripts/refresh-binary-checksums.sh is allowlisted by the reusable workflow, which also sets BASE_REF and so arms the script's tamper gate (refuse a same-version, different-pin re-pin).",
+      matchPackageNames: [
+        "aquasecurity/trivy",
+        "google/osv-scanner",
+        "korandoru/hawkeye",
+        "tamasfe/taplo",
+        "yannh/kubeconform",
+        "bats-core/bats-core",
+        "gitleaks/gitleaks",
+      ],
+      postUpgradeTasks: {
+        commands: ["scripts/refresh-binary-checksums.sh"],
+        fileFilters: [".github/workflows/**"],
+        executionMode: "branch",
+      },
+    },
+
+    // ----- Holds (ordered last so nothing above overrides them) -----
+    {
+      description: "Bare commit-hash pins wait for a person. A `@<sha> # main` pin tracks a branch, so its updates carry no version or changelog to vet. Versioned SHA pins (`@<sha> # v4.0.0`) resolve via github-tags and keep automerging.",
+      matchDatasources: ["github-digest", "git-refs"],
+      matchUpdateTypes: ["digest"],
+      automerge: false,
+      addLabels: ["hash-pin"],
+    },
+    {
+      description: "Hold the pin on this repo's reusable docs workflow. Every later revision needs an Astro site the consuming repos don't have yet. Scoped by file so other pins on nivintw/repo-management keep updating. Remove as part of the Astro migration.",
+      matchFileNames: [".github/workflows/docs.yml", ".github/workflows/docs-site.yml"],
+      matchPackageNames: ["nivintw/repo-management"],
+      enabled: false,
+    },
+  ],
+
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Release binaries pinned by a `# renovate:`-annotated *_VERSION env var. Renovate bumps the version; the adjacent pin is refreshed by the postUpgradeTask above, since github-releases has no asset-digest datasource.",
+      managerFilePatterns: ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: \"(?<currentValue>[^\"]+)\"",
+      ],
+    },
+    {
+      customType: "regex",
+      description: "prek is pinned identically in CI and every doc that says what to run locally. The visible `uvx prek@X.Y.Z` text is the tracked value, so Renovate bumps every occurrence in one PR.",
+      managerFilePatterns: [
+        "/^\\.github/workflows/.+\\.ya?ml$/",
+        "/^AGENTS\\.md$/",
+        "/^README\\.md$/",
+        "/^CONTRIBUTING\\.md$/",
+        "/^\\.github/PULL_REQUEST_TEMPLATE\\.md$/",
+        "/^\\.pre-commit-config\\.yaml$/",
+        "/^docs/.+\\.md$/",
+      ],
+      matchStrings: ["uvx prek@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      datasourceTemplate: "pypi",
+      depNameTemplate: "prek",
+    },
+  ],
+}

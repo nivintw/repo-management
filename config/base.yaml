@@ -141,6 +141,9 @@ variables:
   # The CI App's slug: the scaffold's approve-bot-prs workflow uses it to recognize PRs
   # authored by the App (Renovate / release-please) before approving them.
   - {name: CI_APP_SLUG, value: nivintw-ci-app}
+  # The dedicated Renovate GitHub App's client ID. Each repo's copier-placed renovate.yml passes
+  # it to repo-management's reusable-renovate.yml, which runs Renovate in that repo.
+  - {name: RENOVATE_CLIENT_ID, value: Iv23liEw2hJ9QTz5E3z4}
 
 secrets:
   # Actions secrets. Values are write-only and never printed in plans. The value is read
@@ -153,6 +156,11 @@ secrets:
   # GIST_PAT: a PAT for updating coverage-badge (and other badge) gists. Fleet-wide — the
   # scaffold's CI writes a coverage badge to a gist, so every managed repo gets it.
   - {name: GIST_PAT, value_from_env: GIST_PAT}
+  # RENOVATE_APP_PRIVATE_KEY: the dedicated Renovate GitHub App's private key. Fleet-wide because
+  # Renovate runs in each repo (reusable-renovate.yml), minting a token scoped to that repo only.
+  # A separate App from the CI App on purpose: it is on NO ruleset bypass list, so GitHub
+  # enforces the required CI checks on Renovate's own merges.
+  - {name: RENOVATE_APP_PRIVATE_KEY, value_from_env: RENOVATE_APP_PRIVATE_KEY}
 
 labels:
   # ⚠️ AUTHORITATIVE: declaring `labels` deletes every label NOT listed here, on every
