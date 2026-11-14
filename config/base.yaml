@@ -186,6 +186,8 @@ labels:
   - {name: "python:uv", color: 2b67c6, description: Pull requests that update python:uv code}
 
   - {name: dry-dock, color: 8B4513, description: Dry-dock overhaul finding — review together}
+  # Added by Renovate to bare commit-hash pin updates, which it holds for a human (renovate-global.json).
+  - {name: hash-pin, color: d93f0b, description: Bare commit-hash pin update — needs a human review}
 
   # release-please's release-state labels. It creates these on repos where its release
   # workflow runs (the scaffold's main.yml); listed here so this authoritative set doesn't

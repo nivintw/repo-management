@@ -125,3 +125,17 @@ def test_refresh_script_consumes_base_ref() -> None:
     nothing — this fails CI so the two halves can't silently drift apart.
     """
     assert "BASE_REF" in REFRESH_SCRIPT.read_text(encoding="utf-8")
+
+
+def test_bare_hash_pins_are_held_for_a_human() -> None:
+    """Branch-tracking SHA pins (github-digest/git-refs digests) never automerge and get labeled.
+
+    Their updates carry no version to vet, and one such pin (docs.yml on nivintw/repo-management)
+    would move downstream repos onto a docs workflow they can't build. The rule must come last so
+    no earlier automerge rule overrides it.
+    """
+    rule = _config()["packageRules"][-1]
+    assert set(rule["matchDatasources"]) == {"github-digest", "git-refs"}
+    assert rule["matchUpdateTypes"] == ["digest"]
+    assert rule["automerge"] is False
+    assert "hash-pin" in rule["addLabels"]

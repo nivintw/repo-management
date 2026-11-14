@@ -92,6 +92,20 @@
       ],
       "matchPackageNames": ["actions/create-github-app-token", "googleapis/release-please-action"],
       "minimumReleaseAge": "14 days"
+    },
+    {
+      "description": [
+        "Hold bare commit-hash pins for a human (fleet update plan D13). A `uses: owner/repo/...@<sha> # main`",
+        "pin tracks a branch, so Renovate looks it up via the github-digest (or git-refs) datasource and",
+        "proposes digest updates that carry no version and no changelog to vet. Versioned SHA pins",
+        "(`@<sha> # v4.0.0`) resolve via github-tags and keep automerging. This also holds the docs.yml",
+        "pin on nivintw/repo-management in the downstream repos, which would otherwise move them onto",
+        "the Astro docs workflow they can't build. Ordered last so it overrides the automerge rules."
+      ],
+      "matchDatasources": ["github-digest", "git-refs"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": false,
+      "addLabels": ["hash-pin"]
     }
   ]
 }
