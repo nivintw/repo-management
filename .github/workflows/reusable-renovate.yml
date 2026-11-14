@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# The workflow that actually runs Renovate, called by every managed repo's own short
+# .github/workflows/renovate.yml (placed by copier-everything) at a release tag of this repo:
+#
+#   uses: nivintw/repo-management/.github/workflows/reusable-renovate.yml@vX.Y.Z
+#
+# Each run happens in the calling repo, with that repo's secrets, against that repo only. The
+# calling repo's .github/renovate.json5 extends renovate/default.json5 at the same tag; Renovate
+# bumps both pins together in one PR when this repo releases.
+#
+# This file holds the admin-only settings a repo's own config can't set: which commands
+# postUpgradeTasks may run, the BASE_REF that arms the checksum tamper gate, onboarding, and the
+# pinned Renovate version.
+#
+# AUTH: a token minted from the dedicated Renovate GitHub App (nivintw-renovate-app), scoped to
+# the calling repo only. The App is on no ruleset bypass list, so GitHub enforces the required CI
+# checks on every merge Renovate makes. The caller passes the App's client ID as an input
+# (RENOVATE_CLIENT_ID variable) and its private key as a secret (RENOVATE_APP_PRIVATE_KEY), both
+# provisioned fleet-wide by repo-management's config/base.yaml.
+
+name: reusable-renovate
+
+on:
+  workflow_call:
+    inputs:
+      client-id:
+        description: "The Renovate GitHub App's client ID (the caller's RENOVATE_CLIENT_ID variable)."
+        type: string
+        required: true
+      dry-run:
+        description: "Log proposed changes without opening, updating or merging anything."
+        type: boolean
+        default: false
+      log-level:
+        description: "Renovate log verbosity: debug, info or warn."
+        type: string
+        default: info
+    secrets:
+      RENOVATE_APP_PRIVATE_KEY:
+        required: true
+
+permissions: {}
+
+jobs:
+  # Skip the run when the triggering event can't give Renovate anything to do. A CI run finishing
+  # on an unrelated feature branch, or an edit to an issue other than the Dependency Dashboard,
+  # changes nothing Renovate acts on.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether Renovate has work
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -euo pipefail
+          run=true
+          case "$EVENT" in
+            workflow_run)
+              # CI finishing on a Renovate branch (now mergeable or needs a rebase) or on the
+              # default branch (other branches may now be behind) is work. Anything else isn't.
+              case "$RUN_BRANCH" in
+                renovate/* | "$DEFAULT_BRANCH") ;;
+                *) run=false ;;
+              esac
+              ;;
+            issues)
+              [ "$ISSUE_TITLE" = "Dependency Dashboard" ] || run=false
+              ;;
+          esac
+          echo "run=$run" >>"$GITHUB_OUTPUT"
+          echo "::notice::Renovate run=$run (event=$EVENT${RUN_BRANCH:+, branch=$RUN_BRANCH})"
+
+  renovate:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # One Renovate run per repo at a time, and never cancel one mid-push. GitHub keeps only the
+    # newest pending run in a group, which is fine: the newest run sees the newest state.
+    concurrency:
+      group: renovate-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
+      RENOVATE_VERSION: "44.239.1"
+    steps:
+      - name: Resolve the repo name for the scoped token
+        id: repo
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=${REPOSITORY#*/}" >>"$GITHUB_OUTPUT"
+
+      - name: Enable dry-run (only when requested)
+        # Set only on request, so a normal run never hands Renovate an empty dryRun value.
+        if: inputs.dry-run
+        run: echo "RENOVATE_DRY_RUN=full" >>"$GITHUB_ENV"
+
+      - name: Mint a Renovate App token scoped to this repo
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.client-id }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          repositories: ${{ steps.repo.outputs.name }}
+          # Renovate's documented GitHub App permission set (Dependabot alerts, merge queues and
+          # org members don't apply to this fleet).
+          permission-administration: read
+          permission-checks: write
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-statuses: write
+          permission-workflows: write
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@dd5302ec17783b2fc721b19ae7209b57b1587765 # v46.1.17
+        env:
+          LOG_LEVEL: ${{ inputs.log-level }}
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: "false"
+          # Every managed repo carries the copier shim; a repo without one is misconfigured.
+          RENOVATE_REQUIRE_CONFIG: required
+          # The only commands a repo's postUpgradeTasks may run.
+          RENOVATE_ALLOWED_COMMANDS: '["^scripts/refresh-binary-checksums\\.sh$", "^scripts/renovate-uv-relock\\.sh$"]'
+          # Arms the checksum script's tamper gate: with BASE_REF set it re-pins a *_SHA256 only
+          # when the adjacent *_VERSION changed, and fails if a pin changed under an unchanged
+          # version. origin/HEAD resolves to the repo's default branch in Renovate's clone. Set
+          # here, not in allowedEnv, so a repo's own config can't override it.
+          RENOVATE_CUSTOM_ENV_VARIABLES: '{"BASE_REF": "origin/HEAD"}'
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          renovate-version: ${{ env.RENOVATE_VERSION }}

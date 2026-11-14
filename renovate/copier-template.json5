@@ -1,0 +1,79 @@
+// SPDX-FileCopyrightText: © 2026 Tyler Nivin
+// SPDX-License-Identifier: MIT
+//
+// Named preset for nivintw/copier-everything only, added to its shim after default.json5. It
+// teaches Renovate to update the pins inside the template's .jinja files, which no built-in
+// manager reads, and extends the checksum refresh to the generated workflows.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  packageRules: [
+    {
+      description: "Run the checksum refresh over the template's generated workflows too.",
+      matchPackageNames: [
+        "aquasecurity/trivy",
+        "google/osv-scanner",
+        "korandoru/hawkeye",
+        "tamasfe/taplo",
+        "yannh/kubeconform",
+        "bats-core/bats-core",
+        "gitleaks/gitleaks",
+      ],
+      postUpgradeTasks: {
+        commands: ["scripts/refresh-binary-checksums.sh"],
+        fileFilters: [".github/workflows/**", "template/.github/workflows/**"],
+        executionMode: "branch",
+      },
+    },
+  ],
+  customManagers: [
+    {
+      customType: "regex",
+      description: "pre-commit hook revs pinned inside the generated .pre-commit-config.yaml.jinja.",
+      managerFilePatterns: ["/^template/\\.pre-commit-config\\.yaml\\.jinja$/"],
+      matchStrings: [
+        "repo:\\s+https://github\\.com/(?<depName>[^\\s/]+/[^\\s/]+)\\s+rev:\\s+(?<currentValue>\\S+)",
+      ],
+      datasourceTemplate: "github-tags",
+    },
+    {
+      customType: "regex",
+      description: "SHA-pinned actions inside the generated workflow .jinja files.",
+      managerFilePatterns: ["/^template/\\.github/workflows/.+\\.jinja$/"],
+      matchStrings: [
+        "uses:\\s+(?<depName>[\\w.-]+/[\\w.-]+)@(?<currentDigest>[a-f0-9]{40})\\s+#\\s+(?<currentValue>v\\S+)",
+      ],
+      datasourceTemplate: "github-tags",
+    },
+    {
+      customType: "regex",
+      description: "Release binaries pinned by a `# renovate:`-annotated *_VERSION env var in the generated workflows.",
+      managerFilePatterns: ["/^template/\\.github/workflows/.+\\.jinja$/"],
+      matchStrings: [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+: \"(?<currentValue>[^\"]+)\"",
+      ],
+    },
+    {
+      customType: "regex",
+      description: "uv image pinned in the generated Dockerfile.jinja (the docker manager can't parse .jinja).",
+      managerFilePatterns: ["/Dockerfile.*\\.jinja$/"],
+      matchStrings: ["COPY --from=(?<depName>ghcr\\.io/astral-sh/uv):(?<currentValue>\\S+) "],
+      datasourceTemplate: "docker",
+    },
+    {
+      customType: "regex",
+      description: "prek pinned in copier.yml and the generated docs and configs, bumped together with every other occurrence.",
+      managerFilePatterns: [
+        "/^copier\\.yml$/",
+        "/^template/\\.github/workflows/.+\\.jinja$/",
+        "/^template/AGENTS\\.md\\.jinja$/",
+        "/^template/README\\.md\\.jinja$/",
+        "/^template/CONTRIBUTING\\.md\\.jinja$/",
+        "/^template/\\.github/PULL_REQUEST_TEMPLATE\\.md\\.jinja$/",
+        "/^template/\\.pre-commit-config\\.yaml\\.jinja$/",
+      ],
+      matchStrings: ["uvx prek@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      datasourceTemplate: "pypi",
+      depNameTemplate: "prek",
+    },
+  ],
+}
