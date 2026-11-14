@@ -154,7 +154,8 @@ def _upsert_secret(
         container.create_secret(secret.name, secret.resolve())
 
     # preflight resolves the value without writing, so apply can validate every secret up front
-    # and abort with nothing written if one is missing (plan still never resolves it).
+    # and hold this repository back with nothing written if one is missing (plan still never
+    # resolves it); every other repository in the fleet still applies.
     def preflight() -> None:
         secret.resolve()
 

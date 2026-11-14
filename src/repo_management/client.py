@@ -22,6 +22,22 @@ TOKEN_ENV = "GITHUB_TOKEN"  # noqa: S105 — env var name, not a secret
 SOURCE_REPO_ENV = "GITHUB_REPOSITORY"
 
 
+def api_message(exc: GithubException) -> str:
+    """Render a GitHub API rejection for an operator.
+
+    PyGithub parses the API's response body into ``data``; ``str(exc)`` is the
+    status-plus-repr form, which is noise in front of an operator. Every surface that reports an
+    API failure renders it through here, so the same 403 reads the same way wherever it was
+    caught — at the CLI boundary, or isolated to one repo mid-fleet.
+
+    This returns the whole payload rather than digging out ``data["message"]``, which would read
+    more cleanly but drop detail that matters: a 422's actual explanation lives in its ``errors``
+    array, not its message (``{"message": "Validation Failed", "errors": [...]}``). Falls back to
+    ``str(exc)`` when the response carried no body at all.
+    """
+    return str(exc.data or exc)
+
+
 def get_client(token: str | None = None) -> Github:
     """Build an authenticated GitHub client.
 
@@ -33,11 +49,24 @@ def get_client(token: str | None = None) -> Github:
         An authenticated :class:`github.Github` client.
 
     Raises:
-        ConfigError: If no token is available.
+        ConfigError: If no token is available, or the token isn't header-safe.
     """
     token = token or os.environ.get(TOKEN_ENV)
     if not token:
         msg = f"no GitHub token: pass one explicitly or set {TOKEN_ENV}"
+        raise ConfigError(msg)
+    # A token read from a file or a here-doc routinely carries a trailing newline. Surrounding
+    # whitespace is unambiguously not part of the credential, so strip it rather than fail.
+    token = token.strip()
+    # Anything left that can't go in an HTTP header must be rejected *here*, where the message
+    # can name the source without quoting the value. Left to `requests`, it raises an
+    # InvalidHeader whose message embeds the whole `Authorization` value — and that lands in a
+    # per-repo diagnostic, so a fleet run would print the token once per repository.
+    if not token.isprintable() or any(char.isspace() for char in token):
+        msg = (
+            f"the GitHub token from {TOKEN_ENV} contains whitespace or non-printable "
+            "characters and can't be sent as an HTTP header; check how it was set"
+        )
         raise ConfigError(msg)
     return Github(auth=Auth.Token(token))
 
@@ -58,7 +87,7 @@ def get_repo(client: Github, full_name: str) -> Repository:
     try:
         return client.get_repo(full_name)
     except GithubException as exc:
-        msg = f"cannot access repository {full_name!r}: {exc.data or exc}"
+        msg = f"cannot access repository {full_name!r}: {api_message(exc)}"
         raise ConfigError(msg) from exc
 
 
@@ -104,7 +133,7 @@ def source_secret_timestamps(client: Github) -> dict[str, datetime]:
         }
     except GithubException as exc:
         warnings.warn(
-            f"cannot read source secret timestamps from {source!r} ({exc.data or exc}); "
+            f"cannot read source secret timestamps from {source!r} ({api_message(exc)}); "
             "existing secrets will NOT be re-pushed this run — rerun with --force-secrets to "
             "force a rotation to propagate",
             stacklevel=2,
