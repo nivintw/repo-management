@@ -66,15 +66,19 @@ jobs:
           count=0
           IFS=, read -ra repos <<<"$NAMES"
           for r in "${repos[@]}"; do
-            # Renovate (its own App, and the CI App it ran as before) and Dependabot.
+            # Renovate (its own App, and the CI App it ran as before) and Dependabot, by branch, so
+            # the CI App's release-please PRs (meant to stay open until a release) aren't counted.
+            # Listed into a variable first: a failure inside `< <(...)` would escape set -e and read
+            # as "nothing stuck".
+            prs="$(gh pr list --repo "$OWNER/$r" --state open --limit 200 \
+              --json number,createdAt,title,url,author,headRefName \
+              --jq ".[] | select(.author.login | test(\"^app/(nivintw-renovate-app|nivintw-ci-app|dependabot)$\")) | select(.headRefName | startswith(\"renovate/\") or startswith(\"dependabot/\")) | select(.createdAt < \"$cutoff\") | [.number, .createdAt, .title, .url] | @tsv")"
             while IFS=$'\t' read -r num created title url; do
               [ -n "$num" ] || continue
               days=$(( ( $(date -u +%s) - $(date -u -d "$created" +%s) ) / 86400 ))
               rows+="| $r | [#${num}](${url}) | ${title//|/\\|} | ${days} |"$'\n'
               count=$((count + 1))
-            done < <(gh pr list --repo "$OWNER/$r" --state open --limit 200 \
-              --json number,createdAt,title,url,author \
-              --jq ".[] | select(.author.login | test(\"^app/(nivintw-renovate-app|nivintw-ci-app|dependabot)$\")) | select(.createdAt < \"$cutoff\") | [.number, .createdAt, .title, .url] | @tsv")
+            done <<<"$prs"
           done
 
           existing="$(gh issue list --repo "$REPORT_REPO" --state open --search "\"$TITLE\" in:title" --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)"

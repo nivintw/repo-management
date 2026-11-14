@@ -4,7 +4,10 @@
 # The workflow that actually runs Renovate, called by every managed repo's own short
 # .github/workflows/renovate.yml (placed by copier-everything) at a release tag of this repo:
 #
-#   uses: nivintw/repo-management/.github/workflows/reusable-renovate.yml@vX.Y.Z
+#   uses: nivintw/repo-management/.github/workflows/reusable-renovate.yml@<sha> # vX.Y.Z
+#
+# Pinned by SHA like every other action in the fleet: this workflow receives each repo's Renovate
+# App private key, so a mutable tag isn't enough. Renovate tracks the pin by its version comment.
 #
 # Each run happens in the calling repo, with that repo's secrets, against that repo only. The
 # calling repo's .github/renovate.json5 extends renovate/default.json5 at the same tag; Renovate
@@ -59,6 +62,7 @@ jobs:
           RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
         run: |
           set -euo pipefail
           run=true
@@ -72,7 +76,11 @@ jobs:
               esac
               ;;
             issues)
-              [ "$ISSUE_TITLE" = "Dependency Dashboard" ] || run=false
+              # Only a person ticking a dashboard checkbox is work. Renovate rewrites the dashboard
+              # itself on every run; reacting to that would start another run each time.
+              if [ "$ISSUE_TITLE" != "Dependency Dashboard" ] || [ "$SENDER_TYPE" = "Bot" ]; then
+                run=false
+              fi
               ;;
           esac
           echo "run=$run" >>"$GITHUB_OUTPUT"

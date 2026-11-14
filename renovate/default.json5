@@ -119,16 +119,11 @@
 
     // ----- This repo's own pins: the shared config and the reusable workflow, at a tag -----
     {
-      description: "The shim's preset tag and the reusable workflow's tag must move together, in one PR, with no wait: they're our own releases.",
+      description: "The shim's preset tag and the reusable workflow's pin (`@<sha> # vX.Y.Z`, which Renovate tracks by its tag) must move together, in one PR, with no wait: they're our own releases.",
       matchManagers: ["renovate-config", "github-actions"],
       matchPackageNames: ["nivintw/repo-management"],
       groupName: "nivintw/repo-management shared Renovate config",
       minimumReleaseAge: null,
-    },
-    {
-      description: "Keep reusable-workflow calls on their tag; helpers:pinGitHubActionDigests would otherwise pin them to a SHA, which the renovate-config preset tag can't follow.",
-      matchDepTypes: ["workflow"],
-      pinDigests: false,
     },
 
     // ----- Python ranges -----
@@ -164,6 +159,9 @@
       matchUpdateTypes: ["digest"],
       automerge: false,
       addLabels: ["hash-pin"],
+      // Its own group, so one held pin never blocks automerge for the rest of the Actions group
+      // (a branch automerges only if every update in it does).
+      groupName: "held commit-hash pins",
     },
     {
       description: "Hold the pin on this repo's reusable docs workflow. Every later revision needs an Astro site the consuming repos don't have yet. Scoped by file so other pins on nivintw/repo-management keep updating. Remove as part of the Astro migration.",
