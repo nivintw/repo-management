@@ -49,4 +49,4 @@ jobs:
     # is still docs/*.md + mkdocs.yml). Bumping to the Astro docs.yml before that migration would
     # break this repo's docs deploy. The SHA below is the last MkDocs revision on purpose; the
     # migration of this repo's own site (issue #161) is what unpins it.
-    uses: nivintw/repo-management/.github/workflows/docs.yml@53814792ac9f28bf400470f82a506d4ee34e138b # main
+    uses: nivintw/repo-management/.github/workflows/docs.yml@e6d3fe7a11d556e2bfc27f755cbcc9ad136aef7b # v1.7.5

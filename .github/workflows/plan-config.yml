@@ -75,7 +75,7 @@ jobs:
         # The job only READS (runs `plan`), so mode: read — note `mode` governs only
         # issues/secrets/actions_variables/pages; the action always requests `administration:
         # write` even here (see its `mode` input doc for why a read-only plan still needs it).
-        uses: ./.github/actions/mint-app-token
+        uses: $/.github/actions/mint-app-token
         with:
           client-id: ${{ vars.CI_CLIENT_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
@@ -127,6 +127,6 @@ jobs:
         # and a composite action can't register a post-job step), so revoke it at job end via
         # the shared action rather than leaving it valid for its full hour.
         if: always() && steps.app-token.outputs.token
-        uses: ./.github/actions/revoke-app-token
+        uses: $/.github/actions/revoke-app-token
         with:
           token: ${{ steps.app-token.outputs.token }}

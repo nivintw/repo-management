@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# actionlint configuration.
+#
+# GitHub added the "self-repository" `uses: $/...` syntax in July 2026: it references an action
+# or reusable workflow in this same repo at the running commit, so it can't load something
+# cloned at runtime and counts as pinned. zizmor (1.30+) flags the old `./...` form, and its
+# self-repository audit can't be turned off. actionlint 1.7.12 doesn't know `$/` yet
+# (rhysd/actionlint#711) and reports it as a malformed reference. This ignores exactly that
+# report, for `$/` references only; every other actionlint check still runs. Remove it once
+# actionlint supports the syntax.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - '"\$/'
