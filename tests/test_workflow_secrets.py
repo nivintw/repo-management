@@ -150,10 +150,15 @@ def test_secret_env_var_name_matches_its_source_secret_name(name: str) -> None:
 def test_configs_declare_the_expected_env_sources() -> None:
     """Lock the known sets so an accidental config change is visible here, not only via drift.
 
-    The full set (apply) is the three secrets; the variable subset (plan) is empty — this repo's
+    The full set (apply) is the four secrets; the variable subset (plan) is empty — this repo's
     configs declare no ``value_from_env`` variables, so ``plan`` needs no value env vars at all.
     """
-    assert _expected_env_sources() == {"CI_APP_PRIVATE_KEY", "GIST_PAT", "ROADMAP_PROJECT_TOKEN"}
+    assert _expected_env_sources() == {
+        "CI_APP_PRIVATE_KEY",
+        "GIST_PAT",
+        "ROADMAP_PROJECT_TOKEN",
+        "RENOVATE_APP_PRIVATE_KEY",
+    }
     assert frozenset(fleet_variable_env_sources(CONFIG_DIR)) == frozenset()
 
 

@@ -26,6 +26,16 @@ secrets:
   # provisioning it to any other fleet repo. Add the value as a repo Actions secret of the same
   # name BEFORE this lands (apply fails fast on an unset value when creating an absent secret).
   - {name: ROADMAP_PROJECT_TOKEN, value_from_env: ROADMAP_PROJECT_TOKEN}
+  # RENOVATE_APP_PRIVATE_KEY: the dedicated Renovate GitHub App's private key, used only by
+  # .github/workflows/renovate.yml (the central runner lives here, so it's scoped here too).
+  # A separate App from the CI App on purpose: it is on NO ruleset bypass list, so GitHub
+  # enforces required CI checks on Renovate's own merges. Add the repo secret before this lands.
+  - {name: RENOVATE_APP_PRIVATE_KEY, value_from_env: RENOVATE_APP_PRIVATE_KEY}
+
+variables:
+  # Merged onto base.yaml's fleet-wide variables (CI_CLIENT_ID, CI_APP_SLUG); scoped to this
+  # repo because only the central Renovate runner reads it.
+  - {name: RENOVATE_CLIENT_ID, value: Iv23liEw2hJ9QTz5E3z4}
 
 repos:
   - nivintw/repo-management

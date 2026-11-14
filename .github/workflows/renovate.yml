@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # Central self-hosted Renovate runner for the managed-repo fleet. This control-plane repo runs
-# Renovate on a schedule, authenticated as the CI GitHub App, and opens dependency PRs across
+# Renovate on a schedule, authenticated as its own dedicated Renovate GitHub App, and opens dependency PRs across
 # every managed repo — replacing reliance on the Mend hosted Renovate app. Running it ourselves
 # unlocks `postUpgradeTasks` (the hosted app forbids them), which lets a bumped binary's
 # *_SHA256 be refreshed inside Renovate's OWN commit (see allowedCommands below + nivintw/
@@ -11,31 +11,32 @@
 # without it the postUpgradeTask would run the script bare and silently re-pin a swapped asset.
 #
 # AUTH: like apply-config.yml, this writes to OTHER repos, which the default GITHUB_TOKEN can't.
-# It mints an installation token from the CI App (client ID in the CI_CLIENT_ID variable, key in
-# the CI_APP_PRIVATE_KEY secret). Unlike apply-config's bespoke mint, Renovate needs none of the
-# Variables permission (the only reason that mint exists), so we use actions/create-github-app-
-# token directly — it auto-revokes the token at job end. The token is SCOPED to exactly the fleet
-# (`repositories:` derived from config/*.yml, same set apply-config reconciles), so it is the hard
-# boundary on which repos Renovate can touch: a repo the App happens to be installed on but that
-# ISN'T in config/ (e.g. cxxserv/cxxtests) is unreachable. Renovate's `autodiscover` then simply
-# enumerates the repos that scoped token can see — no separate, softer repo filter needed.
-# (Conversely, fail-closed: if config/ lists a repo the App is NOT installed on, the token mint
+# It mints an installation token from a DEDICATED Renovate GitHub App (client ID in the
+# RENOVATE_CLIENT_ID variable, key in the RENOVATE_APP_PRIVATE_KEY secret) — NOT the fleet CI
+# App. That split is the point: the CI App is a bypass actor on the branch rulesets (it cuts
+# releases), so a Renovate merge made as the CI App was gated only by Renovate's own status
+# check. The Renovate App is on NO ruleset's bypass list, so with automerge + platformAutomerge
+# off, Renovate merges its own PRs and GitHub still enforces the required CI checks on it.
+# actions/create-github-app-token auto-revokes the token at job end. The token is SCOPED to
+# exactly the fleet (`repositories:` derived from config/*.yml, same set apply-config
+# reconciles), so it is the hard boundary on which repos Renovate can touch: a repo the App
+# happens to be installed on but that ISN'T in config/ is unreachable. Renovate's
+# `autodiscover` then simply enumerates the repos that scoped token can see.
+# (Fail-closed: if config/ lists a repo the Renovate App is NOT installed on, the token mint
 # 422s and the whole run fails — install the App on a managed repo before adding it to config/.)
 #
-#   The App must hold, and the token requests, least-privilege on these axes:
-#     - Contents: write       — open branches / commit dependency bumps
-#     - Pull requests: write  — open and update the PRs
-#     - Workflows: write      — Renovate edits *_VERSION env vars inside .github/workflows/**,
-#                               which GitHub blocks without this (granted on the App out-of-band)
-#     - Issues: write         — Renovate's dependency dashboard issue + PR labels. (The App
-#                               already holds Issues for apply-config's label management, so this
-#                               needs no extra grant beyond Workflows.)
-#     - Commit statuses: write — minimumReleaseAge makes Renovate set a status on each branch it
-#                               updates. Without this, the write fails and Renovate reports
-#                               "Repository has changed during renovation", abandoning that repo
-#                               while the workflow stays green. (Granted on the App out-of-band.)
+#   The App must hold, and the token requests, Renovate's documented GitHub App set:
+#     - Contents: write        — open branches / commit dependency bumps
+#     - Pull requests: write   — open, update, and merge the PRs
+#     - Workflows: write       — Renovate edits files under .github/workflows/**
+#     - Issues: write          — the dependency dashboard issue + PR labels
+#     - Commit statuses: write — minimumReleaseAge's renovate/stability-days status. Without
+#                                it Renovate reports "Repository has changed during renovation"
+#                                and abandons the repo while the workflow stays green.
+#     - Checks: write          — read the CI check runs it gates automerge on
+#     - Administration: read   — read branch protection / rulesets
 #
-# SAFE UNTIL CONFIGURED: a preflight reports whether CI_CLIENT_ID + CI_APP_PRIVATE_KEY are
+# SAFE UNTIL CONFIGURED: a preflight reports whether RENOVATE_CLIENT_ID + RENOVATE_APP_PRIVATE_KEY are
 # present; every step gates on it, so the workflow SKIPS cleanly (green, no writes) until the
 # App is wired up. First-run safety: dispatch manually with dryRun=true to log the discovered
 # scope and proposed changes WITHOUT opening any PRs.
@@ -72,23 +73,23 @@ concurrency:
 
 jobs:
   renovate:
-    # Cheap fast-skip when the App's client ID isn't set at all.
-    if: vars.CI_CLIENT_ID != ''
+    # Cheap fast-skip when the Renovate App's client ID isn't set at all.
+    if: vars.RENOVATE_CLIENT_ID != ''
     runs-on: ubuntu-latest
     steps:
       # A secret can't be read in a job-level `if:`, so require the private key here too: if
-      # CI_CLIENT_ID is set but CI_APP_PRIVATE_KEY isn't, skip cleanly (green run) instead of
-      # failing at token mint. Matches apply-config.yml.
+      # RENOVATE_CLIENT_ID is set but RENOVATE_APP_PRIVATE_KEY isn't, skip cleanly (green run)
+      # instead of failing at token mint. Matches apply-config.yml.
       - name: Preflight — App fully configured?
         id: preflight
         env:
-          CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
         run: |
-          if [ -n "$CI_APP_PRIVATE_KEY" ]; then
+          if [ -n "$RENOVATE_APP_PRIVATE_KEY" ]; then
             echo "enabled=true" >>"$GITHUB_OUTPUT"
           else
             echo "enabled=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::Renovate skipped — CI_CLIENT_ID is set but CI_APP_PRIVATE_KEY is missing."
+            echo "::notice::Renovate skipped — RENOVATE_CLIENT_ID is set but RENOVATE_APP_PRIVATE_KEY is missing."
           fi
 
       # Checked out so we can read config/ to derive the scoped token's fleet repo set, and so
@@ -129,8 +130,8 @@ jobs:
         if: steps.preflight.outputs.enabled == 'true'
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          app-id: ${{ vars.CI_CLIENT_ID }}
-          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.RENOVATE_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
           # Scope the token to exactly the fleet (owner defaults to this repo's owner). This is
           # the security boundary — least-privilege on the repo axis, like apply-config.yml.
           repositories: ${{ steps.fleet.outputs.names }}
@@ -139,6 +140,8 @@ jobs:
           permission-workflows: write
           permission-issues: write
           permission-statuses: write
+          permission-checks: write
+          permission-administration: read
 
       - name: Run Renovate across the fleet
         if: steps.preflight.outputs.enabled == 'true'
