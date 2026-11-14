@@ -106,6 +106,18 @@
       "matchUpdateTypes": ["digest"],
       "automerge": false,
       "addLabels": ["hash-pin"]
+    },
+    {
+      "description": [
+        "Hold the downstream docs.yml pin on this repo's reusable docs workflow, fleet-wide. Every later",
+        "revision needs an Astro site the downstream repos (copier-everything, ddns, dotfiles,",
+        "nivintw-claude-skills) don't have yet. Scoped to docs.yml only, so other pins on",
+        "nivintw/repo-management (such as a future reusable Renovate workflow) still update. Remove",
+        "this rule as part of the Astro migration."
+      ],
+      "matchFileNames": [".github/workflows/docs.yml"],
+      "matchPackageNames": ["nivintw/repo-management"],
+      "enabled": false
     }
   ]
 }
