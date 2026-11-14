@@ -7,6 +7,18 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.1.0](https://github.com/nivintw/repo-management/compare/v2.0.3...v2.1.0) (2026-11-14)
+
+
+### Features
+
+* **renovate:** Shared Renovate config and a reusable per-repo workflow ([e44c7b2](https://github.com/nivintw/repo-management/commit/e44c7b2e4ea54b359864490f1b1c04a8631cf9ff))
+
+
+### Bug Fixes
+
+* **renovate:** Address review of the shared config and reusable workflow ([15274fd](https://github.com/nivintw/repo-management/commit/15274fd5d7998cb0f98834e42420f83d84631900))
+
 ## [2.0.3](https://github.com/nivintw/repo-management/compare/v2.0.2...v2.0.3) (2026-11-14)
 
 
