@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.1.1](https://github.com/nivintw/repo-management/compare/v2.1.0...v2.1.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **renovate:** Group regex-manager pins by ecosystem too ([07e0bed](https://github.com/nivintw/repo-management/commit/07e0bed11927ca9f026bf423122187f64768cefe))
+
 ## [2.1.0](https://github.com/nivintw/repo-management/compare/v2.0.3...v2.1.0) (2026-11-14)
 
 
