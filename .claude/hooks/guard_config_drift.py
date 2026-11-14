@@ -43,6 +43,8 @@ WATCHED: frozenset[str] = frozenset(
         ".config/lychee.toml",
         ".github/workflows/approve-bot-prs.yml",
         ".github/workflows/dependabot-auto-merge.yml",
+        ".github/workflows/renovate.yml",
+        "scripts/check-binary-pins.sh",
         ".github/workflows/label-hygiene.yml",
         ".github/workflows/pr.yml",
         ".github/workflows/link-check.yml",
