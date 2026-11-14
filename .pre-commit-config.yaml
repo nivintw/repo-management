@@ -65,7 +65,7 @@ repos:
         args: ["-s", "bash", "-x"]
 
   - repo: https://github.com/maxwinterstein/shfmt-py
-    rev: v4.0.0
+    rev: v4.2.0
     hooks:
       - id: shfmt
         name: "🐚 shell · Format shell scripts with shfmt"
@@ -146,14 +146,14 @@ repos:
         require_serial: true
 
   - repo: https://github.com/fsfe/reuse-tool
-    rev: v6.2.0
+    rev: v6.3.0
     hooks:
       - id: reuse
         name: "⚖️ license · Check REUSE compliance"
 
   # ------------------------------- ✨ Spelling -------------------------------------- #
   - repo: https://github.com/crate-ci/typos
-    rev: v1.48.0
+    rev: v1.52.2
     hooks:
       - id: typos
         name: "✨ language · Check spelling with typos"
@@ -175,7 +175,7 @@ repos:
         name: "🐍 python · Format with Ruff"
 
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.25
+    rev: v0.27
     hooks:
       - id: validate-pyproject
         name: "🐍 python · Validate pyproject.toml"
@@ -199,7 +199,7 @@ repos:
         #   matchPackageNames: ["validate-pyproject-schema-store"], enabled: false
         # (then you re-bump manually once upstream is fixed).
         language: python
-        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.7.17"]
+        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.11.12"]
 
   # --------------------------------- 📐 YAML ---------------------------------------- #
   # check-yaml (above) only checks that YAML *parses*; yamllint enforces style — indentation,
@@ -213,7 +213,7 @@ repos:
 
   # -------------------------------- 📝 Markdown ------------------------------------- #
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.2.27
+    rev: v0.3.4
     hooks:
       - id: rumdl
         name: "📝 markdown · Lint/format with rumdl"
@@ -221,7 +221,7 @@ repos:
 
   # ----------------------------- ⚙️ Environment ------------------------------------- #
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.13.7
+    rev: 0.13.8
     hooks:
       - id: uv-lock
         name: "⚙️ uv · Keep uv.lock in sync with pyproject.toml"
@@ -230,7 +230,7 @@ repos:
   # Plain Conventional Commits (no gitmoji): release-please derives version bumps from
   # commit types and cannot parse a leading emoji, so commits must start with the bare type.
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.16.4
+    rev: v4.19.3
     hooks:
       - id: commitizen
         name: "✨ commit-msg · Enforce Conventional Commits"
