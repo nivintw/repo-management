@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: © 2026 Tyler Nivin
+# SPDX-License-Identifier: MIT
+
+# renovate — runs Renovate in this repo. Only the triggers live here; the run itself, its admin
+# settings and the pinned Renovate version are in nivintw/repo-management's
+# reusable-renovate.yml, called below at a release, pinned by SHA. The rules are in
+# .github/renovate.json5, which extends repo-management's shared config at the same release.
+#
+# Renovate merges its own PRs through GitHub's native auto-merge once the required checks pass,
+# so no trigger is needed for "CI finished". A push to main triggers a run so the remaining
+# Renovate branches get rebased right away.
+#
+# Fails closed: without the RENOVATE_CLIENT_ID variable (provisioned fleet-wide by
+# repo-management, with the RENOVATE_APP_PRIVATE_KEY secret) the job is skipped.
+
+name: renovate
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  push:
+    branches: [main]
+  # A person ticking a Dependency Dashboard checkbox. The reusable workflow ignores edits to
+  # other issues and Renovate's own rewrites of the dashboard.
+  issues:
+    types: [edited]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Log proposed changes without opening, updating or merging anything."
+        type: boolean
+        default: false
+      log-level:
+        description: "Renovate log verbosity."
+        type: choice
+        default: info
+        options: [debug, info, warn]
+
+permissions: {}
+
+jobs:
+  renovate:
+    if: vars.RENOVATE_CLIENT_ID != ''
+    uses: nivintw/repo-management/.github/workflows/reusable-renovate.yml@83949360dc06466b7afbd1345d08c813994b2860 # v2.1.1
+    with:
+      client-id: ${{ vars.RENOVATE_CLIENT_ID }}
+      dry-run: ${{ inputs.dry-run == true }}
+      log-level: ${{ inputs.log-level || 'info' }}
+    secrets:
+      RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}

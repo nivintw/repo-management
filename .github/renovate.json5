@@ -1,0 +1,11 @@
+// SPDX-FileCopyrightText: © 2026 Tyler Nivin
+// SPDX-License-Identifier: MIT
+//
+// Shim. Every Renovate rule for this repo lives in nivintw/repo-management's
+// renovate/default.json5, pinned here to a release tag. Renovate bumps the tag (together with
+// the reusable workflow's pin in .github/workflows/renovate.yml) when repo-management releases.
+// Put a repo-specific rule here only if it can't live in a shared preset.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["github>nivintw/repo-management//renovate/default.json5#v2.1.1"],
+}
