@@ -7,6 +7,14 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.0.3](https://github.com/nivintw/repo-management/compare/v2.0.2...v2.0.3) (2026-11-14)
+
+
+### Bug Fixes
+
+* **renovate:** Hold bare commit-hash pin updates for a human ([963acbb](https://github.com/nivintw/repo-management/commit/963acbbb6ae7dca6ab6d5f5cf78ebbbe59ba49af))
+* **renovate:** Hold the downstream docs.yml pin fleet-wide ([c926db1](https://github.com/nivintw/repo-management/commit/c926db18b4a6009db8b057a1644c5945d7db97a9))
+
 ## [2.0.2](https://github.com/nivintw/repo-management/compare/v2.0.1...v2.0.2) (2026-11-05)
 
 
