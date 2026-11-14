@@ -97,7 +97,7 @@ jobs:
         if: inputs.skip-quality-gate != true
         env:
           # renovate: datasource=github-releases depName=google/osv-scanner
-          OSV_VERSION: "2.4.0"
+          OSV_VERSION: "2.7.1"
           # SHA256 of osv-scanner_linux_amd64 (the published asset is the bare binary) —
           # refreshed with the version by scripts/refresh-binary-checksums.sh.
           OSV_SHA256: "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0"  # gitleaks:allow
