@@ -162,7 +162,16 @@ jobs:
           remaining=()
           IFS=, read -ra all <<<"$NAMES"
           for r in "${all[@]}"; do
-            caller="$(gh api "repos/$OWNER/$r/contents/.github/workflows/renovate.yml" --jq .content 2>/dev/null | base64 -d || true)"
+            # Only a 404 means "no caller yet". Any other API error fails the step: guessing
+            # "not adopted" would give an adopted repo a second Renovate.
+            if out="$(gh api "repos/$OWNER/$r/contents/.github/workflows/renovate.yml" --jq .content 2>&1)"; then
+              caller="$(base64 -d <<<"$out")"
+            elif grep -q 'HTTP 404' <<<"$out"; then
+              caller=""
+            else
+              echo "::error::Could not read $r's renovate.yml: $out"
+              exit 1
+            fi
             if grep -q 'reusable-renovate\.yml' <<<"$caller"; then
               echo "::notice::$r runs its own Renovate; skipped here"
             else
