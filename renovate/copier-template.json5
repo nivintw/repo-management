@@ -7,6 +7,46 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   packageRules: [
+    // The pins inside template/**/*.jinja are found by the regex managers below, not by the
+    // built-in managers default.json5 groups by, so put them in the same ecosystem groups and
+    // give the template's action pins the same 3-day Actions wait.
+    {
+      description: "Action pins in the generated workflows: the Actions group, minus the two release-privilege actions (their own PRs, as in default.json5).",
+      matchManagers: ["custom.regex"],
+      matchFileNames: ["template/.github/workflows/**"],
+      matchDatasources: ["github-tags"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      matchPackageNames: ["!actions/create-github-app-token", "!googleapis/release-please-action"],
+      groupName: "GitHub Actions (non-major)",
+    },
+    {
+      description: "Action pins in the generated workflows wait 3 days, like every other action. The two release-privilege actions keep default.json5's 14 days.",
+      matchManagers: ["custom.regex"],
+      matchFileNames: ["template/.github/workflows/**"],
+      matchDatasources: ["github-tags"],
+      matchPackageNames: ["!actions/create-github-app-token", "!googleapis/release-please-action"],
+      minimumReleaseAge: "3 days",
+    },
+    {
+      description: "pre-commit hook revs in the generated config: the pre-commit group.",
+      matchManagers: ["custom.regex"],
+      matchFileNames: ["template/.pre-commit-config.yaml.jinja"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "pre-commit hooks (non-major)",
+    },
+    {
+      description: "Ruff keeps its own group in the generated config too.",
+      matchManagers: ["custom.regex"],
+      matchPackageNames: ["astral-sh/ruff-pre-commit"],
+      groupName: "ruff",
+    },
+    {
+      description: "The uv image in the generated Dockerfile: the Docker group.",
+      matchManagers: ["custom.regex"],
+      matchDatasources: ["docker"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "Docker images (non-major)",
+    },
     {
       description: "Run the checksum refresh over the template's generated workflows too.",
       matchPackageNames: [

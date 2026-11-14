@@ -82,6 +82,13 @@
       groupName: "Python dependencies (non-major)",
     },
     {
+      description: "PyPI-sourced tool pins found by the regex managers (a `# renovate:` annotation, or prek's `uvx prek@X.Y.Z`) join the Python group.",
+      matchManagers: ["custom.regex"],
+      matchDatasources: ["pypi"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "Python dependencies (non-major)",
+    },
+    {
       description: "Docker image non-major updates, grouped.",
       matchManagers: ["dockerfile", "docker-compose"],
       matchUpdateTypes: ["minor", "patch", "pin", "digest"],
