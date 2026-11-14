@@ -134,8 +134,22 @@ def test_bare_hash_pins_are_held_for_a_human() -> None:
     would move downstream repos onto a docs workflow they can't build. The rule must come last so
     no earlier automerge rule overrides it.
     """
-    rule = _config()["packageRules"][-1]
+    rule = next(r for r in _config()["packageRules"] if "hash-pin" in r.get("addLabels", []))
     assert set(rule["matchDatasources"]) == {"github-digest", "git-refs"}
     assert rule["matchUpdateTypes"] == ["digest"]
     assert rule["automerge"] is False
     assert "hash-pin" in rule["addLabels"]
+
+
+def test_downstream_docs_pin_is_held_but_other_repo_management_pins_are_not() -> None:
+    """The docs.yml pin on nivintw/repo-management is disabled fleet-wide, scoped to docs.yml only.
+
+    Scoping by file keeps any other pin on nivintw/repo-management (a reusable workflow, a preset
+    tag) updatable; a package-wide disable would freeze those too.
+    """
+    rules = _config()["packageRules"]
+    hold = next(r for r in rules if r.get("enabled") is False)
+    assert hold["matchPackageNames"] == ["nivintw/repo-management"]
+    assert hold["matchFileNames"] == [".github/workflows/docs.yml"]
+    automerge_idx = max(i for i, r in enumerate(rules) if r.get("automerge") is True)
+    assert rules.index(hold) > automerge_idx
