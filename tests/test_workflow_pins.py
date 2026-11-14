@@ -52,13 +52,14 @@ def _yaml_files() -> list[Path]:
 def _pinnable_uses() -> list[tuple[Path, str]]:
     """(file, uses-ref) for every ``uses:`` that must be SHA-pinned.
 
-    Local composite-action references (``./…``) carry no remote ref to pin and are excluded.
+    Local references carry no remote ref to pin and are excluded: the workspace-relative
+    ``./…`` form and GitHub's self-repository ``$/…`` form (which resolves at the running commit).
     """
     pairs: list[tuple[Path, str]] = []
     for path in _yaml_files():
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
         for ref in _uses_refs(doc):
-            if ref.startswith("./"):
+            if ref.startswith(("./", "$/")):
                 continue
             pairs.append((path, ref))
     return pairs

@@ -44,6 +44,7 @@ WATCHED: frozenset[str] = frozenset(
         ".github/workflows/approve-bot-prs.yml",
         ".github/workflows/dependabot-auto-merge.yml",
         ".github/workflows/renovate.yml",
+        ".github/actionlint.yaml",
         "scripts/check-binary-pins.sh",
         ".github/workflows/label-hygiene.yml",
         ".github/workflows/pr.yml",
