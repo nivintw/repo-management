@@ -175,7 +175,7 @@ repos:
         name: "🐍 python · Format with Ruff"
 
   - repo: https://github.com/abravalheri/validate-pyproject
-    rev: v0.25
+    rev: v0.27
     hooks:
       - id: validate-pyproject
         name: "🐍 python · Validate pyproject.toml"
