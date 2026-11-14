@@ -13,7 +13,10 @@
     "origin/HEAD:<file>` reads the pre-upgrade version regardless of main/master. Renovate",
     "injects customEnvVariables into the postUpgradeTask child env directly (no shell executor",
     "needed); it is NOT in allowedEnv on purpose, so a managed repo's own `env` can't override",
-    "BASE_REF and disarm its gate."
+    "BASE_REF and disarm its gate.",
+    "gitIgnoredAuthors lists the CI App's bot: Renovate ran as that App before it got its own,",
+    "so open renovate/* branches carry its commits. Without this, the new identity treats those",
+    "commits as human edits and stops rebasing or automerging those PRs."
   ],
   "extends": ["config:recommended", ":semanticCommits"],
   "autodiscover": true,
@@ -22,6 +25,7 @@
   "allowedCommands": ["^scripts/refresh-binary-checksums\\.sh$"],
   "customEnvVariables": { "BASE_REF": "origin/HEAD" },
   "platformAutomerge": false,
+  "gitIgnoredAuthors": ["181674222+nivintw-ci-app[bot]@users.noreply.github.com"],
   "vulnerabilityAlerts": {
     "description": [
       "Dedup the security-remediation seam (repo-management#144): Dependabot is the fleet's",
@@ -37,12 +41,11 @@
       "description": [
         "Fleet-wide automerge for minor updates (majors and patches have their own rules",
         "below); a repo's own renovate.json packageRules can override. platformAutomerge is",
-        "OFF deliberately: the runner authenticates as the CI App, which holds bypass_mode:",
-        "always on the fleet's required-checks ruleset, so GitHub-native auto-merge would",
-        "treat its PRs as immediately mergeable and the ruleset gate could not be trusted.",
-        "With platform automerge off, Renovate itself merges only after it observes the",
-        "branch checks green (its default; no ignoreTests here), independent of bypass",
-        "rights. Repos without a CI workflow yet simply never satisfy that, so their PRs",
+        "OFF deliberately: Renovate itself merges its own PR only after it observes the",
+        "branch checks green (its default; no ignoreTests here). The runner authenticates as",
+        "a dedicated Renovate App that is on NO ruleset bypass list, so GitHub also enforces",
+        "the required CI checks on that merge — two gates, not one. Do not add the Renovate",
+        "App as a bypass actor. Repos without a CI workflow yet simply never satisfy that, so their PRs",
         "wait (fail closed) until they adopt the scaffold. Pre-1.0 (0.x) minors automerge",
         "too — deliberately rejecting Renovate's recommended '!/^0/' exclusion of pre-1.0",
         "versions as conventionally-breaking: this fleet's merge gate is CI, not the semver",
