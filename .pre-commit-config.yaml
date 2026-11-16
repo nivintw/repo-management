@@ -199,7 +199,7 @@ repos:
         #   matchPackageNames: ["validate-pyproject-schema-store"], enabled: false
         # (then you re-bump manually once upstream is fixed).
         language: python
-        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.11.13"]
+        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.11.14"]
 
   # --------------------------------- 📐 YAML ---------------------------------------- #
   # check-yaml (above) only checks that YAML *parses*; yamllint enforces style — indentation,
