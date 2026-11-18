@@ -17,4 +17,4 @@ SPDX-License-Identifier: MIT
 
 <!-- How did you test it? -->
 
-- [ ] The quality gate passes (`uvx prek@0.5.10 run --all-files`)
+- [ ] The quality gate passes (`uvx prek@0.5.11 run --all-files`)
