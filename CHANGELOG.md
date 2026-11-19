@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.2.0](https://github.com/nivintw/repo-management/compare/v2.1.1...v2.2.0) (2026-11-19)
+
+
+### Features
+
+* **renovate:** Track prek mise hook tools and the mise CLI pin ([5ba13e9](https://github.com/nivintw/repo-management/commit/5ba13e91f22b55b4a81ea5197171f5d7fb4ce1dd)), closes [#250](https://github.com/nivintw/repo-management/issues/250)
+
 ## [2.1.1](https://github.com/nivintw/repo-management/compare/v2.1.0...v2.1.1) (2026-11-14)
 
 
