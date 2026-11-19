@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT
 
 <!-- release-please manages this file; new releases are prepended above the history below. -->
 
+## [2.2.1](https://github.com/nivintw/repo-management/compare/v2.2.0...v2.2.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **renovate:** Give trivy its own group so its checksum refresh runs ([735b499](https://github.com/nivintw/repo-management/commit/735b499a6211dcfbac9c5ff007f482e93ed8d233))
+
 ## [2.2.0](https://github.com/nivintw/repo-management/compare/v2.1.1...v2.2.0) (2026-11-19)
 
 
