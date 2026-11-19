@@ -7,5 +7,5 @@
 // Put a repo-specific rule here only if it can't live in a shared preset.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["github>nivintw/repo-management//renovate/default.json5#v2.2.0"],
+  extends: ["github>nivintw/repo-management//renovate/default.json5#v2.2.1"],
 }
