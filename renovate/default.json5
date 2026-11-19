@@ -89,6 +89,21 @@
       groupName: "Python dependencies (non-major)",
     },
     {
+      description: "prek `language: mise` hook tools, and the mise CLI that installs them, join the pre-commit group.",
+      matchManagers: ["custom.regex"],
+      matchFileNames: [".pre-commit-config.yaml"],
+      matchDatasources: ["github-releases"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "pre-commit hooks (non-major)",
+    },
+    {
+      description: "trivy and helm are pinned twice: as a mise hook tool, and as the version CI installs for a step outside prek (trivy's image scan, setup-helm). Both pins share a depName, so group them to move in one PR.",
+      matchDatasources: ["github-releases"],
+      matchPackageNames: ["aquasecurity/trivy", "helm/helm"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      groupName: "pre-commit hooks (non-major)",
+    },
+    {
       description: "Docker image non-major updates, grouped.",
       matchManagers: ["dockerfile", "docker-compose"],
       matchUpdateTypes: ["minor", "patch", "pin", "digest"],
@@ -122,6 +137,12 @@
       description: "Both actions are handed the fleet App's private key at runtime (create-github-app-token mints installation tokens from it; release-please-action cuts releases with it), and the App is a ruleset bypass actor, so a compromised release would inherit real privilege. The longer wait gives the community time to flag a bad release. Majors included.",
       matchPackageNames: ["actions/create-github-app-token", "googleapis/release-please-action"],
       minimumReleaseAge: "14 days",
+    },
+    {
+      description: "The mise CLI is the trust root for every hook tool it installs, so it waits 3 days, like an action.",
+      matchDatasources: ["github-releases"],
+      matchPackageNames: ["jdx/mise"],
+      minimumReleaseAge: "3 days",
     },
 
     // ----- This repo's own pins: the shared config and the reusable workflow, at a tag -----
@@ -202,6 +223,23 @@
       matchStrings: ["uvx prek@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
       datasourceTemplate: "pypi",
       depNameTemplate: "prek",
+    },
+    {
+      customType: "regex",
+      description: "Hook tools installed by prek's `language: mise`, pinned as a mise tool spec in additional_dependencies (`aqua:owner/repo@X.Y.Z` or `github:owner/repo@X.Y.Z`). Both backends install the tool's GitHub release.",
+      managerFilePatterns: ["/^\\.pre-commit-config\\.yaml$/"],
+      matchStrings: ["\"(?:aqua|github):(?<depName>[^/\"@\\s]+/[^\"@\\s]+)@(?<currentValue>[^\"\\s]+)\""],
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v?(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      description: "The mise CLI prek downloads to install those tools, pinned through default_language_version (`mise: \"=X.Y.Z\"`). Only the version after the `=` is replaced.",
+      managerFilePatterns: ["/^\\.pre-commit-config\\.yaml$/"],
+      matchStrings: ["\\bmise:\\s*\"=(?<currentValue>[^\"]+)\""],
+      datasourceTemplate: "github-releases",
+      depNameTemplate: "jdx/mise",
+      extractVersionTemplate: "^v?(?<version>.+)$",
     },
   ],
 }
