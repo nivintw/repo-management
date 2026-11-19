@@ -115,5 +115,22 @@
       datasourceTemplate: "pypi",
       depNameTemplate: "prek",
     },
+    {
+      customType: "regex",
+      description: "Hook tools installed by prek's `language: mise` in the generated config, pinned as a mise tool spec in additional_dependencies (`aqua:owner/repo@X.Y.Z` or `github:owner/repo@X.Y.Z`). Both backends install the tool's GitHub release.",
+      managerFilePatterns: ["/^template/\\.pre-commit-config\\.yaml\\.jinja$/"],
+      matchStrings: ["\"(?:aqua|github):(?<depName>[^/\"@\\s]+/[^\"@\\s]+)@(?<currentValue>[^\"\\s]+)\""],
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v?(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      description: "The mise CLI prek downloads to install those tools in the generated config, pinned through default_language_version (`mise: \"=X.Y.Z\"`). Only the version after the `=` is replaced.",
+      managerFilePatterns: ["/^template/\\.pre-commit-config\\.yaml\\.jinja$/"],
+      matchStrings: ["\\bmise:\\s*\"=(?<currentValue>[^\"]+)\""],
+      datasourceTemplate: "github-releases",
+      depNameTemplate: "jdx/mise",
+      extractVersionTemplate: "^v?(?<version>.+)$",
+    },
   ],
 }
