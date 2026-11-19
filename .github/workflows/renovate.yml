@@ -41,7 +41,7 @@ permissions: {}
 jobs:
   renovate:
     if: vars.RENOVATE_CLIENT_ID != ''
-    uses: nivintw/repo-management/.github/workflows/reusable-renovate.yml@3b41af4e113cd4596a06ea57cd1470a123bc7454 # v2.2.0
+    uses: nivintw/repo-management/.github/workflows/reusable-renovate.yml@973b7739077266a2668c6f999dc27c2d16b711dd # v2.2.1
     with:
       client-id: ${{ vars.RENOVATE_CLIENT_ID }}
       dry-run: ${{ inputs.dry-run == true }}
