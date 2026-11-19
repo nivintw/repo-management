@@ -97,11 +97,17 @@
       groupName: "pre-commit hooks (non-major)",
     },
     {
-      description: "trivy and helm are pinned twice: as a mise hook tool, and as the version CI installs for a step outside prek (trivy's image scan, setup-helm). Both pins share a depName, so group them to move in one PR.",
+      description: "helm is pinned twice: as a mise hook tool, and as the version setup-helm installs for kubeconform. Both pins share a depName, so they join the pre-commit group and move in one PR.",
       matchDatasources: ["github-releases"],
-      matchPackageNames: ["aquasecurity/trivy", "helm/helm"],
+      matchPackageNames: ["helm/helm"],
       matchUpdateTypes: ["minor", "patch", "pin", "digest"],
       groupName: "pre-commit hooks (non-major)",
+    },
+    {
+      description: "trivy is pinned as a mise hook tool and as the checksum-verified TRIVY_VERSION CI installs for its image scan; all of them move in one PR of their own. Not the pre-commit group: a branch-mode postUpgradeTask runs from a group's first update, so inside a larger group the TRIVY_SHA256 refresh is skipped and the bump ships a stale checksum.",
+      matchDatasources: ["github-releases"],
+      matchPackageNames: ["aquasecurity/trivy"],
+      groupName: "trivy",
     },
     {
       description: "Docker image non-major updates, grouped.",
