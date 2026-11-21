@@ -283,8 +283,8 @@ class EnvironmentsManager:
             after=after,
             apply=apply,
             # A new environment's declared secrets are all created inside apply, resolving each
-            # value at write time; preflight resolves them up front so apply aborts before
-            # create_environment if a value is missing, rather than half-creating the environment.
+            # value at write time; preflight resolves them up front so apply holds this repo back
+            # before create_environment if a value is missing, rather than half-creating it.
             # Variables are already resolved above (failures became diagnostics), so only secrets.
             preflight=lambda: _resolve_secret_values(item),
         )

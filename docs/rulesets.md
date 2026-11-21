@@ -216,8 +216,8 @@ It only exists on forks. GitHub stores, returns, and enforces it there, but on a
 it accepts the value and discards it. GitHub's documentation doesn't mention this, so this tool
 handles it for you:
 
-- Setting it on a non-fork, to either value, is reported as an error and blocks `plan` and `apply`,
-  because it does nothing there. Remove it, or move that repo to a config that doesn't set it.
+- Setting it on a non-fork, to either value, is reported as an error, because it does nothing
+  there. `plan` exits non-zero and `apply` skips that repo. Remove it, or move that repo to a config that doesn't set it.
 - A bare `- type: update` doesn't set it, so it's allowed on any repository. On a fork it means
   `false`, which is also how GitHub reads an omitted value, so the fork can't sync and an apply
   changes a live `true` back to `false`. To let a fork sync, set `true`.
