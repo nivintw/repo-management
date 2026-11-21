@@ -199,7 +199,7 @@ repos:
         #   matchPackageNames: ["validate-pyproject-schema-store"], enabled: false
         # (then you re-bump manually once upstream is fixed).
         language: python
-        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.11.17"]
+        additional_dependencies: ["validate-pyproject-schema-store[all]==2026.11.19"]
 
   # --------------------------------- 📐 YAML ---------------------------------------- #
   # check-yaml (above) only checks that YAML *parses*; yamllint enforces style — indentation,
@@ -213,7 +213,7 @@ repos:
 
   # -------------------------------- 📝 Markdown ------------------------------------- #
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.3.4
+    rev: v0.3.5
     hooks:
       - id: rumdl
         name: "📝 markdown · Lint/format with rumdl"
@@ -230,7 +230,7 @@ repos:
   # Plain Conventional Commits (no gitmoji): release-please derives version bumps from
   # commit types and cannot parse a leading emoji, so commits must start with the bare type.
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.19.3
+    rev: v4.19.4
     hooks:
       - id: commitizen
         name: "✨ commit-msg · Enforce Conventional Commits"
