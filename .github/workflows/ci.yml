@@ -140,7 +140,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           # renovate: datasource=pypi depName=zizmor
-          ZIZMOR_VERSION: "1.32.0"
+          ZIZMOR_VERSION: "1.33.1"
         run: uvx "zizmor@${ZIZMOR_VERSION}" --no-progress .github/workflows/
 
       - name: Check SPDX license headers (hawkeye)
