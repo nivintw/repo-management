@@ -47,10 +47,11 @@ class PagesManager:
         except GithubException as exc:
             if exc.status == HTTPStatus.FORBIDDEN:
                 # The Pages permission is granted separately from repo administration, so a
-                # token without it 403s on this read. Degrade to skip-with-warning rather
-                # than let the 403 abort every other domain's reconciliation for this repo
-                # (the reconciler runs each manager's plan() in a bare loop). Any other
-                # status still surfaces.
+                # token without it 403s on this read. That's an expected token shape here, not
+                # a fault, so it must not cost the repo its apply: the reconciler's generic
+                # isolation would turn this into a diagnostic, which marks the repo unhealthy,
+                # skips its writes and reds the run. Degrading to skip-with-warning keeps the
+                # repo healthy and the exit clean. Any other status still surfaces.
                 warnings.warn(
                     f"skipping Pages for {repo.full_name}: read returned 403 (token lacks "
                     "the Pages permission); every other domain still reconciles",
